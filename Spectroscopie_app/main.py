@@ -17,6 +17,9 @@ if APP_DIR not in sys.path:
 
 from file_picker import FilePickerWidget
 from spectra_plot import SpectraTab
+from analysis_tab import AnalysisTab
+from metadata_picker import MetadataPickerWidget
+
 
 
 class MainWindow(QMainWindow):
@@ -40,9 +43,20 @@ class MainWindow(QMainWindow):
         file_layout.addWidget(self.file_picker)
         tabs.addTab(self.file_tab, "Fichiers")
 
+        # Onglet Métadonnées
+        self.metadata_tab = QWidget(self)
+        metadata_layout = QVBoxLayout(self.metadata_tab)
+        self.metadata_picker = MetadataPickerWidget(self.metadata_tab)
+        metadata_layout.addWidget(self.metadata_picker)
+        tabs.addTab(self.metadata_tab, "Métadonnées")
+
         # Onglet Spectres
         self.spectra_tab = SpectraTab(self.file_picker, self)
         tabs.addTab(self.spectra_tab, "Spectres")
+
+        # Onglet Analyse
+        self.analysis_tab = AnalysisTab(self)
+        tabs.addTab(self.analysis_tab, "Analyse")
 
 
 if __name__ == "__main__":
