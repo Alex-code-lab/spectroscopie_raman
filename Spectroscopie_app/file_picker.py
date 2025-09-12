@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QAbstractItemView,
+    QListWidget,
 )
 
 # Dossier par défaut à l'ouverture (modifiez-le si besoin)
@@ -59,22 +60,35 @@ class FilePickerWidget(QWidget):
         top.addWidget(btn_up)
 
         # --- Boutons d'action ---
-        btns = QHBoxLayout()
+        btns = QVBoxLayout()
         self.btn_add = QPushButton("Ajouter la sélection", self)
         self.btn_add.clicked.connect(self._add_from_view)
+        self.btn_remove = QPushButton("Retirer", self)
+        self.btn_remove.clicked.connect(self._remove_selected_from_list)
         self.btn_clear = QPushButton("Vider la liste", self)
         self.btn_clear.clicked.connect(self.clear_selected)
         btns.addWidget(self.btn_add)
+        btns.addWidget(self.btn_remove)
         btns.addWidget(self.btn_clear)
+        btns.addStretch()
 
         self.info = QLabel("0 fichier sélectionné", self)
 
+        # --- Layout gauche (navigation) ---
+        left_layout = QVBoxLayout()
+        left_layout.addLayout(top)
+        left_layout.addWidget(self.view, 1)
+        left_layout.addLayout(btns)
+        left_layout.addWidget(self.info)
+
+        # --- Liste des fichiers sélectionnés (droite) ---
+        self.selected_list_widget = QListWidget(self)
+        self.selected_list_widget.setSelectionMode(QAbstractItemView.ExtendedSelection)
+
         # --- Layout principal ---
-        layout = QVBoxLayout(self)
-        layout.addLayout(top)
-        layout.addWidget(self.view, 1)
-        layout.addLayout(btns)
-        layout.addWidget(self.info)
+        layout = QHBoxLayout(self)
+        layout.addLayout(left_layout, 3)
+        layout.addWidget(self.selected_list_widget, 2)
 
     # Utilitaires
     def current_dir(self) -> str:
@@ -107,6 +121,7 @@ class FilePickerWidget(QWidget):
             if p not in self.selected_files:
                 self.selected_files.append(p)
         self._notify_count()
+        self._refresh_selected_list()
 
     def _notify_count(self):
         n = len(self.selected_files)
@@ -114,6 +129,21 @@ class FilePickerWidget(QWidget):
 
     def clear_selected(self):
         self.selected_files.clear()
+        self._notify_count()
+        self.selected_list_widget.clear()
+
+    def _refresh_selected_list(self):
+        self.selected_list_widget.clear()
+        for file_path in self.selected_files:
+            self.selected_list_widget.addItem(file_path)
+
+    def _remove_selected_from_list(self):
+        selected_items = self.selected_list_widget.selectedItems()
+        for item in selected_items:
+            file_path = item.text()
+            if file_path in self.selected_files:
+                self.selected_files.remove(file_path)
+            self.selected_list_widget.takeItem(self.selected_list_widget.row(item))
         self._notify_count()
 
     # Accès externe optionnel
