@@ -165,7 +165,7 @@ class SpectraTab(QWidget):
             title="Spectres Raman (depuis le fichier combiné)",
             xaxis_title="Raman Shift (cm⁻¹)",
             yaxis_title="Intensité corrigée (a.u.)",
-            width=1500,
-            height=800,
+            width=1200,
+            height=600,
         )
         self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn"))

@@ -5,7 +5,7 @@ from data_processing import build_combined_dataframe
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QFileSystemModel, QListView, QAbstractItemView,
-    QMessageBox, QTableWidget, QTableWidgetItem, QSizePolicy
+    QMessageBox, QTableWidget, QTableWidgetItem, QSizePolicy, QHeaderView
 )
 from PySide6.QtCore import QDir, QModelIndex
 
@@ -63,7 +63,13 @@ class MetadataPickerWidget(QWidget):
 
         # ----- Visualiseur de métadonnées -----
         self.table = QTableWidget(self)
-        layout.addWidget(QLabel("<b>Visualisation des données (aperçu)</b>"))
+        # Configuration pour navigation complète
+        self.table.setAlternatingRowColors(True)
+        self.table.setSortingEnabled(True)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(True)
+        layout.addWidget(QLabel("<b>Visualisation des données</b>"))
         layout.addWidget(self.table, 2)
         layout.addStretch(1)
 
@@ -152,17 +158,18 @@ class MetadataPickerWidget(QWidget):
             QMessageBox.critical(self, "Erreur", f"Impossible de lire le fichier : {e}")
             self.df = None
 
-    def _update_preview(self, df: pd.DataFrame, nrows: int = 20):
-        preview = df.head(nrows)
+    def _update_preview(self, df: pd.DataFrame, nrows: int = 20):  # nrows conservé pour compatibilité, ignoré
+        # Afficher TOUT le DataFrame avec défilement et tri
+        self.table.setSortingEnabled(False)
         self.table.clear()
-        self.table.setRowCount(len(preview))
-        self.table.setColumnCount(len(preview.columns))
-        self.table.setHorizontalHeaderLabels(preview.columns.astype(str).tolist())
-
-        for i in range(len(preview)):
-            for j, col in enumerate(preview.columns):
-                val = str(preview.iloc[i, j])
+        self.table.setRowCount(len(df))
+        self.table.setColumnCount(len(df.columns))
+        self.table.setHorizontalHeaderLabels(df.columns.astype(str).tolist())
+        for i in range(len(df)):
+            for j, col in enumerate(df.columns):
+                val = str(df.iloc[i, j])
                 self.table.setItem(i, j, QTableWidgetItem(val))
+        self.table.setSortingEnabled(True)
 
     def _set_root_path(self, path: str):
         if not path:

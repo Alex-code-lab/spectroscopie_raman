@@ -10,7 +10,7 @@ import plotly.express as px
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QMessageBox, QTableWidget, QTableWidgetItem, QSpacerItem, QSizePolicy,
-    QComboBox, QDoubleSpinBox
+    QComboBox, QDoubleSpinBox, QHeaderView
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
@@ -76,9 +76,15 @@ class AnalysisTab(QWidget):
         layout.addLayout(actions)
 
         # Aperçu des résultats (table des intensités de pics)
-        layout.addWidget(QLabel("<b>Aperçu – Intensités extraites (20 premières lignes)</b>"))
+        layout.addWidget(QLabel("<b>Aperçu – Intensités extraites</b>"))
         self.table = QTableWidget(self)
-        layout.addWidget(self.table, 1)
+        # Configuration pour navigation sur tout le fichier
+        self.table.setAlternatingRowColors(True)
+        self.table.setSortingEnabled(True)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(True)
+        layout.addWidget(self.table, 0)
 
         # Graphique des ratios
         layout.addWidget(QLabel("<b>Graphique – Rapports d’intensité Raman selon [EGTA]</b>"))
@@ -111,15 +117,17 @@ class AnalysisTab(QWidget):
             self._combined_df = None
             self.lbl_status.setText("Fichier combiné : non chargé ✗ — assemblez et validez dans l’onglet Métadonnées")
 
-    def _set_preview(self, df: pd.DataFrame, n: int = 20):
-        preview = df.head(n)
+    def _set_preview(self, df: pd.DataFrame, n: int = 20):  # n conservé pour compat, ignoré ici
+        # Afficher TOUT le DataFrame avec défilement et tri
+        self.table.setSortingEnabled(False)
         self.table.clear()
-        self.table.setRowCount(len(preview))
-        self.table.setColumnCount(len(preview.columns))
-        self.table.setHorizontalHeaderLabels([str(c) for c in preview.columns])
-        for i in range(len(preview)):
-            for j, col in enumerate(preview.columns):
-                self.table.setItem(i, j, QTableWidgetItem(str(preview.iloc[i, j])))
+        self.table.setRowCount(len(df))
+        self.table.setColumnCount(len(df.columns))
+        self.table.setHorizontalHeaderLabels([str(c) for c in df.columns])
+        for i in range(len(df)):
+            for j, col in enumerate(df.columns):
+                self.table.setItem(i, j, QTableWidgetItem(str(df.iloc[i, j])))
+        self.table.setSortingEnabled(True)
 
     # ---------- Analyse ----------
     def _run_analysis(self):
