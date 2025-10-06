@@ -75,8 +75,8 @@ class MetadataPickerWidget(QWidget):
 
         # ----- Actions d'assemblage et validation -----
         actions = QHBoxLayout()
-        self.btn_assemble = QPushButton("Assembler (txt + métadonnées)", self)
-        self.btn_validate = QPushButton("Valider le choix", self)
+        self.btn_assemble = QPushButton("Assembler (donnés au format txt + métadonnées)", self)
+        self.btn_validate = QPushButton("Enregistrer le fichier", self)
         self.btn_validate.setEnabled(False)
         self.btn_assemble.clicked.connect(self._on_assemble_clicked)
         self.btn_validate.clicked.connect(self._on_validate_clicked)
