@@ -1,0 +1,50 @@
+# --- Environnements Python ---
+venv/
+.venv/
+ENV/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# --- Fichiers de configuration locaux ---
+*.env
+*.ini
+*.cfg
+*.toml
+*.json
+*.yaml
+*.yml
+
+# --- Fichiers temporaires ou de log ---
+*.log
+*.tmp
+*.temp
+*.bak
+
+# --- Dossiers générés automatiquement ---
+build/
+dist/
+*.egg-info/
+htmlcov/
+.coverage
+.cache/
+
+# --- Données de test ou export ---
+# *.csv
+# *.xlsx
+# *.xls
+# *.ods
+*.pdf
+*.docx
+*.zip
+
+# --- VS Code ---
+.vscode/
+.history/
+*.code-workspace
+
+# --- macOS / Windows ---
+.DS_Store
+Thumbs.db
