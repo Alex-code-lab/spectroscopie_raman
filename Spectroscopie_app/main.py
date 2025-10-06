@@ -72,7 +72,7 @@ class MainWindow(QMainWindow):
               <li>Sélectionnez un fichier Excel (<code>.xlsx</code> / <code>.xls</code>) contenant les métadonnées (ex: <code>ASXXX_metadata.xlsx</code>).</li>
               <li>Vérifiez le contenu dans la table (tri, défilement).</li>
               <li>Cliquez sur <b>Assembler (txt + métadonnées)</b> pour créer le fichier combiné.</li>
-              <li>Cliquez sur <b>Enregistrer le fichier</b> pour enregistrer le fichier global sur le disque et le rendre disponible aux autres onglets.</li>
+              <li>Cliquez sur <b>Enregistrer le fichier</b> pour sauvegarder le fichier global (au choix <code>.csv</code> ou <code>.xlsx</code>) et le rendre disponible aux autres onglets.</li>
             </ul>
 
             <h3>3. Onglet <i>Spectres</i></h3>
