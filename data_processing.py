@@ -67,27 +67,25 @@ def load_spectrum_file(path: str, poly_order: int = 5) -> pd.DataFrame | None:
         return None
 
 
-def build_combined_dataframe(
+def build_combined_dataframe_from_df(
     txt_files: list[str],
-    metadata_path: str,
+    metadata_df: pd.DataFrame,
     poly_order: int = 5,
     exclude_brb: bool = True,
 ) -> pd.DataFrame:
     """
-    Construit le DataFrame fusionné (spectres + métadonnées).
+    Construit le DataFrame fusionné (spectres + métadonnées) à partir
+    d'un DataFrame de métadonnées déjà chargé.
 
     Args:
         txt_files: liste des chemins vers les fichiers .txt
-        metadata_path: chemin vers le fichier Excel de métadonnées
+        metadata_df: DataFrame contenant au moins la colonne 'Spectrum name'
         poly_order: ordre du polynôme pour la baseline
         exclude_brb: si True, supprime les échantillons "Cuvette BRB"
 
     Returns:
         combined_df: DataFrame fusionné prêt pour l'analyse
     """
-    # Charger les métadonnées
-    metadata_df = pd.read_excel(metadata_path, skiprows=1)
-
     all_data = []
     for path in txt_files:
         temp = load_spectrum_file(path, poly_order=poly_order)
@@ -100,7 +98,6 @@ def build_combined_dataframe(
     spectra_df = pd.concat(all_data, ignore_index=True)
     spectra_df["Spectrum name"] = spectra_df["file"].str.replace(".txt", "", regex=False)
 
-    # Fusion avec métadonnées
     combined_df = pd.merge(
         spectra_df,
         metadata_df,
@@ -112,3 +109,35 @@ def build_combined_dataframe(
         combined_df = combined_df[combined_df["Sample description"] != "Cuvette BRB"].copy()
 
     return combined_df
+
+
+def build_combined_dataframe(
+    txt_files: list[str],
+    metadata_path: str,
+    poly_order: int = 5,
+    exclude_brb: bool = True,
+) -> pd.DataFrame:
+    """
+    Construit le DataFrame fusionné (spectres + métadonnées) à partir d'un fichier Excel ou CSV.
+
+    Args:
+        txt_files: liste des chemins vers les fichiers .txt
+        metadata_path: chemin vers le fichier de métadonnées (Excel ou CSV)
+        poly_order: ordre du polynôme pour la baseline
+        exclude_brb: si True, supprime les échantillons "Cuvette BRB"
+
+    Returns:
+        combined_df: DataFrame fusionné prêt pour l'analyse
+    """
+    # Charger les métadonnées en fonction de l'extension
+    if metadata_path.lower().endswith(".csv"):
+        metadata_df = pd.read_csv(metadata_path, sep=None, engine="python")
+    else:
+        metadata_df = pd.read_excel(metadata_path, skiprows=1)
+
+    return build_combined_dataframe_from_df(
+        txt_files,
+        metadata_df,
+        poly_order=poly_order,
+        exclude_brb=exclude_brb,
+    )
