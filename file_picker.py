@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 # Dossier par défaut à l'ouverture (modifiez-le si besoin)
-DEFAULT_DIR = os.path.expanduser("~/Documents/Travail/CitizenSers/Spectroscopie/AS003_532nm")
+DEFAULT_DIR = os.path.expanduser("~/Documents/Travail/CitizenSers/Spectroscopie/")
 
 
 class TxtAndDirsFilter(QSortFilterProxyModel):

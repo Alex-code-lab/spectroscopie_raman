@@ -256,9 +256,12 @@ class MetadataPickerWidget(QWidget):
         layout = QVBoxLayout(self)
 
         layout.addWidget(QLabel(
-            "<b>Sélection des fichiers de métadonnées (2 fichiers requis)</b><br>"
-            "1) Fichier de compositions des tubes (EGTA, etc.)<br>"
-            "2) Fichier de correspondance entre noms de spectres et identifiants de tubes.",
+            "<b>Sélection des deux fichiers de métadonnées nécessaires</b><br>"
+            "<ul>"
+            "<li><b>Fichier de composition des tubes :</b> contient les concentrations (ex. C(EGTA)) et les volumes.</li>"
+            "<li><b>Fichier de correspondance spectre → tube :</b> associe chaque nom de spectre (GCXXX_…) au tube correspondant.</li>"
+            "</ul>"
+            "Sélectionnez chaque fichier puis cliquez sur le bouton correspondant pour le valider.",
             self
         ))
 
@@ -277,8 +280,9 @@ class MetadataPickerWidget(QWidget):
         layout.addWidget(self.view, 1)
 
         btns_select = QHBoxLayout()
-        self.btn_set_comp = QPushButton("Utiliser comme fichier compositions", self)
-        self.btn_set_map = QPushButton("Utiliser comme fichier correspondance", self)
+        # Boutons de validation des deux fichiers de métadonnées
+        self.btn_set_comp = QPushButton("Valider le fichier de composition des tubes", self)
+        self.btn_set_map = QPushButton("Valider le fichier de correspondance des noms de spectres", self)
         self.btn_set_comp.clicked.connect(self._set_comp_file)
         self.btn_set_map.clicked.connect(self._set_map_file)
         btns_select.addWidget(self.btn_set_comp)
@@ -287,7 +291,6 @@ class MetadataPickerWidget(QWidget):
 
         # Info fichiers choisis
         self.info = QLabel("Aucun fichier de métadonnées sélectionné", self)
-        layout.addWidget(self.info)
 
         paths_layout = QVBoxLayout()
         paths_layout.addWidget(QLabel("Fichier compositions des tubes :", self))
@@ -312,6 +315,7 @@ class MetadataPickerWidget(QWidget):
         btns.addWidget(self.btn_assemble)
         btns.addWidget(self.btn_validate)
         layout.addLayout(btns)
+        layout.addWidget(self.info)
 
         self._update_info_label()
 
