@@ -1,0 +1,514 @@
+
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import plotly.express as px
+
+from sklearn.decomposition import PCA
+
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QComboBox,
+    QDoubleSpinBox,
+    QSpinBox,
+    QMessageBox,
+)
+from PySide6.QtWebEngineWidgets import QWebEngineView
+
+
+class PCATab(QWidget):
+    """
+    Onglet PCA – réalise une analyse en composantes principales sur les spectres Raman
+    à partir du fichier combiné (txt + métadonnées) construit dans l'onglet Métadonnées.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self._combined_df: pd.DataFrame | None = None
+        self._scores_df: pd.DataFrame | None = None
+        self._loadings_df: pd.DataFrame | None = None
+        self._pca: PCA | None = None
+        self._index_col: str | None = None
+        # --- Nouveaux attributs pour reconstruction et sélection loadings ---
+        self._X_proc: np.ndarray | None = None
+        self._wavenumbers: np.ndarray | None = None
+        self._spec_ids: np.ndarray | None = None
+
+        layout = QVBoxLayout(self)
+
+        # ---- En-tête explicatif ----
+        header = QLabel(
+            "<b>Analyse PCA (réduction de dimension)</b><br>"
+            "La PCA (Analyse en Composantes Principales) projette les spectres Raman dans un espace de "
+            "dimensions réduites (PC1, PC2, …) en cherchant les combinaisons linéaires de longueurs d’onde "
+            "qui expliquent le plus de variance. Cela permet d’identifier des spectres atypiques (hot spots), "
+            "des groupes de spectres similaires ou des régions spectrales particulièrement variables."
+        )
+        header.setWordWrap(True)
+        layout.addWidget(header)
+
+        # ---- Statut fichier combiné ----
+        self.lbl_status = QLabel("Fichier combiné : non chargé")
+        layout.addWidget(self.lbl_status)
+
+        # ---- Contrôles principaux ----
+        ctrl1 = QHBoxLayout()
+        self.btn_reload = QPushButton("Recharger le fichier combiné depuis Métadonnées", self)
+        self.btn_reload.clicked.connect(self._reload_combined)
+        ctrl1.addWidget(self.btn_reload)
+
+        ctrl1.addWidget(QLabel("Raman min (cm⁻¹):"))
+        self.spin_min_shift = QDoubleSpinBox(self)
+        self.spin_min_shift.setRange(0.0, 5000.0)
+        self.spin_min_shift.setDecimals(1)
+        self.spin_min_shift.setSingleStep(10.0)
+        ctrl1.addWidget(self.spin_min_shift)
+
+        ctrl1.addWidget(QLabel("Raman max (cm⁻¹):"))
+        self.spin_max_shift = QDoubleSpinBox(self)
+        self.spin_max_shift.setRange(0.0, 5000.0)
+        self.spin_max_shift.setDecimals(1)
+        self.spin_max_shift.setSingleStep(10.0)
+        ctrl1.addWidget(self.spin_max_shift)
+
+        layout.addLayout(ctrl1)
+
+        # ---- Contrôles avancés ----
+        ctrl2 = QHBoxLayout()
+
+        ctrl2.addWidget(QLabel("Normalisation des spectres :"))
+        self.cmb_norm = QComboBox(self)
+        self.cmb_norm.addItems([
+            "Aucune (centrage seulement)",
+            "Norme L2 par spectre",
+            "Standardisation (z-score par longueur d'onde)",
+        ])
+        ctrl2.addWidget(self.cmb_norm)
+
+        ctrl2.addWidget(QLabel("Nombre de composantes :"))
+        self.spin_n_comp = QSpinBox(self)
+        self.spin_n_comp.setRange(2, 20)
+        self.spin_n_comp.setValue(5)
+        ctrl2.addWidget(self.spin_n_comp)
+
+        ctrl2.addWidget(QLabel("Colorer par :"))
+        self.cmb_color = QComboBox(self)
+        self.cmb_color.addItem("(aucune)")
+        ctrl2.addWidget(self.cmb_color)
+
+        layout.addLayout(ctrl2)
+
+        # ---- Boutons d'action ----
+        ctrl_buttons = QHBoxLayout()
+        self.btn_run = QPushButton("Lancer la PCA", self)
+        self.btn_run.clicked.connect(self._run_pca)
+        ctrl_buttons.addWidget(self.btn_run)
+
+        layout.addLayout(ctrl_buttons)
+
+        # ---- Résumé variance ----
+        self.lbl_variance = QLabel("Variance expliquée : -")
+        layout.addWidget(self.lbl_variance)
+
+        # ---- Choix des composantes à afficher pour les loadings ----
+        load_ctrl = QHBoxLayout()
+        load_ctrl.addWidget(QLabel("Composantes à afficher (loadings) :"))
+        self.cmb_loadings_mode = QComboBox(self)
+        self.cmb_loadings_mode.addItem("PC1 & PC2")
+        self.cmb_loadings_mode.currentIndexChanged.connect(self._update_loadings_plot)
+        load_ctrl.addWidget(self.cmb_loadings_mode)
+        layout.addLayout(load_ctrl)
+
+        # ---- Choix du spectre pour la reconstruction ----
+        recon_ctrl = QHBoxLayout()
+        recon_ctrl.addWidget(QLabel("Spectre à reconstruire :"))
+        self.cmb_spec = QComboBox(self)
+        self.cmb_spec.addItem("(aucun)")
+        self.cmb_spec.currentIndexChanged.connect(self._update_reconstruction_plot)
+        recon_ctrl.addWidget(self.cmb_spec)
+        layout.addLayout(recon_ctrl)
+
+        # ---- Graphiques ----
+        layout.addWidget(QLabel("<b>Scores PCA (PC1 vs PC2)</b>"))
+        self.scores_view = QWebEngineView(self)
+        layout.addWidget(self.scores_view, 1)
+
+        layout.addWidget(QLabel("<b>Loadings PCA (poids des composantes en fonction du shift Raman)</b>"))
+        self.loadings_view = QWebEngineView(self)
+        layout.addWidget(self.loadings_view, 1)
+
+        # ---- Vue pour la reconstruction de spectres ----
+        layout.addWidget(QLabel("<b>Spectre original vs reconstruit (dans l'espace normalisé)</b>"))
+        self.recon_view = QWebEngineView(self)
+        layout.addWidget(self.recon_view, 1)
+
+    # ------------------------------------------------------------------
+    # Chargement et préparation des données
+    # ------------------------------------------------------------------
+    def _reload_combined(self):
+        """Récupère le DataFrame combiné depuis l'onglet Métadonnées."""
+        main = self.window()
+        if main is None:
+            QMessageBox.critical(self, "Erreur", "Fenêtre principale introuvable.")
+            return
+        metadata_picker = getattr(main, "metadata_picker", None)
+        df = getattr(metadata_picker, "combined_df", None) if metadata_picker is not None else None
+
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            self._combined_df = df
+            self.lbl_status.setText(f"Fichier combiné : chargé ✓ ({df['file'].nunique() if 'file' in df.columns else len(df)} spectres)")
+            self._populate_controls_from_df(df)
+        else:
+            self._combined_df = None
+            self.lbl_status.setText("Fichier combiné : non chargé ✗ — assemblez et validez dans l’onglet Métadonnées")
+            QMessageBox.warning(self, "Données manquantes", "Aucun fichier combiné disponible. Allez dans l’onglet Métadonnées et assemblez les données.")
+
+    def _populate_controls_from_df(self, df: pd.DataFrame):
+        """Met à jour les bornes de shifts et la liste des colonnes de coloration à partir du DataFrame."""
+        if "Raman Shift" in df.columns:
+            try:
+                r_min = float(df["Raman Shift"].min())
+                r_max = float(df["Raman Shift"].max())
+                # Sécurise les limites des spinbox
+                self.spin_min_shift.setRange(r_min, r_max)
+                self.spin_max_shift.setRange(r_min, r_max)
+                self.spin_min_shift.setValue(r_min)
+                self.spin_max_shift.setValue(r_max)
+            except Exception:
+                pass
+
+        # Colonnes candidates pour la coloration (métadonnées)
+        self.cmb_color.clear()
+        self.cmb_color.addItem("(aucune)")
+        excluded = {"Raman Shift", "Intensity_corrected"}
+        for col in df.columns:
+            if col not in excluded:
+                self.cmb_color.addItem(col)
+
+    # ------------------------------------------------------------------
+    # PCA principale
+    # ------------------------------------------------------------------
+    def _build_matrix(self) -> tuple[np.ndarray, np.ndarray, pd.DataFrame, np.ndarray]:
+        """
+        Construit la matrice X (n_spectres × n_shifts) à partir du DataFrame combiné,
+        en pivotant Intensity_corrected par 'Spectrum name' (ou 'file') et 'Raman Shift'.
+
+        Returns
+        -------
+        X : ndarray
+            Matrice des intensités normalisées/préparées.
+        wavenumbers : ndarray
+            Tableau des shifts Raman (ordonnés).
+        meta_per_spec : DataFrame
+            Tableau des métadonnées par spectre (une ligne par spectre).
+        """
+        if self._combined_df is None or self._combined_df.empty:
+            raise ValueError("Aucun fichier combiné chargé.")
+
+        df = self._combined_df.copy()
+
+        if "Raman Shift" not in df.columns or "Intensity_corrected" not in df.columns:
+            raise ValueError("Le fichier combiné doit contenir les colonnes 'Raman Shift' et 'Intensity_corrected'.")
+
+        # Choix de l'identifiant de spectre : Spectrum name si dispo, sinon file
+        if "Spectrum name" in df.columns:
+            index_col = "Spectrum name"
+        elif "file" in df.columns:
+            index_col = "file"
+        else:
+            raise ValueError("Impossible d'identifier les spectres (ni 'Spectrum name' ni 'file' dans les colonnes).")
+
+        self._index_col = index_col
+
+        # Filtrage sur la plage de shifts choisie
+        r_min = float(self.spin_min_shift.value())
+        r_max = float(self.spin_max_shift.value())
+        df = df[(df["Raman Shift"] >= r_min) & (df["Raman Shift"] <= r_max)].copy()
+        if df.empty:
+            raise ValueError("Aucune donnée dans la plage de Raman choisie.")
+
+        # Pivot : une ligne par spectre, une colonne par shift Raman
+        mat = df.pivot_table(
+            index=index_col,
+            columns="Raman Shift",
+            values="Intensity_corrected",
+            aggfunc="mean",
+        )
+
+        # Supprimer les colonnes complètement vides
+        mat = mat.dropna(axis=1, how="all")
+        if mat.empty:
+            raise ValueError("Matrice des intensités vide après pivot. Vérifiez les données.")
+
+        # Gestion des NaN restants : remplissage par la moyenne de chaque colonne
+        mat = mat.apply(lambda col: col.fillna(col.mean()), axis=0)
+
+        X = mat.to_numpy(dtype=float)
+        wavenumbers = mat.columns.to_numpy(dtype=float)
+        spec_ids = mat.index.to_numpy()
+
+        # Métadonnées par spectre
+        # On exclut explicitement la colonne d'index (index_col) pour éviter des doublons
+        # lors du reset_index() (sinon pandas essaie d'insérer deux fois la même colonne).
+        meta_cols = [c for c in df.columns if c not in {"Raman Shift", "Intensity_corrected", index_col}]
+        meta_per_spec = df.groupby(index_col)[meta_cols].first().reset_index()
+
+        return X, wavenumbers, meta_per_spec, spec_ids
+
+    def _run_pca(self):
+        """Calcule la PCA et met à jour les graphiques."""
+        if self._combined_df is None or self._combined_df.empty:
+            QMessageBox.warning(self, "Données manquantes", "Aucun fichier combiné chargé. Utilisez le bouton de rechargement.")
+            return
+
+        try:
+            X, wavenumbers, meta_per_spec, spec_ids = self._build_matrix()
+        except Exception as e:
+            QMessageBox.critical(self, "Erreur données", f"Impossible de préparer les données pour la PCA :\n{e}")
+            return
+
+        n_samples, n_features = X.shape
+        if n_samples < 2 or n_features < 2:
+            QMessageBox.warning(self, "Données insuffisantes", "Pas assez de spectres ou de points Raman pour effectuer une PCA.")
+            return
+
+        # Normalisation choisie
+        norm_mode = self.cmb_norm.currentText()
+        if norm_mode.startswith("Norme L2"):
+            # Normalisation L2 par spectre (ligne)
+            norms = np.linalg.norm(X, axis=1, keepdims=True)
+            norms[norms == 0] = 1.0
+            X_proc = X / norms
+        elif norm_mode.startswith("Standardisation"):
+            # Standardisation (z-score) par feature (colonne)
+            mean = X.mean(axis=0, keepdims=True)
+            std = X.std(axis=0, ddof=0, keepdims=True)
+            std[std == 0] = 1.0
+            X_proc = (X - mean) / std
+        else:
+            # Aucune normalisation spécifique : on laisse PCA centrer les colonnes
+            X_proc = X
+
+        # Stocker les données préparées pour la reconstruction et les graphiques
+        self._X_proc = X_proc
+        self._wavenumbers = wavenumbers
+        self._spec_ids = spec_ids
+
+        # Ajuster le nombre de composantes
+        asked = int(self.spin_n_comp.value())
+        n_comp = min(asked, n_samples, n_features)
+        if n_comp < asked:
+            self.spin_n_comp.setValue(n_comp)
+
+        try:
+            pca = PCA(n_components=n_comp)
+            scores = pca.fit_transform(X_proc)
+        except Exception as e:
+            QMessageBox.critical(self, "Erreur PCA", f"Échec du calcul de la PCA :\n{e}")
+            return
+
+        self._pca = pca
+
+        # DataFrame des scores (coordonnées des spectres dans l'espace PCA)
+        comp_names = [f"PC{i+1}" for i in range(n_comp)]
+        scores_df = pd.DataFrame(scores, columns=comp_names)
+        if self._index_col is not None and self._spec_ids is not None:
+            scores_df[self._index_col] = self._spec_ids
+
+        # Jointure avec les métadonnées
+        scores_df = scores_df.merge(meta_per_spec, on=self._index_col, how="left")
+        self._scores_df = scores_df
+
+        # DataFrame des loadings (poids des composantes par shift Raman)
+        loadings = pca.components_.T  # shape: (n_features, n_components)
+        loadings_df = pd.DataFrame(loadings, columns=comp_names)
+        loadings_df["Raman Shift"] = wavenumbers
+        self._loadings_df = loadings_df
+
+        # Met à jour la liste des composantes disponibles pour les loadings
+        if hasattr(self, "cmb_loadings_mode"):
+            self.cmb_loadings_mode.blockSignals(True)
+            self.cmb_loadings_mode.clear()
+            # Option combinée par défaut
+            if "PC1" in comp_names and "PC2" in comp_names:
+                self.cmb_loadings_mode.addItem("PC1 & PC2")
+            for name in comp_names:
+                self.cmb_loadings_mode.addItem(name)
+            self.cmb_loadings_mode.blockSignals(False)
+
+        # Met à jour la liste des spectres pour la reconstruction
+        if hasattr(self, "cmb_spec") and self._spec_ids is not None:
+            self.cmb_spec.blockSignals(True)
+            self.cmb_spec.clear()
+            for sid in self._spec_ids:
+                self.cmb_spec.addItem(str(sid))
+            self.cmb_spec.blockSignals(False)
+
+        # Résumé de la variance expliquée
+        var_ratio = pca.explained_variance_ratio_
+        parts = [f"PC{i+1}: {vr*100:.1f}%" for i, vr in enumerate(var_ratio)]
+        self.lbl_variance.setText("Variance expliquée : " + " | ".join(parts))
+
+        # Mise à jour des graphiques
+        self._update_scores_plot()
+        self._update_loadings_plot()
+
+        # Met à jour la reconstruction pour le premier spectre si possible
+        if hasattr(self, "cmb_spec") and self.cmb_spec.count() > 0:
+            self.cmb_spec.setCurrentIndex(0)
+            self._update_reconstruction_plot()
+
+        QMessageBox.information(self, "PCA terminée", "La PCA a été calculée et les graphiques ont été mis à jour.")
+
+    # ------------------------------------------------------------------
+    # Graphiques
+    # ------------------------------------------------------------------
+    def _update_scores_plot(self):
+        """Affiche le nuage de points PC1 vs PC2 coloré par la variable choisie."""
+        if self._scores_df is None or self._scores_df.empty:
+            self.scores_view.setHtml("<i>Aucun score PCA à afficher.</i>")
+            return
+
+        df = self._scores_df
+        if "PC1" not in df.columns or "PC2" not in df.columns:
+            self.scores_view.setHtml("<i>PC1 et PC2 non disponibles.</i>")
+            return
+
+        color_col = self.cmb_color.currentText()
+        if color_col == "(aucune)" or color_col not in df.columns:
+            color_col = None
+
+        hover_cols = []
+        if self._index_col and self._index_col in df.columns:
+            hover_cols.append(self._index_col)
+        for extra in ["file", "Sample description"]:
+            if extra in df.columns and extra not in hover_cols:
+                hover_cols.append(extra)
+
+        title = "Scores PCA – PC1 vs PC2"
+        if self._pca is not None and hasattr(self._pca, "explained_variance_ratio_"):
+            vr = self._pca.explained_variance_ratio_
+            if len(vr) >= 2:
+                title += f" (PC1: {vr[0]*100:.1f}%, PC2: {vr[1]*100:.1f}%)"
+
+        fig = px.scatter(
+            df,
+            x="PC1",
+            y="PC2",
+            color=color_col,
+            hover_data=hover_cols if hover_cols else None,
+            title=title,
+        )
+        fig.update_layout(
+            xaxis_title="PC1",
+            yaxis_title="PC2",
+            width=900,
+            height=450,
+            legend_title_text=color_col if color_col else "Groupe",
+        )
+        self.scores_view.setHtml(fig.to_html(include_plotlyjs="cdn"))
+
+    def _update_loadings_plot(self):
+        """Affiche les loadings des composantes choisies en fonction du shift Raman."""
+        if self._loadings_df is None or self._loadings_df.empty:
+            self.loadings_view.setHtml("<i>Aucun loading PCA à afficher.</i>")
+            return
+
+        df = self._loadings_df.copy()
+        if "Raman Shift" not in df.columns:
+            self.loadings_view.setHtml("<i>Colonne 'Raman Shift' manquante pour les loadings.</i>")
+            return
+
+        # Détermination des composantes à tracer
+        available_pcs = [c for c in df.columns if c.startswith("PC")]
+        mode = self.cmb_loadings_mode.currentText() if hasattr(self, "cmb_loadings_mode") else "PC1 & PC2"
+
+        if mode.startswith("PC1 & PC2") and {"PC1", "PC2"}.issubset(available_pcs):
+            value_vars = ["PC1", "PC2"]
+        elif mode in available_pcs:
+            value_vars = [mode]
+        else:
+            # Fallback : PC1 seule si présente
+            value_vars = ["PC1"] if "PC1" in available_pcs else available_pcs[:1]
+
+        if not value_vars:
+            self.loadings_view.setHtml("<i>Aucune composante PCA disponible pour les loadings.</i>")
+            return
+
+        df_melt = df.melt(id_vars="Raman Shift", value_vars=value_vars, var_name="Composante", value_name="Loading")
+
+        fig = px.line(
+            df_melt.sort_values(["Composante", "Raman Shift"]),
+            x="Raman Shift",
+            y="Loading",
+            color="Composante",
+            title="Loadings PCA – contribution des shifts Raman",
+        )
+        fig.update_layout(
+            xaxis_title="Raman Shift (cm⁻¹)",
+            yaxis_title="Loading",
+            width=900,
+            height=450,
+            legend_title_text="Composante",
+        )
+        self.loadings_view.setHtml(fig.to_html(include_plotlyjs="cdn"))
+
+    def _update_reconstruction_plot(self):
+        """Affiche, pour un spectre choisi, le signal original (après normalisation) et sa reconstruction PCA."""
+        if self._X_proc is None or self._pca is None or self._wavenumbers is None or self._spec_ids is None:
+            self.recon_view.setHtml("<i>Aucune donnée PCA disponible pour la reconstruction.</i>")
+            return
+
+        idx = self.cmb_spec.currentIndex() if hasattr(self, "cmb_spec") else -1
+        if idx < 0 or idx >= self._X_proc.shape[0]:
+            self.recon_view.setHtml("<i>Sélectionnez un spectre pour la reconstruction.</i>")
+            return
+
+        # Spectre original (dans l'espace X_proc)
+        x_orig = self._X_proc[idx, :].reshape(1, -1)
+
+        # Scores du spectre sélectionné
+        comps = self._pca.components_
+        mean = self._pca.mean_.reshape(1, -1)
+        # Recalcule les scores pour ce spectre dans l'espace des composantes
+        # (équivalent aux scores déjà calculés, mais limité à cette ligne)
+        x_centered = x_orig - mean
+        scores_single = x_centered @ comps.T  # shape: (1, n_components)
+        # Reconstruction dans l'espace normalisé X_proc
+        x_recon = scores_single @ comps + mean
+        x_recon = x_recon.ravel()
+        x_orig = x_orig.ravel()
+
+        df_plot = pd.DataFrame({
+            "Raman Shift": self._wavenumbers,
+            "Original": x_orig,
+            "Reconstruit": x_recon,
+        })
+
+        df_melt = df_plot.melt(id_vars="Raman Shift", value_vars=["Original", "Reconstruit"],
+                               var_name="Type", value_name="Intensité")
+
+        import plotly.express as px  # local import to avoid issues if not used elsewhere
+
+        fig = px.line(
+            df_melt.sort_values(["Type", "Raman Shift"]),
+            x="Raman Shift",
+            y="Intensité",
+            color="Type",
+            title=f"Spectre original vs reconstruit – {self.cmb_spec.currentText()}",
+        )
+        fig.update_layout(
+            xaxis_title="Raman Shift (cm⁻¹)",
+            yaxis_title="Intensité (espace normalisé)",
+            width=900,
+            height=450,
+            legend_title_text="Signal",
+        )
+        self.recon_view.setHtml(fig.to_html(include_plotlyjs="cdn"))

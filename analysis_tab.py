@@ -78,8 +78,14 @@ class AnalysisTab(QWidget):
         actions.addWidget(self.btn_export)
         layout.addLayout(actions)
 
+        # Bouton pour afficher / masquer le tableau des intensités
+        self.btn_toggle_table = QPushButton("Afficher le tableau des intensités", self)
+        self.btn_toggle_table.clicked.connect(self._toggle_table_visibility)
+        layout.addWidget(self.btn_toggle_table)
+
         # Aperçu des résultats (table des intensités de pics)
-        layout.addWidget(QLabel("<b>Aperçu – Intensités extraites</b>"))
+        self.lbl_table_title = QLabel("<b>Aperçu – Intensités extraites</b>")
+        layout.addWidget(self.lbl_table_title)
         self.table = QTableWidget(self)
         # Configuration pour navigation sur tout le fichier
         self.table.setAlternatingRowColors(True)
@@ -88,6 +94,10 @@ class AnalysisTab(QWidget):
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         header.setStretchLastSection(True)
         layout.addWidget(self.table, 0)
+
+        # Masquer la table et son titre par défaut pour laisser plus de place au graphique
+        self.lbl_table_title.setVisible(False)
+        self.table.setVisible(False)
 
         # Graphique des ratios
         layout.addWidget(QLabel("<b>Graphique – Rapports d’intensité Raman selon [EGTA]</b>"))
@@ -131,6 +141,19 @@ class AnalysisTab(QWidget):
             for j, col in enumerate(df.columns):
                 self.table.setItem(i, j, QTableWidgetItem(str(df.iloc[i, j])))
         self.table.setSortingEnabled(True)
+
+    def _toggle_table_visibility(self):
+        """Affiche ou masque le tableau des intensités pour laisser plus de place au graphique."""
+        is_visible = self.table.isVisible()
+        # Bascule visibilité
+        self.table.setVisible(not is_visible)
+        if hasattr(self, "lbl_table_title"):
+            self.lbl_table_title.setVisible(not is_visible)
+        # Met à jour le texte du bouton
+        if not is_visible:
+            self.btn_toggle_table.setText("Masquer le tableau des intensités")
+        else:
+            self.btn_toggle_table.setText("Afficher le tableau des intensités")
 
     # ---------- Analyse ----------
     def _run_analysis(self):

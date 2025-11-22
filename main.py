@@ -69,10 +69,11 @@ class MainWindow(QMainWindow):
 
             <h3>2. Onglet <i>Métadonnées</i></h3>
             <ul>
-              <li>Sélectionnez un fichier Excel (<code>.xlsx</code> / <code>.xls</code>) contenant les métadonnées (ex: <code>ASXXX_metadata.xlsx</code>).</li>
-              <li>Vérifiez le contenu dans la table (tri, défilement).</li>
-              <li>Cliquez sur <b>Assembler (txt + métadonnées)</b> pour créer le fichier combiné.</li>
-              <li>Cliquez sur <b>Enregistrer le fichier</b> pour sauvegarder le fichier global (au choix <code>.csv</code> ou <code>.xlsx</code>) et le rendre disponible aux autres onglets.</li>
+              <li>Sélectionnez d'abord le <b>fichier de composition des tubes</b> (contenant les concentrations, par ex. <code>C(EGTA)</code>, les volumes, etc.), puis cliquez sur <b>Valider le fichier de composition des tubes</b>.</li>
+              <li>Sélectionnez ensuite le <b>fichier de correspondance des noms de spectres</b> (qui associe chaque nom de spectre <code>GCXXX_…</code> au tube correspondant), puis cliquez sur <b>Valider le fichier de correspondance des noms de spectres</b>.</li>
+              <li>Vérifiez le contenu dans la table de visualisation (tri, défilement) pour contrôler que les données sont correctes.</li>
+              <li>Cliquez sur <b>Assembler (données au format txt + métadonnées)</b> pour fusionner les fichiers <code>.txt</code> de spectres avec les deux fichiers de métadonnées.</li>
+              <li>Si besoin, cliquez sur <b>Enregistrer le fichier</b> pour sauvegarder le fichier combiné (au choix <code>.csv</code> ou <code>.xlsx</code>). Ce fichier combiné est ensuite utilisé par les onglets <i>Spectres</i> et <i>Analyse</i>.</li>
             </ul>
 
             <h3>3. Onglet <i>Spectres</i></h3>
@@ -130,6 +131,11 @@ class MainWindow(QMainWindow):
         # Onglet Spectres
         self.spectra_tab = SpectraTab(self.file_picker, self)
         tabs.addTab(self.spectra_tab, "Spectres")
+
+        # Onglet PCA
+        from pca import PCATab
+        self.pca_tab = PCATab(self)
+        tabs.addTab(self.pca_tab, "PCA")
 
         # Onglet Analyse
         self.analysis_tab = AnalysisTab(self)
