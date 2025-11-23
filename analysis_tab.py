@@ -50,7 +50,7 @@ class AnalysisTab(QWidget):
         opts = QHBoxLayout()
         opts.addWidget(QLabel("Jeu de pics :"))
         self.cmb_presets = QComboBox(self)
-        self.cmb_presets.addItems(["532 nm (1231,1327,1342,1358,1450)", "785 nm (412,444,471,547,1561)"])
+        self.cmb_presets.addItems(["532 nm (1231,1329,1342,1358,1450)", "785 nm (412,444,471,547,1561)"])
         self.cmb_presets.currentIndexChanged.connect(self._on_preset_changed)
         opts.addWidget(self.cmb_presets)
 
@@ -207,6 +207,19 @@ class AnalysisTab(QWidget):
         meta_cols = [c for c in df.columns if c not in {"Raman Shift", "Intensity_corrected"}]
         metadata_df = df[meta_cols].drop_duplicates(subset=["Spectrum name"], keep="first") if "Spectrum name" in df.columns else None
         merged = peak_intensities.merge(metadata_df, on="Spectrum name", how="left") if metadata_df is not None else peak_intensities.copy()
+
+        # Harmonisation de la colonne utilisée pour l'axe X (EGTA)
+        # Objectif : disposer d'une colonne 'n(EGTA) (mol)' quand c'est possible,
+        # en restant compatible avec les anciens fichiers (GC514) et les nouveaux (AN336/AN344).
+        if "n(EGTA) (mol)" not in merged.columns:
+            if "C (EGTA) (M)" in merged.columns and "V cuvette (mL)" in merged.columns:
+                # Cas GC514-like : on peut calculer la quantité de matière = C * V
+                merged["n(EGTA) (mol)"] = merged["C (EGTA) (M)"] * merged["V cuvette (mL)"] * 1e-3
+            elif "C (EGTA) (M)" in merged.columns:
+                # Cas Angelina : pas de volume explicite, on utilise la concentration comme proxy
+                # pour garder un axe croissant en EGTA (l'unité ne sera pas strictement "mol",
+                # mais la relation monotone est préservée).
+                merged["n(EGTA) (mol)"] = merged["C (EGTA) (M)"]
 
         # Mise en forme long pour les ratios
         ratio_cols = [c for c in merged.columns if c.startswith("ratio_I_")]

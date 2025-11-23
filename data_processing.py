@@ -18,9 +18,10 @@ def load_spectrum_file(path: str, poly_order: int = 5) -> pd.DataFrame | None:
 
     Returns:
         DataFrame avec colonnes ["Raman Shift", "Dark Subtracted #1", "Intensity_corrected", "file"]
-        ou None si erreur
+        ou None si erreur / format non reconnu.
     """
     try:
+        # --- Lecture brute + repérage de la ligne "Pixel;" ---
         with open(path, "r", encoding="utf-8") as f:
             lines = f.readlines()
         header_idx = next(i for i, line in enumerate(lines) if line.strip().startswith("Pixel;"))
@@ -36,36 +37,89 @@ def load_spectrum_file(path: str, poly_order: int = 5) -> pd.DataFrame | None:
             keep_default_na=True,
         )
 
-        # supprimer dernière colonne si vide
+        # Supprimer dernière colonne si vide / Unnamed
         if df.columns[-1].startswith("Unnamed"):
             df = df.iloc[:, :-1]
 
-        # conversion numérique
+        # Nettoyage des noms de colonnes (espaces, insécables, etc.)
+        df.columns = [str(c).strip().replace("\xa0", " ") for c in df.columns]
+
+        # Conversion numérique des colonnes texte
         for col in df.columns:
             if df[col].dtype == "object":
                 df[col] = pd.to_numeric(df[col], errors="coerce")
 
-        if not {"Raman Shift", "Dark Subtracted #1"}.issubset(df.columns):
+        # -------------------------------------------------------
+        # 1) Harmonisation des noms de colonnes spectrales
+        # -------------------------------------------------------
+        cols_lower = {c.lower(): c for c in df.columns}
+
+        # a) Colonne Raman Shift
+        if "Raman Shift" not in df.columns:
+            # Cherche des variantes possibles
+            for cand in ["raman shift", "raman_shift", "rshift", "ramanshift"]:
+                if cand in cols_lower:
+                    df["Raman Shift"] = df[cols_lower[cand]]
+                    break
+
+        # b) Colonne Dark Subtracted #1 (intensité brute utilisée pour baseline)
+        if "Dark Subtracted #1" not in df.columns:
+            for cand in ["spectra_corrected", "spectra corrected", "intensity", "intensite"]:
+                if cand in cols_lower:
+                    df["Dark Subtracted #1"] = df[cols_lower[cand]]
+                    break
+
+        # Si après harmonisation on n'a toujours pas les colonnes, on abandonne
+        if not {"Raman Shift", "Dark Subtracted #1"}.issubset(set(df.columns)):
+            # Debug minimal dans la console
+            print(
+                f"[load_spectrum_file] Colonnes requises absentes pour {path}. "
+                f"Colonnes présentes : {list(df.columns)}"
+            )
             return None
 
+        # -------------------------------------------------------
+        # 2) Construction du DataFrame de travail
+        # -------------------------------------------------------
         temp = df[["Raman Shift", "Dark Subtracted #1"]].copy()
-        temp = temp.dropna()
+        temp = temp.dropna(subset=["Raman Shift", "Dark Subtracted #1"])
 
-        # baseline correction
+        if temp.empty:
+            print(f"[load_spectrum_file] Données vides après dropna pour {path}")
+            return None
+
         x = temp["Raman Shift"].values
         y = temp["Dark Subtracted #1"].values
-        baseline_fitter = Baseline(x)
-        baseline, _ = baseline_fitter.modpoly(y, poly_order=poly_order)
 
-        temp["Intensity_corrected"] = y - baseline
-        temp["file"] = os.path.basename(path)
+        # Tri par shift croissant
+        order = np.argsort(x)
+        x = x[order]
+        y = y[order]
 
-        return temp.dropna(subset=["Intensity_corrected"])
+        # Baseline correction
+        try:
+            baseline_fitter = Baseline(x)
+            baseline, _ = baseline_fitter.modpoly(y, poly_order=poly_order)
+            ycorr = y - baseline
+        except Exception as be:
+            print(f"[load_spectrum_file] Échec baseline pour {path} : {be}")
+            baseline = np.zeros_like(y)
+            ycorr = y
+
+        out = pd.DataFrame(
+            {
+                "Raman Shift": x,
+                "Dark Subtracted #1": y,
+                "Intensity_corrected": ycorr,
+                "file": os.path.basename(path),
+            }
+        )
+
+        return out.dropna(subset=["Intensity_corrected"])
 
     except Exception as e:
         print(f"Erreur lors du chargement de {path}: {e}")
         return None
-
 
 def build_combined_dataframe_from_df(
     txt_files: list[str],

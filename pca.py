@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QSpinBox,
     QMessageBox,
+    QDialog,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
@@ -137,17 +138,77 @@ class PCATab(QWidget):
 
         # ---- Graphiques ----
         layout.addWidget(QLabel("<b>Scores PCA (PC1 vs PC2)</b>"))
-        self.scores_view = QWebEngineView(self)
-        layout.addWidget(self.scores_view, 1)
+        self.btn_show_scores = QPushButton("Afficher les scores dans une fenêtre", self)
+        self.btn_show_scores.clicked.connect(self._show_scores_window)
+        layout.addWidget(self.btn_show_scores)
 
         layout.addWidget(QLabel("<b>Loadings PCA (poids des composantes en fonction du shift Raman)</b>"))
-        self.loadings_view = QWebEngineView(self)
-        layout.addWidget(self.loadings_view, 1)
+        self.btn_show_loadings = QPushButton("Afficher les loadings dans une fenêtre", self)
+        self.btn_show_loadings.clicked.connect(self._show_loadings_window)
+        layout.addWidget(self.btn_show_loadings)
 
         # ---- Vue pour la reconstruction de spectres ----
         layout.addWidget(QLabel("<b>Spectre original vs reconstruit (dans l'espace normalisé)</b>"))
-        self.recon_view = QWebEngineView(self)
-        layout.addWidget(self.recon_view, 1)
+        self.btn_show_recon = QPushButton("Afficher la reconstruction dans une fenêtre", self)
+        self.btn_show_recon.clicked.connect(self._show_recon_window)
+        layout.addWidget(self.btn_show_recon)
+
+        self._init_plot_windows()
+
+
+    def _init_plot_windows(self):
+        """Crée les fenêtres flottantes (dialogues) pour afficher les graphiques PCA."""
+        # Fenêtre pour les scores
+        self.scores_dialog = QDialog(self)
+        self.scores_dialog.setWindowTitle("Scores PCA (PC1 vs PC2)")
+        scores_layout = QVBoxLayout(self.scores_dialog)
+        self.scores_view = QWebEngineView(self.scores_dialog)
+        scores_layout.addWidget(self.scores_view)
+        self.scores_dialog.resize(900, 500)
+
+        # Fenêtre pour les loadings
+        self.loadings_dialog = QDialog(self)
+        self.loadings_dialog.setWindowTitle("Loadings PCA")
+        load_layout = QVBoxLayout(self.loadings_dialog)
+        self.loadings_view = QWebEngineView(self.loadings_dialog)
+        load_layout.addWidget(self.loadings_view)
+        self.loadings_dialog.resize(900, 500)
+
+        # Fenêtre pour la reconstruction
+        self.recon_dialog = QDialog(self)
+        self.recon_dialog.setWindowTitle("Spectre original vs reconstruit")
+        recon_layout = QVBoxLayout(self.recon_dialog)
+        self.recon_view = QWebEngineView(self.recon_dialog)
+        recon_layout.addWidget(self.recon_view)
+        self.recon_dialog.resize(900, 500)
+
+
+    def _show_scores_window(self):
+        """Affiche la fenêtre contenant le nuage de scores PCA."""
+        if self._scores_df is None or self._scores_df.empty:
+            QMessageBox.information(self, "Info", "Aucun score PCA disponible. Lancez d'abord la PCA.")
+            return
+        self.scores_dialog.show()
+        self.scores_dialog.raise_()
+        self.scores_dialog.activateWindow()
+
+    def _show_loadings_window(self):
+        """Affiche la fenêtre contenant les loadings PCA."""
+        if self._loadings_df is None or self._loadings_df.empty:
+            QMessageBox.information(self, "Info", "Aucun loading PCA disponible. Lancez d'abord la PCA.")
+            return
+        self.loadings_dialog.show()
+        self.loadings_dialog.raise_()
+        self.loadings_dialog.activateWindow()
+
+    def _show_recon_window(self):
+        """Affiche la fenêtre contenant la reconstruction du spectre choisi."""
+        if self._X_proc is None or self._pca is None or self._wavenumbers is None or self._spec_ids is None:
+            QMessageBox.information(self, "Info", "Aucune donnée PCA disponible pour la reconstruction. Lancez d'abord la PCA.")
+            return
+        self.recon_dialog.show()
+        self.recon_dialog.raise_()
+        self.recon_dialog.activateWindow()
 
     # ------------------------------------------------------------------
     # Chargement et préparation des données

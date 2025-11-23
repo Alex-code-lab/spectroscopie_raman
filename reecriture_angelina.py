@@ -28,7 +28,7 @@ import numpy as np
 
 # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 # Définir ici le chemin vers le fichier CSV d'Angélina
-CSV_PATH = "/Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/Data_Angelina/AN336_and_AN344_laser_532nm_250nM_copper_variation_of_PAN_all_data_corrected_serie_11_points.csv"
+CSV_PATH = "/Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/Data_Angelina/AN335_and_AN341_laser_532nm_500nM_copper_variation_of_PAN_all_data_corrected_serie_11_points.csv"
 # Exemple :
 # CSV_PATH = "/Users/souchaud/Documents/Travail/.../fichier.csv"
 # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -125,7 +125,7 @@ def build_mapping_table(df: pd.DataFrame) -> pd.DataFrame:
     """Construit le tableau de correspondance spectre → tube.
 
     On garde une seule ligne par spectre (nom de spectre), avec :
-        - Spectrum name : nom du spectre (ex. AN336_01)
+        - Spectrum name : nom du spectre normalisé (identique au nom de fichier sans .txt)
         - Tube : le puits associé (Meas_sample, ex. A1)
         - Exp, Series, Rep_exp pour garder le contexte expérimental.
     """
@@ -135,11 +135,16 @@ def build_mapping_table(df: pd.DataFrame) -> pd.DataFrame:
             cols.append(extra)
 
     m = df[cols].drop_duplicates(subset=["Spectrum"]).copy()
-    m = m.rename(columns={"Spectrum": "Spectrum name", "Meas_sample": "Tube"})
+
+    # Crée une colonne 'Spectrum name' NORMALISÉE, cohérente avec les fichiers .txt
+    m["Spectrum name"] = m["Spectrum"].astype(str).apply(_sanitize_spectrum_name)
+
+    # Renommer Meas_sample en Tube
+    m = m.rename(columns={"Meas_sample": "Tube"})
 
     # On ordonne gentiment les colonnes
     first_cols = ["Spectrum name", "Tube"]
-    other_cols = [c for c in m.columns if c not in first_cols]
+    other_cols = [c for c in m.columns if c not in first_cols + ["Spectrum"]]
     m = m[first_cols + other_cols]
 
     return m
@@ -375,6 +380,19 @@ def rewrite_for_angelina(csv_path: str) -> Tuple[str, str]:
     export_spectra_as_txt(df, txt_dir)
 
     return comp_path, map_path
+
+def _sanitize_spectrum_name(spec: str) -> str:
+    """
+    Normalise le nom de spectre pour qu'il soit compatible avec les noms de fichiers .txt
+    et cohérent avec la colonne 'Spectrum name' utilisée dans l'application.
+
+    - Garde uniquement lettres/chiffres, '_' '-' '.'
+    - Remplace le reste par '_'
+    """
+    return "".join(
+        c if c.isalnum() or c in ("_", "-", ".") else "_"
+        for c in str(spec)
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
