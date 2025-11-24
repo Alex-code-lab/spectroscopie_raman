@@ -50,9 +50,29 @@ class AnalysisTab(QWidget):
         opts = QHBoxLayout()
         opts.addWidget(QLabel("Jeu de pics :"))
         self.cmb_presets = QComboBox(self)
-        self.cmb_presets.addItems(["532 nm (1231,1329,1342,1358,1450)", "785 nm (412,444,471,547,1561)"])
+        self.cmb_presets.addItems([
+            "532 nm (1231,1327,1342,1358,1450)",
+            "785 nm (412,444,471,547,1561)",
+            "Personnalisé"
+        ])
         self.cmb_presets.currentIndexChanged.connect(self._on_preset_changed)
         opts.addWidget(self.cmb_presets)
+
+        # Paramètres pour mode personnalisé
+        opts.addWidget(QLabel("Laser (nm) :"))
+        self.spin_laser_nm = QDoubleSpinBox(self)
+        self.spin_laser_nm.setRange(200.0, 2000.0)
+        self.spin_laser_nm.setDecimals(2)
+        self.spin_laser_nm.setSingleStep(1.0)
+        self.spin_laser_nm.setValue(532.0)
+        self.spin_laser_nm.setEnabled(False)
+        opts.addWidget(self.spin_laser_nm)
+
+        opts.addWidget(QLabel("Pics à étudier (Raman Shift en cm⁻¹, séparés par des virgules) :"))
+        self.edit_custom_waves = QLineEdit(self)
+        self.edit_custom_waves.setPlaceholderText("ex : 1231, 1327, 1450")
+        self.edit_custom_waves.setEnabled(False)
+        opts.addWidget(self.edit_custom_waves)
 
         opts.addSpacerItem(QSpacerItem(20, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
         opts.addWidget(QLabel("Tolérance (cm⁻¹) :"))
@@ -110,10 +130,38 @@ class AnalysisTab(QWidget):
 
     # ---------- Helpers ----------
     def _on_preset_changed(self, idx: int):
+        """
+        Met à jour la liste des pics en fonction du preset sélectionné.
+
+        idx = 0 : preset 532 nm
+        idx = 1 : preset 785 nm
+        idx = 2 : mode personnalisé (défini par l'utilisateur)
+        """
         if idx == 0:
-            self._peaks = [1231, 1327, 1342, 1358, 1450]  # 532 nm
+            # 532 nm – jeu de pics par défaut
+            self._peaks = [1231, 1327, 1342, 1358, 1450]
+            # Désactiver les champs personnalisés
+            if hasattr(self, "spin_laser_nm"):
+                self.spin_laser_nm.setEnabled(False)
+            if hasattr(self, "edit_custom_waves"):
+                self.edit_custom_waves.setEnabled(False)
+        elif idx == 1:
+            # 785 nm – jeu de pics par défaut
+            self._peaks = [412, 444, 471, 547, 1561]
+            # Désactiver les champs personnalisés
+            if hasattr(self, "spin_laser_nm"):
+                self.spin_laser_nm.setEnabled(False)
+            if hasattr(self, "edit_custom_waves"):
+                self.edit_custom_waves.setEnabled(False)
         else:
-            self._peaks = [412, 444, 471, 547, 1561]  # 785 nm
+            # Mode personnalisé : on laisse _peaks vide ici,
+            # il sera calculé dans _run_analysis à partir des λ fournies.
+            self._peaks = []
+            # Activer les champs personnalisés
+            if hasattr(self, "spin_laser_nm"):
+                self.spin_laser_nm.setEnabled(True)
+            if hasattr(self, "edit_custom_waves"):
+                self.edit_custom_waves.setEnabled(True)
 
     def _reload_combined(self):
         # Utiliser la fenêtre principale (MainWindow), pas le parent immédiat (TabWidget)
@@ -179,6 +227,40 @@ class AnalysisTab(QWidget):
             # garder tout ce qui n'est pas BI/BR, ou qui est BRB
             df = df[~mask_bi_br | mask_brb].copy()
 
+        # Si mode "Personnalisé" : interpréter directement la saisie comme des décalages Raman (cm⁻¹)
+        if self.cmb_presets.currentIndex() == 2:
+            text = self.edit_custom_waves.text() if hasattr(self, "edit_custom_waves") else ""
+            if not text.strip():
+                QMessageBox.warning(
+                    self,
+                    "Paramètre manquant",
+                    "En mode personnalisé, veuillez saisir au moins un pic à étudier\n"
+                    "(Raman Shift en cm⁻¹, séparés par des virgules)."
+                )
+                return
+
+            # Parsing des valeurs en cm⁻¹
+            raw_tokens = [t.strip() for t in text.replace(";", ",").split(",") if t.strip()]
+            custom_peaks = []
+            for token in raw_tokens:
+                token_clean = token.replace(",", ".")
+                try:
+                    rs = float(token_clean)
+                    custom_peaks.append(int(round(rs)))
+                except ValueError:
+                    continue
+
+            if not custom_peaks:
+                QMessageBox.warning(
+                    self,
+                    "Paramètres invalides",
+                    "Aucun Raman Shift valide n'a été trouvé dans le champ personnalisé.\n"
+                    "Utilisez des valeurs numériques en cm⁻¹, séparées par des virgules."
+                )
+                return
+
+            self._peaks = custom_peaks
+
         peaks = self._peaks
         tol = float(self.spin_tol.value())
 
@@ -234,20 +316,43 @@ class AnalysisTab(QWidget):
 
         # --- Tracé interactif (équivalent au ggplot fourni) ---
         if df_ratios is not None and not df_ratios.empty and "n(EGTA) (mol)" in df_ratios.columns:
+            df_plot = df_ratios.sort_values(["Ratio", "n(EGTA) (mol)"])
+
+            # Palette de couleurs plus riche et contrastée pour éviter les répétitions trop rapides
+            # On concatène plusieurs palettes qualitatives de Plotly pour avoir plus de couleurs distinctes.
+            color_seq = (
+                px.colors.qualitative.Alphabet
+                + px.colors.qualitative.Safe
+                + px.colors.qualitative.Dark24
+            )
+
             fig = px.line(
-                df_ratios.sort_values(["Ratio", "n(EGTA) (mol)"]),
+                df_plot,
                 x="n(EGTA) (mol)",
                 y="Value",
                 color="Ratio",
                 markers=True,
                 title="Rapports d’intensité Raman selon [EGTA]",
+                color_discrete_sequence=color_seq,
             )
+
+            # Améliorer la lisibilité : courbes un peu plus épaisses, marqueurs plus visibles,
+            # légende positionnée à droite.
+            fig.update_traces(line=dict(width=2), marker=dict(size=6))
             fig.update_layout(
                 xaxis_title="Quantité EGTA (mol)",
                 yaxis_title="Rapport d’intensité (a.u.)",
                 width=1200,
                 height=600,
                 legend_title_text="Ratio",
+                legend=dict(
+                    orientation="v",
+                    x=1.02,
+                    y=1,
+                    bordercolor="black",
+                    borderwidth=1,
+                    bgcolor="rgba(255,255,255,0.8)",
+                ),
             )
             # Formatage type scientifique pour l'axe X
             fig.update_xaxes(tickformat=".0e")

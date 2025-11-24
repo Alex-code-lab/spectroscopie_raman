@@ -31,6 +31,10 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Ramanalyze - Analyse de spectres Raman")
         self.resize(1200, 800)
+        # Fixer la largeur de la fenêtre pour éviter qu'elle ne s'agrandisse en fonction du contenu,
+        # tout en permettant à l'utilisateur de modifier la hauteur.
+        self.setMinimumSize(1200, 600)
+        self.setMaximumWidth(1200)
 
         # --- Status bar ---
         self.setStatusBar(QStatusBar(self))

@@ -8,9 +8,11 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QFileSystemModel, QListView, QAbstractItemView,
     QMessageBox, QTableWidget, QTableWidgetItem, QSizePolicy, QHeaderView, QFileDialog,
-    QCheckBox,
+    QCheckBox, QToolTip,
 )
-from PySide6.QtCore import QDir, QModelIndex
+from PySide6.QtCore import QDir, QModelIndex, Qt
+# For tooltips on hover
+from PySide6.QtGui import QCursor, QFontMetrics
 
 # Dossier par défaut à l'ouverture (modifiez-le si besoin)
 DEFAULT_DIR = os.path.expanduser("~/Documents/Travail/CitizenSers/Spectroscopie/")
@@ -39,14 +41,18 @@ class MetadataPickerWidget(QWidget):
 
         # Barre de chemin + bouton Monter
         path_bar = QHBoxLayout()
-        self.path_edit = QLineEdit(root, self)
+        self.path_edit = QLineEdit("", self)
         self.path_edit.setReadOnly(True)
+        self.path_edit.setMaximumWidth(500)
         btn_up = QPushButton("⬆︎ Monter", self)
         btn_up.clicked.connect(self._go_up)
         path_bar.addWidget(QLabel("Dossier :", self))
-        path_bar.addWidget(self.path_edit, 1)
+        path_bar.addWidget(self.path_edit)
         path_bar.addWidget(btn_up)
         layout.addLayout(path_bar)
+
+        # Initialisation du chemin affiché avec élision (évite d'agrandir la fenêtre)
+        self._set_path_line_edit(self.path_edit, root)
 
         # ----- Navigateur fichiers (comme FilePicker) -----
         self.model = QFileSystemModel(self)
@@ -63,6 +69,17 @@ class MetadataPickerWidget(QWidget):
         self.view.setResizeMode(QListView.Adjust)
         self.view.setSelectionMode(QAbstractItemView.SingleSelection)
         self.view.doubleClicked.connect(self._on_double_clicked)
+
+        # Limiter l'impact des noms de fichiers très longs sur la taille de la fenêtre
+        # -> tronquer visuellement le texte (avec '...') et garder des items de taille uniforme.
+        self.view.setTextElideMode(Qt.ElideMiddle)
+        self.view.setUniformItemSizes(True)
+        self.view.setWrapping(True)
+        self.view.setSpacing(8)
+
+        # Activer les tooltips au survol pour voir le nom complet si besoin
+        self.view.setMouseTracking(True)
+        self.view.entered.connect(self._on_item_entered)
 
         layout.addWidget(self.view, 1)
 
@@ -83,11 +100,13 @@ class MetadataPickerWidget(QWidget):
         paths_layout.addWidget(QLabel("Fichier compositions des tubes :", self))
         self.comp_path_edit = QLineEdit("", self)
         self.comp_path_edit.setReadOnly(True)
+        self.comp_path_edit.setMaximumWidth(500)
         paths_layout.addWidget(self.comp_path_edit)
 
         paths_layout.addWidget(QLabel("Fichier correspondance spectres/tubes :", self))
         self.map_path_edit = QLineEdit("", self)
         self.map_path_edit.setReadOnly(True)
+        self.map_path_edit.setMaximumWidth(500)
         paths_layout.addWidget(self.map_path_edit)
 
         layout.addLayout(paths_layout)
@@ -111,7 +130,7 @@ class MetadataPickerWidget(QWidget):
         layout.addWidget(self.cb_no_baseline)
 
         actions = QHBoxLayout()
-        self.btn_assemble = QPushButton("Assembler (données au format txt + métadonnées)", self)
+        self.btn_assemble = QPushButton("Assemblage (données Spectroscopes + métadonnées)", self)
         self.btn_validate = QPushButton("Enregistrer le fichier", self)
         self.btn_validate.setEnabled(False)
         self.btn_assemble.clicked.connect(self._on_assemble_clicked)
@@ -243,6 +262,28 @@ class MetadataPickerWidget(QWidget):
         mapping = os.path.basename(self.metadata_map_path) if self.metadata_map_path else "non choisi"
         self.info.setText(f"Compositions : {comp} — Correspondance : {mapping}")
 
+    def _set_path_line_edit(self, line_edit: QLineEdit, path: str):
+        """
+        Fixe le texte d'un QLineEdit de chemin de façon à ne pas agrandir la fenêtre :
+        - le texte affiché est tronqué (avec '...') au milieu si nécessaire ;
+        - le chemin complet est disponible en tooltip.
+        """
+        if not path:
+            line_edit.clear()
+            line_edit.setToolTip("")
+            return
+
+        # Tooltip avec le chemin complet
+        line_edit.setToolTip(path)
+
+        # Utilise une largeur cible raisonnable pour l'élision (en pixels)
+        # Si le widget n'est pas encore affiché, sa largeur peut être 0, on utilise alors une valeur par défaut.
+        fm: QFontMetrics = line_edit.fontMetrics()
+        max_width = line_edit.width() if line_edit.width() > 0 else 400
+        # On laisse une petite marge à droite
+        elided = fm.elidedText(path, Qt.ElideMiddle, max_width - 10)
+        line_edit.setText(elided)
+
     def _set_comp_file(self):
         indexes = self.view.selectedIndexes()
         if not indexes:
@@ -255,7 +296,7 @@ class MetadataPickerWidget(QWidget):
             return
 
         self.metadata_comp_path = file_path
-        self.comp_path_edit.setText(file_path)
+        self._set_path_line_edit(self.comp_path_edit, file_path)
 
         # Charger le fichier de compositions (brut)
         try:
@@ -392,7 +433,7 @@ class MetadataPickerWidget(QWidget):
             return
 
         self.metadata_map_path = file_path
-        self.map_path_edit.setText(file_path)
+        self._set_path_line_edit(self.map_path_edit, file_path)
 
         # Charger le fichier de correspondance (brut)
         try:
@@ -440,7 +481,7 @@ class MetadataPickerWidget(QWidget):
         idx = self.model.index(path)
         if idx.isValid():
             self.view.setRootIndex(idx)
-            self.path_edit.setText(path)
+            self._set_path_line_edit(self.path_edit, path)
 
     def _on_double_clicked(self, index: QModelIndex):
         path = self.model.filePath(index)
@@ -465,7 +506,7 @@ class MetadataPickerWidget(QWidget):
         parent_idx = current_idx.parent()
         if parent_idx.isValid():
             self.view.setRootIndex(parent_idx)
-            self.path_edit.setText(self.model.filePath(parent_idx))
+            self._set_path_line_edit(self.path_edit, self.model.filePath(parent_idx))
 
     def load_metadata(self) -> pd.DataFrame | None:
         return self.combined_df
@@ -520,3 +561,15 @@ class MetadataPickerWidget(QWidget):
 
         # On retourne un tableau propre : une ligne = un spectre
         return data.reset_index(drop=True)
+
+    def _on_item_entered(self, index: QModelIndex):
+        """
+        Affiche le nom complet du fichier en tooltip lorsqu'on survole un item
+        dans la vue de navigation, sans agrandir la fenêtre.
+        """
+        if not index.isValid():
+            return
+        file_name = self.model.fileName(index)
+        if not file_name:
+            return
+        QToolTip.showText(QCursor.pos(), file_name, self.view)
