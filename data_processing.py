@@ -7,7 +7,7 @@ import pandas as pd
 from pybaselines import Baseline
 
 
-def load_spectrum_file(path: str, poly_order: int = 5) -> pd.DataFrame | None:
+def load_spectrum_file(path: str, poly_order: int = 5, apply_baseline: bool = True) -> pd.DataFrame | None:
     """
     Charge un fichier .txt de spectroscopie Raman, applique une correction de baseline,
     et retourne un DataFrame avec colonnes utiles.
@@ -96,13 +96,18 @@ def load_spectrum_file(path: str, poly_order: int = 5) -> pd.DataFrame | None:
         x = x[order]
         y = y[order]
 
-        # Baseline correction
-        try:
-            baseline_fitter = Baseline(x)
-            baseline, _ = baseline_fitter.modpoly(y, poly_order=poly_order)
-            ycorr = y - baseline
-        except Exception as be:
-            print(f"[load_spectrum_file] Échec baseline pour {path} : {be}")
+        # Baseline correction (optionnelle)
+        if apply_baseline:
+            try:
+                baseline_fitter = Baseline(x)
+                baseline, _ = baseline_fitter.modpoly(y, poly_order=poly_order)
+                ycorr = y - baseline
+            except Exception as be:
+                print(f"[load_spectrum_file] Échec baseline pour {path} : {be}")
+                baseline = np.zeros_like(y)
+                ycorr = y
+        else:
+            # Pas de baseline : on garde le signal brut
             baseline = np.zeros_like(y)
             ycorr = y
 
@@ -126,6 +131,7 @@ def build_combined_dataframe_from_df(
     metadata_df: pd.DataFrame,
     poly_order: int = 5,
     exclude_brb: bool = True,
+    apply_baseline: bool = True,
 ) -> pd.DataFrame:
     """
     Construit le DataFrame fusionné (spectres + métadonnées) à partir
@@ -142,7 +148,7 @@ def build_combined_dataframe_from_df(
     """
     all_data = []
     for path in txt_files:
-        temp = load_spectrum_file(path, poly_order=poly_order)
+        temp = load_spectrum_file(path, poly_order=poly_order, apply_baseline=apply_baseline)
         if temp is not None:
             all_data.append(temp)
 
@@ -170,6 +176,7 @@ def build_combined_dataframe(
     metadata_path: str,
     poly_order: int = 5,
     exclude_brb: bool = True,
+    apply_baseline: bool = True,
 ) -> pd.DataFrame:
     """
     Construit le DataFrame fusionné (spectres + métadonnées) à partir d'un fichier Excel ou CSV.
@@ -194,4 +201,5 @@ def build_combined_dataframe(
         metadata_df,
         poly_order=poly_order,
         exclude_brb=exclude_brb,
+        apply_baseline=apply_baseline,
     )

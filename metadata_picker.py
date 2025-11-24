@@ -7,7 +7,8 @@ from data_processing import build_combined_dataframe_from_df
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QFileSystemModel, QListView, QAbstractItemView,
-    QMessageBox, QTableWidget, QTableWidgetItem, QSizePolicy, QHeaderView, QFileDialog
+    QMessageBox, QTableWidget, QTableWidgetItem, QSizePolicy, QHeaderView, QFileDialog,
+    QCheckBox,
 )
 from PySide6.QtCore import QDir, QModelIndex
 
@@ -104,6 +105,11 @@ class MetadataPickerWidget(QWidget):
         layout.addStretch(1)
 
         # ----- Actions d'assemblage et validation -----
+        # Option pour (ne pas) appliquer la baseline lors de l'assemblage
+        self.cb_no_baseline = QCheckBox("Ne pas appliquer la baseline lors de l'assemblage", self)
+        self.cb_no_baseline.setToolTip("Si coché, les spectres seront utilisés tels quels, sans correction de baseline.")
+        layout.addWidget(self.cb_no_baseline)
+
         actions = QHBoxLayout()
         self.btn_assemble = QPushButton("Assembler (données au format txt + métadonnées)", self)
         self.btn_validate = QPushButton("Enregistrer le fichier", self)
@@ -180,7 +186,14 @@ class MetadataPickerWidget(QWidget):
             merged_meta = self.df_map.merge(self.df_comp, on="Tube", how="left")
 
             # Construction du DataFrame complet (spectres + métadonnées fusionnées)
-            combined = build_combined_dataframe_from_df(txt_files, merged_meta, exclude_brb=True)
+            apply_baseline = not self.cb_no_baseline.isChecked()
+            combined = build_combined_dataframe_from_df(
+                txt_files,
+                merged_meta,
+                poly_order=5,
+                exclude_brb=True,
+                apply_baseline=apply_baseline,
+            )
         except Exception as e:
             QMessageBox.critical(self, "Échec", f"Impossible d'assembler les données : {e}")
             return

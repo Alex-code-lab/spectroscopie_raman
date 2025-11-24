@@ -159,8 +159,12 @@ def _detect_spectral_columns(df: pd.DataFrame) -> list[str]:
     Toutes les autres colonnes numériques sont considérées comme des points du spectre.
     """
     meta_cols = {
+        "Laser",
         "Spectrum",
         "Meas_sample",
+        "Exp",
+        "Series",
+        "Rep_exp",
         "C.Cu (nM)",
         "C.EGTA (nM)",
         "C.PAN (nM)",
@@ -170,9 +174,9 @@ def _detect_spectral_columns(df: pd.DataFrame) -> list[str]:
         "t (s)",
         "n",
         "excess.titrant",
-        "Exp",
-        "Series",
-        "Rep_exp",
+        "Rshift",
+        "Spectra_corrected",
+        
     }
     spectral_cols: list[str] = []
     for col in df.columns:
@@ -210,39 +214,58 @@ def _compute_axes_for_pixel(pixel: int) -> tuple[float, float, float]:
 
 
 def export_spectra_as_txt(df: pd.DataFrame, out_dir: str) -> list[str]:
-    """Exporte chaque spectre individuel dans un fichier .txt 'BWSpec-like'
-    en regroupant les lignes par 'Spectrum' (format long du fichier d’Angélina).
-
-    Chaque fichier .txt contiendra :
-        - les colonnes BWSpec classiques,
-        - la colonne 'raman_shift' (Rshift),
-        - la colonne 'spectra_corrected' (Spectra_corrected).
     """
-    # Vérifications des colonnes indispensables
+    Exporte chaque spectre individuel dans un fichier .txt 'BWSpec-like'
+    en utilisant DIRECTEMENT les colonnes du CSV d'Angélina :
+
+        - 'Spectrum'            : identifiant du spectre
+        - 'Rshift'              : décalage Raman (cm-1) – utilisé pour "Raman Shift"
+        - 'Spectra_corrected'   : intensité (corrigée) – utilisée pour les colonnes de signal
+
+    On NE cherche pas de colonnes spectrales automatiquement :
+    on suppose que le fichier est au format "long" (une ligne = un point de spectre),
+    et on regroupe simplement par 'Spectrum'.
+    """
+    # Vérifier que les colonnes nécessaires sont là
     if "Spectrum" not in df.columns:
         raise ValueError("La colonne 'Spectrum' est absente du CSV.")
-    if "Rshift" not in df.columns or "Spectra_corrected" not in df.columns:
-        raise ValueError("Colonnes 'Rshift' et/ou 'Spectra_corrected' absentes du CSV.")
+    if "Rshift" not in df.columns:
+        raise ValueError("La colonne 'Rshift' est absente du CSV.")
+    if "Spectra_corrected" not in df.columns:
+        raise ValueError("La colonne 'Spectra_corrected' est absente du CSV.")
 
-    generated_paths: list[str] = []
     os.makedirs(out_dir, exist_ok=True)
+    generated_paths: list[str] = []
 
-    # Regroupement par nom de spectre
+    # Regroupement par spectre
     grouped = df.groupby("Spectrum")
 
+    # Pré-calcul du nombre d'onde du laser (cm^-1)
+    laser_wavenumber_cm1 = 1e7 / LASER_WAVELENGTH_NM
+
     for spec_name, sub in grouped:
-        # Tri des points par décalage Raman
-        sub = sub.sort_values("Rshift")
+        # On trie les points par Rshift croissant
+        sub = sub.copy()
+        sub["Rshift"] = pd.to_numeric(sub["Rshift"], errors="coerce")
+        sub["Spectra_corrected"] = pd.to_numeric(sub["Spectra_corrected"], errors="coerce")
+        sub = sub.dropna(subset=["Rshift", "Spectra_corrected"]).sort_values("Rshift")
+
+        if sub.empty:
+            continue
+
         rshifts = sub["Rshift"].to_numpy(dtype=float)
         intensities = sub["Spectra_corrected"].to_numpy(dtype=float)
         pixel_num = len(intensities)
 
-        # Nettoyage du nom du fichier
-        safe_name = "".join(c if c.isalnum() or c in ("_", "-", ".") else "_" for c in str(spec_name))
+        # Nom de fichier normalisé
+        safe_name = "".join(
+            c if c.isalnum() or c in ("_", "-", ".") else "_"
+            for c in str(spec_name)
+        )
         out_path = os.path.join(out_dir, f"{safe_name}.txt")
 
         with open(out_path, "w", encoding="utf-8") as f:
-            # Écriture de l'en-tête BWSpec
+            # En-tête BWSpec (reprend ce que tu avais déjà)
             f.write("File Version;BWSpec4.02_14\n")
             f.write("Date;\n")
             f.write("title;BWS415-532S\n")
@@ -323,22 +346,24 @@ def export_spectra_as_txt(df: pd.DataFrame, out_dir: str) -> list[str]:
             f.write("overlay_js;0\n")
             f.write("Relative Intensity Correction Flag;0\n")
 
-            # Ligne d’en-tête des données (avec 2 colonnes supplémentaires)
+            # Ligne d'en-tête des données
             f.write(
                 "Pixel;Wavelength;Wavenumber;Raman Shift;Dark;Reference;Raw data #1;"
                 "Dark Subtracted #1;%TR #1;Absorbance #1;Irradiance (lumen) #1;"
                 "raman_shift;spectra_corrected;\n"
             )
 
-            # Écriture des points spectrales
+            # Données : on utilise Rshift pour Raman Shift + raman_shift
             for pixel_idx, (rs_val, intensity) in enumerate(zip(rshifts, intensities)):
-                wl_nm, wn_cm1, rs_cm1 = _compute_axes_for_pixel(pixel_idx)
+                rs_float = float(rs_val)
+                wn_cm1 = laser_wavenumber_cm1 - rs_float       # nombre d'onde absolu
+                wl_nm = 1e7 / wn_cm1                           # longueur d'onde (nm)
 
                 f.write(
                     f"{pixel_idx};"
                     f"{_fmt(wl_nm, 2)};"
                     f"{_fmt(wn_cm1, 2)};"
-                    f"{_fmt(rs_cm1, 2)};"
+                    f"{_fmt(rs_float, 2)};"     # Raman Shift = Rshift du CSV
                     f"{_fmt(0.0, 4)};"
                     f"{_fmt(REFERENCE_LEVEL, 4)};"
                     f"{_fmt(float(intensity), 4)};"
@@ -346,7 +371,7 @@ def export_spectra_as_txt(df: pd.DataFrame, out_dir: str) -> list[str]:
                     f"{_fmt(0.0, 4)};"
                     f"{_fmt(0.0, 4)};"
                     f"{_fmt(0.0, 4)};"
-                    f"{_fmt(float(rs_val), 4)};"
+                    f"{_fmt(rs_float, 4)};"    # raman_shift = même valeur
                     f"{_fmt(float(intensity), 4)};"
                     "\n"
                 )
