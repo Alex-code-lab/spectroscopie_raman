@@ -1,2 +1,14 @@
 Faire en sorte qu'on a bien une correspondance dans les métadonné avec le nom des expériences
 Attention j'exclus les cuvettes BRB dans data_processing, si on change le nom faut retravvailler ça. 
+--> laisser plus de possibilité ou renommer proprement le tube témoin, et le tube controle. Autoriser plusieurs nom. 
+Peut-être en laissant ou non le mot "Tube". et en mettant tout en minuscule et spprimer les "-" par exemple. 
+
+Plutot que d'aller chercher des tableaux excel, on va tout intégrer directement. ça éitera des problèmes
+de compatibilité. Pour ça : On rentre le nom de la manip et ça pré-rempli le tableau des correspondance. On fait en sorte que ça soit logique. 
+Et après, possibilité d'ajouter ou modifier le tableau. 
+
+
+De même, on va faire en sorte que le tableau soit directement intégré, ça sera plus simple, ça nous évitera de
+se perdre. 
+
+On cache la PCA qu'on met en option, juste pour notre plaisir. 
