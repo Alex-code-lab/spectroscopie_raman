@@ -158,11 +158,6 @@ def build_combined_dataframe_from_df(
     spectra_df = pd.concat(all_data, ignore_index=True)
     spectra_df["Spectrum name"] = spectra_df["file"].str.replace(".txt", "", regex=False)
 
-    # TEST 
-    print("\n=== Spectrum name (depuis les .txt) ===")
-    print(spectra_df["Spectrum name"].unique()[:20])
-    # FIN TEST
-
     combined_df = pd.merge(
         spectra_df,
         metadata_df,

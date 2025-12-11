@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLineEdit,
     QDateEdit,
+    QFileDialog,
 )
 
 from PySide6.QtCore import Qt, QDate
@@ -265,14 +266,28 @@ class MetadataCreatorWidget(QWidget):
         self.btn_edit_map = QPushButton("Créer / éditer la correspondance spectres ↔ tubes", self)
         self.btn_show_conc = QPushButton("Calculer / afficher le tableau des concentrations", self)
 
+        # Boutons enregistrer / charger sur une seconde ligne
+        self.btn_save_meta = QPushButton("Enregistrer les métadonnées…", self)
+        self.btn_load_meta = QPushButton("Charger des métadonnées…", self)
+
         self.btn_edit_comp.clicked.connect(self._on_edit_comp_clicked)
         self.btn_edit_map.clicked.connect(self._on_edit_map_clicked)
         self.btn_show_conc.clicked.connect(self._on_show_conc_clicked)
+        self.btn_save_meta.clicked.connect(self._on_save_metadata_clicked)
+        self.btn_load_meta.clicked.connect(self._on_load_metadata_clicked)
 
+        # Première ligne
         btns.addWidget(self.btn_edit_comp)
         btns.addWidget(self.btn_edit_map)
         btns.addWidget(self.btn_show_conc)
+
         layout.addLayout(btns)
+
+        # Seconde ligne
+        btns2 = QHBoxLayout()
+        btns2.addWidget(self.btn_save_meta)
+        btns2.addWidget(self.btn_load_meta)
+        layout.addLayout(btns2)
 
         # --- État ---
         self.lbl_status_comp = QLabel("Tableau des volumes : non défini", self)
@@ -354,6 +369,15 @@ class MetadataCreatorWidget(QWidget):
     # ------------------------------------------------------------------
     # Gestion du tableau de correspondance spectres ↔ tubes
     # ------------------------------------------------------------------
+       # ------------------------------------------------------------------
+    # Gestion du tableau de correspondance spectres ↔ tubes
+    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Gestion du tableau de correspondance spectres ↔ tubes
+    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Gestion du tableau de correspondance spectres ↔ tubes
+    # ------------------------------------------------------------------
     def _on_edit_map_clicked(self) -> None:
         """
         Ouvre le dialog d'édition pour la correspondance spectres ↔ tubes.
@@ -365,163 +389,144 @@ class MetadataCreatorWidget(QWidget):
         - puis les lignes de correspondance NomSpectre ↔ Tube.
 
         Les noms de spectres sont automatiquement générés à partir du nom de la manip
-        sous la forme NomManip_00, NomManip_01, … (indice à 2 chiffres).
+        sous la forme NomManip_00, NomManip_01, … (indice à 2 chiffres) lors de la
+        première création du tableau.
         """
         default_cols = ["Nom du spectre", "Tube"]
 
-        # Récupération du nom de manipulation (champ utilisateur)
+        # 1) Récupération des informations d'en-tête depuis l'UI
         try:
             manip_name = self.edit_manip.text().strip() if hasattr(self, "edit_manip") else ""
         except Exception:
             manip_name = ""
 
         if not manip_name:
-            manip_name = "MANIP"
+            QMessageBox.warning(
+                self,
+                "Nom de la manip manquant",
+                "Veuillez renseigner le nom de la manip avant de créer la correspondance spectres ↔ tubes.",
+            )
+            return
 
-        meta_keys = [
-            "Nom de la manip :",
-            "Date :",
-            "Lieu :",
-            "Coordinateur :",
-            "Opérateur :",
+        # Date (format dd/MM/yyyy)
+        date_str = ""
+        if hasattr(self, "edit_date") and self.edit_date is not None:
+            try:
+                date_str = self.edit_date.date().toString("dd/MM/yyyy")
+            except Exception:
+                date_str = ""
+
+        # Lieu
+        location = ""
+        if hasattr(self, "edit_location") and self.edit_location is not None:
+            try:
+                location = self.edit_location.text().strip()
+            except Exception:
+                location = ""
+
+        # Coordinateur
+        coordinator = ""
+        if hasattr(self, "edit_coordinator") and self.edit_coordinator is not None:
+            try:
+                coordinator = self.edit_coordinator.text().strip()
+            except Exception:
+                coordinator = ""
+
+        # Opérateur
+        operator = ""
+        if hasattr(self, "edit_operator") and self.edit_operator is not None:
+            try:
+                operator = self.edit_operator.text().strip()
+            except Exception:
+                operator = ""
+
+        # 2) Lignes d'en-tête construites à partir de l'UI (toujours recalculées)
+        header_rows = [
+            ["Nom de la manip", manip_name],
+            ["Date", date_str],
+            ["Lieu", location],
+            ["Coordinateur", coordinator],
+            ["Opérateur", operator],
         ]
+        df_header = pd.DataFrame(header_rows, columns=default_cols)
 
-        # ---- Cas 1 : aucun tableau existant -> créer un gabarit par défaut ----
-        if self.df_map is None:
-            # 12 spectres par défaut
-            spec_names = [f"{manip_name}_{i:02d}" for i in range(12)]
-            self.df_map = pd.DataFrame(
+        blank_row = pd.DataFrame([["", ""]], columns=default_cols)
+        internal_header = pd.DataFrame([["Nom du spectre", "Tube"]], columns=default_cols)
+
+        # 3) Récupération de la partie "correspondance" existante si elle a déjà été éditée
+        mapping_rows = None
+        if self.df_map is not None and not self.df_map.empty:
+            existing = self.df_map.copy()
+
+            # On cherche la ligne d'en-tête interne "Nom du spectre" / "Tube"
+            hdr_idx = None
+            for idx, row in existing.iterrows():
+                left = str(row.get("Nom du spectre", "")).strip()
+                right = str(row.get("Tube", "")).strip()
+                if left == "Nom du spectre" and right == "Tube":
+                    hdr_idx = idx
+                    break
+
+            if hdr_idx is not None:
+                # Tout ce qui est après cette ligne correspond aux couples NomSpectre ↔ Tube
+                mapping_rows = existing.loc[hdr_idx + 1 :].reset_index(drop=True)
+            else:
+                # Pas d'en-tête interne clairement identifiable :
+                # on considère tout comme mapping existant
+                mapping_rows = existing.reset_index(drop=True)
+
+        # Si aucune correspondance existante, on génère un brouillon par défaut
+        if mapping_rows is None:
+            # Tubes par défaut : Tube MQW, Tube BRB, puis Tube 1..11
+            tube_labels = ["Tube MQW", "Tube BRB"] + [f"Tube {i}" for i in range(1, 12)]
+            mapping_rows = pd.DataFrame(
                 {
-                    "Nom du spectre": [
-                        "Nom de la manip :",
-                        "Date :",
-                        "Lieu :",
-                        "Coordinateur :",
-                        "Opérateur :",
-                        "",
-                        "Nom du spectre",
-                        *spec_names,
-                    ],
-                    "Tube": [
-                        manip_name,
-                        "01/01/2024",
-                        "Campus de la transition",
-                        "Dupont",
-                        "Durand",
-                        "",
-                        "Tube",
-                        "Tube BRB",
-                        "Tube 1",
-                        "Tube 2",
-                        "Tube 3",
-                        "Tube 4",
-                        "Tube 5",
-                        "Tube 6",
-                        "Tube 7",
-                        "Tube 8",
-                        "Tube 9",
-                        "Tube 10",
-                        "Tube MQW",
-                    ],
-                }
+                    "Nom du spectre": [f"{manip_name}_{i:02d}" for i in range(len(tube_labels))],
+                    "Tube": tube_labels,
+                },
+                columns=default_cols,
             )
 
-        # ---- Cas 2 : un tableau existe déjà -> on le réutilise tel quel ----
-        # Dans tous les cas à partir d'ici, self.df_map existe.
-        # On met à jour les lignes d'en-tête à partir des champs UI.
-        try:
-            col_ns = self.df_map["Nom du spectre"].astype(str).str.strip()
-
-            # Nom de la manip
-            mask_manip = col_ns == "Nom de la manip :"
-            if mask_manip.any():
-                self.df_map.loc[mask_manip, "Tube"] = manip_name
-
-            # Date
-            date_str = ""
-            if hasattr(self, "edit_date") and self.edit_date is not None:
-                try:
-                    date_str = self.edit_date.date().toString("dd/MM/yyyy")
-                except Exception:
-                    date_str = ""
-            mask_date = col_ns == "Date :"
-            if mask_date.any():
-                self.df_map.loc[mask_date, "Tube"] = date_str
-
-            # Lieu
-            location = ""
-            if hasattr(self, "edit_location") and self.edit_location is not None:
-                try:
-                    location = (self.edit_location.text() or "").strip()
-                except Exception:
-                    location = ""
-            mask_lieu = col_ns == "Lieu :"
-            if mask_lieu.any():
-                self.df_map.loc[mask_lieu, "Tube"] = location
-
-            # Coordinateur
-            coordinator = ""
-            if hasattr(self, "edit_coordinator") and self.edit_coordinator is not None:
-                try:
-                    coordinator = (self.edit_coordinator.text() or "").strip()
-                except Exception:
-                    coordinator = ""
-            mask_coord = col_ns == "Coordinateur :"
-            if mask_coord.any():
-                self.df_map.loc[mask_coord, "Tube"] = coordinator
-
-            # Opérateur
-            operator = ""
-            if hasattr(self, "edit_operator") and self.edit_operator is not None:
-                try:
-                    operator = (self.edit_operator.text() or "").strip()
-                except Exception:
-                    operator = ""
-            mask_oper = col_ns == "Opérateur :"
-            if mask_oper.any():
-                self.df_map.loc[mask_oper, "Tube"] = operator
-
-        except Exception:
-            pass
-
-        # Regénérer automatiquement les noms de spectres (NomManip_XX)
-        # try:
-        #     col_ns = self.df_map["Nom du spectre"].astype(str).str.strip()
-        #     mask_mapping = ~col_ns.isin(meta_keys + ["", "Nom du spectre"])
-        #     idx_mapping = list(self.df_map.index[mask_mapping])
-        #     for k, idx in enumerate(idx_mapping):
-        #         self.df_map.loc[idx, "Nom du spectre"] = f"{manip_name}_{k:02d}"
-        # except Exception:
-        #     pass
-
-        # Ouvrir le dialogue d'édition avec le DataFrame actuel
-        dlg = TableEditorDialog(
-            title="Tableau de correspondance spectres ↔ tubes",
-            columns=default_cols,
-            initial_df=self.df_map,
-            parent=self,
+        # 4) DataFrame initial passé au TableEditorDialog
+        initial_df = pd.concat(
+            [df_header, blank_row, internal_header, mapping_rows],
+            ignore_index=True,
         )
 
-        if dlg.exec() == QDialog.Accepted:
-            df = dlg.to_dataframe()
-            if df.empty:
-                QMessageBox.warning(self, "Tableau vide", "Le tableau de correspondance est vide.")
-                return
+        # 5) Ouverture du dialogue d'édition
+        dlg = TableEditorDialog(
+            title="Correspondance spectres ↔ tubes",
+            columns=default_cols,
+            initial_df=initial_df,
+            parent=self,
+        )
+        if dlg.exec() != QDialog.Accepted:
+            return
 
-            self.df_map = df
-            self.lbl_status_map.setText(
-                f"Tableau de correspondance : {df.shape[0]} ligne(s), {df.shape[1]} colonne(s)"
-            )
+        # 6) Récupération du tableau édité et MISE À JOUR forcée des lignes d'en-tête
+        df = dlg.to_dataframe()
+        if df.empty:
+            QMessageBox.warning(self, "Tableau vide", "Le tableau de correspondance est vide.")
+            return
 
-            # Synchroniser le champ "Nom de la manip" depuis le tableau, si présent
-            try:
-                col_ns = self.df_map["Nom du spectre"].astype(str).str.strip()
-                mask = col_ns == "Nom de la manip :"
-                if mask.any() and hasattr(self, "edit_manip"):
-                    val = str(self.df_map.loc[mask, "Tube"].iloc[0])
-                    self.edit_manip.setText(val)
-            except Exception:
-                pass
+        # On force les valeurs des lignes d'en-tête à partir de l'UI, pour éviter
+        # tout décalage : le clic sur le bouton reflète immédiatement les derniers champs saisis.
+        header_values = {
+            "Nom de la manip": manip_name,
+            "Date": date_str,
+            "Lieu": location,
+            "Coordinateur": coordinator,
+            "Opérateur": operator,
+        }
+        for idx in df.index:
+            label = str(df.at[idx, "Nom du spectre"]).strip()
+            if label in header_values:
+                df.at[idx, "Tube"] = header_values[label]
+
+        self.df_map = df
+        self.lbl_status_map.setText(
+            f"Tableau de correspondance : {df.shape[0]} ligne(s), {df.shape[1]} colonne(s)"
+        )
 
     # ------------------------------------------------------------------
     # Calcul du tableau des concentrations à partir des volumes
@@ -693,186 +698,6 @@ class MetadataCreatorWidget(QWidget):
         )
         dlg.exec()
 
-    # ------------------------------------------------------------------
-    # Gestion du tableau de correspondance spectres/tubes
-    # ------------------------------------------------------------------
-    def _on_edit_map_clicked(self) -> None:
-        """
-        Ouvre le dialog d'édition pour la correspondance spectres ↔ tubes.
-
-        Le modèle par défaut suit la structure Excel : deux colonnes
-        "Nom du spectre" et "Tube", avec les premières lignes utilisées pour
-        les métadonnées (Nom de la manip, Date, Lieu, Coordinateur, Opérateur),
-        puis une ligne d'en-tête "Nom du spectre" / "Tube" et enfin la liste des spectres.
-
-        Les noms de spectres sont automatiquement générés à partir du nom de la manipulation
-        sous la forme NomManip_00, NomManip_01, … (indice à 2 chiffres).
-        """
-        default_cols = ["Nom du spectre", "Tube"]
-
-        # ───────────────────────────────────────────────────────────────
-        # Récupération du nom de manipulation (champ utilisateur)
-        # ───────────────────────────────────────────────────────────────
-        try:
-            manip_name = self.edit_manip.text().strip() if hasattr(self, "edit_manip") else ""
-        except Exception:
-            manip_name = ""
-
-        if not manip_name:
-            manip_name = "MANIP"
-
-        # Entrées méta selon le format Excel d'origine
-        meta_keys = [
-            "Nom de la manip :",
-            "Date :",
-            "Lieu :",
-            "Coordinateur :",
-            "Opérateur :",
-        ]
-
-        # ───────────────────────────────────────────────────────────────
-        # Cas 1 : Aucun tableau existant → créer une version par défaut
-        # ───────────────────────────────────────────────────────────────
-        if self.df_map is None:
-            # Créer 12 spectres par défaut
-            spec_names = [f"{manip_name}_{i:02d}" for i in range(12)]
-            self.df_map = pd.DataFrame(
-                {
-                    "Nom du spectre": [
-                        "Nom de la manip :",
-                        "Date :",
-                        "Lieu :",
-                        "Coordinateur :",
-                        "Opérateur :",
-                        "",
-                        "Nom du spectre",
-                        *spec_names,
-                    ],
-                    "Tube": [
-                        manip_name,
-                        "01/01/2024",
-                        "Campus de la transition",
-                        "Dupont",
-                        "Durand",
-                        "",
-                        "Tube",
-                        "Tube BRB",
-                        "Tube 1",
-                        "Tube 2",
-                        "Tube 3",
-                        "Tube 4",
-                        "Tube 5",
-                        "Tube 6",
-                        "Tube 7",
-                        "Tube 8",
-                        "Tube 9",
-                        "Tube 10",
-                        "Tube MQW",
-                    ],
-                }
-            )
-
-        # ───────────────────────────────────────────────────────────────
-        # Cas 2 : Un tableau existe déjà → mettre à jour méta + spectres
-        # ───────────────────────────────────────────────────────────────
-        else:
-            try:
-                col_ns = self.df_map["Nom du spectre"].astype(str).str.strip()
-
-                # --- Mise à jour : Nom de la manip ---
-                mask = col_ns == "Nom de la manip :"
-                if mask.any():
-                    self.df_map.loc[mask, "Tube"] = manip_name
-
-                # --- Mise à jour : Date ---
-                date_str = ""
-                if hasattr(self, "edit_date") and self.edit_date is not None:
-                    try:
-                        date_str = self.edit_date.date().toString("dd/MM/yyyy")
-                    except Exception:
-                        date_str = ""
-                mask = col_ns == "Date :"
-                if mask.any():
-                    self.df_map.loc[mask, "Tube"] = date_str
-
-                # --- Mise à jour : Lieu ---
-                location = ""
-                if hasattr(self, "edit_location") and self.edit_location is not None:
-                    try:
-                        location = (self.edit_location.text() or "").strip()
-                    except Exception:
-                        location = ""
-                mask = col_ns == "Lieu :"
-                if mask.any():
-                    self.df_map.loc[mask, "Tube"] = location
-
-                # --- Mise à jour : Coordinateur ---
-                coordinator = ""
-                if hasattr(self, "edit_coordinator") and self.edit_coordinator is not None:
-                    try:
-                        coordinator = (self.edit_coordinator.text() or "").strip()
-                    except Exception:
-                        coordinator = ""
-                mask = col_ns == "Coordinateur :"
-                if mask.any():
-                    self.df_map.loc[mask, "Tube"] = coordinator
-
-                # --- Mise à jour : Opérateur ---
-                operator = ""
-                if hasattr(self, "edit_operator") and self.edit_operator is not None:
-                    try:
-                        operator = (self.edit_operator.text() or "").strip()
-                    except Exception:
-                        operator = ""
-                mask = col_ns == "Opérateur :"
-                if mask.any():
-                    self.df_map.loc[mask, "Tube"] = operator
-
-            except Exception:
-                pass
-
-            # --- Regénérer automatiquement les noms de spectres (NomManip_XX) ---
-            try:
-                col_ns = self.df_map["Nom du spectre"].astype(str).str.strip()
-                mask_mapping = ~col_ns.isin(meta_keys + ["", "Nom du spectre"])
-                idx_mapping = list(self.df_map.index[mask_mapping])
-                for k, idx in enumerate(idx_mapping):
-                    self.df_map.loc[idx, "Nom du spectre"] = f"{manip_name}_{k:02d}"
-            except Exception:
-                pass
-
-        # ───────────────────────────────────────────────────────────────
-        # Ouverture du tableau d'édition (dialog)
-        # ───────────────────────────────────────────────────────────────
-        dlg = TableEditorDialog(
-            title="Tableau de correspondance spectres ↔ tubes",
-            columns=default_cols,
-            initial_df=self.df_map,
-            parent=self,
-        )
-
-        if dlg.exec() == QDialog.Accepted:
-            df = dlg.to_dataframe()
-
-            if df.empty:
-                QMessageBox.warning(self, "Tableau vide", "Le tableau de correspondance est vide.")
-                return
-
-            self.df_map = df
-            self.lbl_status_map.setText(
-                f"Tableau de correspondance : {df.shape[0]} ligne(s), {df.shape[1]} colonne(s)"
-            )
-
-            # Synchroniser le champ "Nom de la manip"
-            try:
-                col_ns = self.df_map["Nom du spectre"].astype(str).str.strip()
-                mask = col_ns == "Nom de la manip :"
-                if mask.any():
-                    val = str(self.df_map.loc[mask, "Tube"].iloc[0])
-                    if hasattr(self, "edit_manip"):
-                        self.edit_manip.setText(val)
-            except Exception:
-                pass
 
     # ------------------------------------------------------------------
     # Méthode utilitaire optionnelle
@@ -951,26 +776,30 @@ class MetadataCreatorWidget(QWidget):
                     # Joindre ces colonnes par tube
                     meta = meta.merge(conc_wide, on="Tube", how="left")
 
-                    # Tenter de détecter une colonne EGTA (nom de réactif contenant "egta")
-                    egta_candidates: list[str] = []
+                    # Tenter de détecter une colonne correspondant au titrant.
+                    # On considère comme titrant :
+                    #  - tout réactif dont le nom contient "titrant"
+                    #  - ou, par compatibilité descendante, "egta"
+                    #  - ou les variantes de "solution b" utilisées dans ton protocole.
+                    titrant_candidates: list[str] = []
                     for col in conc_wide.columns:
                         name_low = str(col).strip().lower()
-                        # 1) Cas général : le nom du réactif contient explicitement "egta"
-                        if "egta" in name_low:
-                            egta_candidates.append(col)
-                        # 2) Cas spécifique à ton protocole : la solution B est l'EGTA
+                        # 1) Cas général : le nom du réactif contient explicitement "titrant" ou "egta"
+                        if ("titrant" in name_low) or ("egta" in name_low):
+                            titrant_candidates.append(col)
+                        # 2) Cas spécifique à ton protocole : la solution B est le titrant
                         elif name_low in {"solution b", "solutionb", "sol b", "solb", "b"}:
-                            egta_candidates.append(col)
+                            titrant_candidates.append(col)
 
-                    # Si rien n'a été trouvé, egta_candidates restera vide et on n'ajoutera
-                    # pas les colonnes [EGTA].
-                    if egta_candidates:
-                        egta_col = egta_candidates[0]
-                        # S'assurer que la colonne EGTA est bien numérique (sinon NaN)
-                        meta[egta_col] = pd.to_numeric(meta[egta_col], errors="coerce")
-                        # Colonnes explicites pour l'analyse : [EGTA] (M) et [EGTA] (mM)
-                        meta["[EGTA] (M)"] = meta[egta_col]
-                        meta["[EGTA] (mM)"] = meta[egta_col] * 1e3
+                    # Si rien n'a été trouvé, titrant_candidates restera vide et on n'ajoutera
+                    # pas les colonnes [titrant].
+                    if titrant_candidates:
+                        titrant_col = titrant_candidates[0]
+                        # S'assurer que la colonne titrant est bien numérique
+                        meta[titrant_col] = pd.to_numeric(meta[titrant_col], errors="coerce")
+                        # Colonnes explicites pour l'analyse : [titrant] (M) et [titrant] (mM)
+                        meta["[titrant] (M)"] = meta[titrant_col]
+                        meta["[titrant] (mM)"] = meta[titrant_col] * 1e3
 
         # Exclure explicitement les tubes de type "Tube BRB" et "Tube MQW"
         # des métadonnées utilisées pour l'assemblage (tracés, analyse)
@@ -979,8 +808,138 @@ class MetadataCreatorWidget(QWidget):
         # Réindexer proprement
         meta = meta.reset_index(drop=True)
 
-        #TEST
-        print("\n=== Spectrum name depuis les métadonnées ===")
-        print(meta["Spectrum name"].unique()[:20])
-
         return meta
+    def _update_header_fields_from_df_map(self) -> None:
+        """Met à jour les champs Nom de la manip, Date, Lieu, Coordinateur, Opérateur
+        à partir des premières lignes du tableau de correspondance df_map, si possible.
+        """
+        if self.df_map is None or self.df_map.empty:
+            return
+        if "Nom du spectre" not in self.df_map.columns or "Tube" not in self.df_map.columns:
+            return
+
+        df = self.df_map
+        col_ns = df["Nom du spectre"].astype(str).str.strip()
+        col_tube = df["Tube"].astype(str)
+
+        def _value_for(label: str) -> str:
+            mask = col_ns == label
+            if mask.any():
+                return col_tube[mask].iloc[0].strip()
+            return ""
+
+        # Nom de la manip
+        name_val = _value_for("Nom de la manip :")
+        if name_val and hasattr(self, "edit_manip"):
+            self.edit_manip.setText(name_val)
+
+        # Date
+        date_val = _value_for("Date :")
+        if date_val and hasattr(self, "edit_date"):
+            qd = QDate.fromString(date_val, "dd/MM/yyyy")
+            if qd.isValid():
+                self.edit_date.setDate(qd)
+
+        # Lieu
+        loc_val = _value_for("Lieu :")
+        if loc_val and hasattr(self, "edit_location"):
+            self.edit_location.setText(loc_val)
+
+        # Coordinateur
+        coord_val = _value_for("Coordinateur :")
+        if coord_val and hasattr(self, "edit_coordinator"):
+            self.edit_coordinator.setText(coord_val)
+
+        # Opérateur
+        oper_val = _value_for("Opérateur :")
+        if oper_val and hasattr(self, "edit_operator"):
+            self.edit_operator.setText(oper_val)
+
+    # ------------------------------------------------------------------
+    # Sauvegarde / chargement des métadonnées complètes
+    # ------------------------------------------------------------------
+    def _on_save_metadata_clicked(self) -> None:
+        """Enregistre df_comp, df_conc (si dispo) et df_map dans un fichier Excel."""
+        if self.df_comp is None or self.df_map is None:
+            QMessageBox.warning(
+                self,
+                "Métadonnées incomplètes",
+                "Impossible d'enregistrer : le tableau des volumes ou la correspondance spectres ↔ tubes n'est pas encore défini.",
+            )
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Enregistrer les métadonnées",
+            "",
+            "Fichier Excel (*.xlsx)"
+        )
+        if not path:
+            return
+
+        try:
+            with pd.ExcelWriter(path) as writer:
+                self.df_comp.to_excel(writer, sheet_name="Volumes", index=False)
+                if self.df_conc is not None and isinstance(self.df_conc, pd.DataFrame) and not self.df_conc.empty:
+                    self.df_conc.to_excel(writer, sheet_name="Concentrations", index=False)
+                self.df_map.to_excel(writer, sheet_name="Correspondance", index=False)
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Erreur d'enregistrement",
+                f"Impossible d'enregistrer les métadonnées dans le fichier :\n{e}",
+            )
+            return
+
+        QMessageBox.information(self, "Enregistrement réussi", f"Métadonnées enregistrées dans :\n{path}")
+
+    def _on_load_metadata_clicked(self) -> None:
+        """Charge df_comp, df_conc et df_map à partir d'un fichier Excel précédemment sauvegardé."""
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Charger des métadonnées",
+            "",
+            "Fichier Excel (*.xlsx)"
+        )
+        if not path:
+            return
+
+        try:
+            xls = pd.ExcelFile(path)
+            # Volumes
+            if "Volumes" in xls.sheet_names:
+                self.df_comp = pd.read_excel(xls, sheet_name="Volumes")
+                self.lbl_status_comp.setText(
+                    f"Tableau des volumes : {self.df_comp.shape[0]} ligne(s), {self.df_comp.shape[1]} colonne(s)"
+                )
+            # Concentrations (optionnel)
+            if "Concentrations" in xls.sheet_names:
+                self.df_conc = pd.read_excel(xls, sheet_name="Concentrations")
+            else:
+                # Recalculer à partir de df_comp si possible
+                try:
+                    self.df_conc = self._compute_concentration_table()
+                except Exception:
+                    self.df_conc = None
+
+            # Correspondance
+            if "Correspondance" in xls.sheet_names:
+                self.df_map = pd.read_excel(xls, sheet_name="Correspondance")
+                self.lbl_status_map.setText(
+                    f"Tableau de correspondance : {self.df_map.shape[0]} ligne(s), {self.df_map.shape[1]} colonne(s)"
+                )
+                # Mettre à jour les champs d'en-tête d'après df_map
+                self._update_header_fields_from_df_map()
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Feuille manquante",
+                    "La feuille 'Correspondance' est absente du fichier Excel chargé.\n"
+                    "Le tableau de correspondance n'a pas pu être restauré.",
+                )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Erreur de chargement",
+                f"Impossible de charger les métadonnées depuis le fichier :\n{e}",
+            )

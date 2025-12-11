@@ -62,46 +62,137 @@ class MainWindow(QMainWindow):
             """
             <h2>Présentation &amp; mode d'emploi</h2>
             <p>Bienvenue dans l'application <b>Ramanalyze</b>. 
-            Cette interface vous guide du chargement des fichiers jusqu'à l'analyse des pics.</p>
+            Cette interface vous guide du chargement des fichiers jusqu'à l'analyse des pics et la PCA.</p>
 
             <h3>1. Onglet <i>Fichiers</i></h3>
             <ul>
               <li>Naviguez dans l'arborescence pour sélectionner un ou plusieurs fichiers <code>.txt</code> de spectres.</li>
               <li>Cliquez sur <b>Ajouter la sélection</b> pour les ajouter à la liste de droite.</li>
               <li>Utilisez <b>Retirer</b> pour enlever les éléments sélectionnés et <b>Vider la liste</b> pour repartir de zéro.</li>
+              <li>Les fichiers <code>.txt</code> sélectionnés seront utilisés par les onglets <i>Spectres</i>, <i>PCA</i> et <i>Analyse</i>.</li>
             </ul>
 
             <h3>2. Onglet <i>Métadonnées</i></h3>
+            <p>Dans cette version, il n’y a plus de fichiers Excel de métadonnées à charger : 
+            tout est créé directement dans le programme sous forme de tableaux éditables (type Excel), 
+            mais stockés en interne comme des DataFrames pandas.</p>
+
             <ul>
-              <li>Sélectionnez d'abord le <b>fichier de composition des tubes</b> (contenant les concentrations, par ex. <code>C(EGTA)</code>, les volumes, etc.), puis cliquez sur <b>Valider le fichier de composition des tubes</b>.</li>
-              <li>Sélectionnez ensuite le <b>fichier de correspondance des noms de spectres</b> (qui associe chaque nom de spectre <code>GCXXX_…</code> au tube correspondant), puis cliquez sur <b>Valider le fichier de correspondance des noms de spectres</b>.</li>
-              <li>Vérifiez le contenu dans la table de visualisation (tri, défilement) pour contrôler que les données sont correctes.</li>
-              <li>Cliquez sur <b>Assembler (données au format txt + métadonnées)</b> pour fusionner les fichiers <code>.txt</code> de spectres avec les deux fichiers de métadonnées.</li>
-              <li>Si besoin, cliquez sur <b>Enregistrer le fichier</b> pour sauvegarder le fichier combiné (au choix <code>.csv</code> ou <code>.xlsx</code>). Ce fichier combiné est ensuite utilisé par les onglets <i>Spectres</i> et <i>Analyse</i>.</li>
+              <li>Commencez par renseigner les champs d’en-tête :
+                <ul>
+                  <li><b>Nom de la manip</b> (ex. <code>GC525_20251203</code>)</li>
+                  <li><b>Date</b> (sélection via un calendrier)</li>
+                  <li><b>Lieu</b> (laboratoire, terrain, etc.)</li>
+                  <li><b>Coordinateur</b></li>
+                  <li><b>Opérateur</b></li>
+                </ul>
+                Ces informations sont recopiées automatiquement dans le tableau de correspondance spectres ↔ tubes.
+              </li>
+
+              <li>Cliquez sur <b>Créer / éditer le tableau des volumes</b> pour définir la composition des tubes :
+                <ul>
+                  <li>Chaque ligne correspond à un réactif (échantillon, eau de contrôle, Solution A, Solution B, etc.).</li>
+                  <li>Vous indiquez pour chaque réactif sa <b>concentration</b> et son <b>unité</b> (par ex. <code>0,5 µM</code>, <code>4 mM</code>, <code>% en masse</code>, …).</li>
+                  <li>Les colonnes <b>Tube 1</b> à <b>Tube 11</b> contiennent les volumes ajoutés dans chaque tube (en µL).</li>
+                  <li>Un tableau par défaut est proposé (pré-rempli) que vous pouvez adapter à votre protocole.</li>
+                </ul>
+              </li>
+
+              <li>Cliquez sur <b>Calculer / afficher le tableau des concentrations</b> :
+                <ul>
+                  <li>Le programme calcule automatiquement, pour chaque tube, le <b>volume total</b> (en µL).</li>
+                  <li>Pour chaque réactif, la <b>concentration finale</b> dans chaque tube est calculée en tenant compte :
+                    <ul>
+                      <li>de la concentration de stock (convertie en M : M, mM, µM, …)</li>
+                      <li>et des volumes (convertis en L : µL → L).</li>
+                    </ul>
+                  </li>
+                  <li>Un réactif identifié comme <b>titrant</b> (par exemple <code>Solution B</code>) donne lieu à des colonnes dédiées 
+                  <code>[titrant] (M)</code> et <code>[titrant] (mM)</code> utilisées dans l’onglet Analyse.</li>
+                </ul>
+              </li>
+
+              <li>Cliquez sur <b>Créer / éditer la correspondance spectres ↔ tubes</b> :
+                <ul>
+                  <li>Un tableau structuré est généré avec :
+                    <ul>
+                      <li>quelques lignes d’en-tête (Nom de la manip, Date, Lieu, Coordinateur, Opérateur),</li>
+                      <li>puis une section <b>Nom du spectre / Tube</b>.</li>
+                    </ul>
+                  </li>
+                  <li>Les noms de spectres sont automatiquement pré-remplis à partir du nom de la manip, 
+                  sous la forme <code>NomManip_00</code>, <code>NomManip_01</code>, …</li>
+                  <li>Les tubes <b>Tube BRB</b>, <b>Tube MQW</b> et les tubes numérotés (Tube 1, Tube 2, …) sont également pré-remplis.</li>
+                  <li>Vous pouvez ajuster ces correspondances si nécessaire (par exemple si certains spectres sont manquants ou en double).</li>
+                </ul>
+              </li>
+
+              <li>Les tableaux de volumes, de concentrations et de correspondance sont ensuite utilisés par les onglets 
+              <i>Spectres</i>, <i>PCA</i> et <i>Analyse</i> pour reconstruire un fichier combiné interne 
+              (<b>aucun fichier Excel de métadonnées n’est plus nécessaire</b>).</li>
             </ul>
 
             <h3>3. Onglet <i>Spectres</i></h3>
             <ul>
-              <li>Le tracé utilise directement le <b>fichier combiné</b> (quand il existe) pour afficher les courbes.</li>
-              <li>Les légendes utilisent prioritairement la colonne <b>Sample description</b> issue de l'Excel.</li>
-              <li>Si le fichier combiné n'est pas encore prêt, un mode de secours relit les <code>.txt</code> (moins recommandé).</li>
+              <li>Le tracé utilise directement le <b>fichier combiné interne</b> (spectres txt + métadonnées) 
+              construit à partir de l’onglet <i>Métadonnées</i>.</li>
+              <li>Dès que les métadonnées sont définies, les légendes utilisent prioritairement la colonne 
+              <b>Sample description</b> (issue du tableau de correspondance).</li>
+              <li>Si les métadonnées ne sont pas encore complètes, un mode de secours peut afficher simplement les spectres 
+              à partir des fichiers <code>.txt</code> (avec des noms de fichiers bruts).</li>
             </ul>
 
             <h3>4. Onglet <i>Analyse</i></h3>
             <ul>
-              <li>Cliquez sur <b>Recharger le fichier combiné</b> si nécessaire (après l'avoir validé dans Métadonnées).</li>
-              <li>Choisissez un <b>jeu de pics</b> (ex. 532 nm ou 785 nm) et une <b>tolérance</b> en cm⁻¹.</li>
-              <li>Cliquez sur <b>Analyser les pics</b> pour calculer les intensités autour des pics et tous les ratios.</li>
-              <li>Le tableau affiche toutes les lignes ; le <b>graphique Plotly</b> montre les rapports d'intensité selon [EGTA].</li>
-              <li>Utilisez <b>Exporter résultats (Excel)…</b> pour sauvegarder les tables <i>intensites</i> et <i>ratios</i>.</li>
+              <li>Cliquez sur <b>Recharger le fichier combiné depuis Métadonnées</b> pour (re)construire le DataFrame fusionné 
+              à partir des fichiers <code>.txt</code> et des tableaux créés dans l’onglet <i>Métadonnées</i>.</li>
+              <li>Choisissez un <b>jeu de pics</b> (par exemple :
+                <ul>
+                  <li><b>532 nm</b> avec les pics 1231, 1327, 1342, 1358, 1450 cm⁻¹</li>
+                  <li><b>785 nm</b> avec les pics 412, 444, 471, 547, 1561 cm⁻¹</li>
+                  <li>ou un mode <b>Personnalisé</b> où vous saisissez directement les décalages Raman.</li>
+                </ul>
+              </li>
+              <li>Réglez la <b>tolérance</b> (fenêtre en cm⁻¹ autour de chaque pic) puis cliquez sur 
+              <b>Analyser les pics</b> :
+                <ul>
+                  <li>pour chaque spectre, l’intensité maximale est extraite autour de chaque pic choisi ;</li>
+                  <li>tous les <b>rapports d’intensité</b> entre paires de pics sont calculés (ratio I_a / I_b).</li>
+                </ul>
+              </li>
+              <li>Le <b>tableau des intensités et des ratios</b> peut être affiché ou masqué pour gagner de la place.</li>
+              <li>Le <b>graphique Plotly</b> affiche les rapports d’intensité en fonction de la quantité de <b>titrant</b> :
+                <ul>
+                  <li>l’axe X correspond à <code>n(titrant) (mol)</code> quand c’est possible,</li>
+                  <li>cette quantité est calculée à partir des concentrations finales (<code>[titrant] (M)</code>) 
+                  et du volume de cuvette (<code>V cuvette (µL)</code>).</li>
+                </ul>
+              </li>
+              <li>Utilisez <b>Exporter résultats (Excel)…</b> pour sauvegarder les tables d’intensités et de ratios 
+              et poursuivre l’analyse dans un autre logiciel.</li>
+            </ul>
+
+            <h3>5. Onglet <i>PCA</i></h3>
+            <ul>
+              <li>Cliquez sur <b>Recharger le fichier combiné depuis Métadonnées</b> pour récupérer le même fichier combiné 
+              utilisé par l’onglet <i>Analyse</i>.</li>
+              <li>Choisissez une plage de <b>Raman Shift</b> (min/max) ainsi qu’un mode de <b>normalisation</b> 
+              (aucune, norme L2, standardisation).</li>
+              <li>Lancez la <b>PCA</b> pour :
+                <ul>
+                  <li>afficher un nuage de points des <b>scores PCA</b> (PC1 vs PC2, colorés par une métadonnée au choix),</li>
+                  <li>visualiser les <b>loadings</b> (poids des composantes en fonction du shift Raman),</li>
+                  <li>comparer un spectre original et sa <b>reconstruction</b> à partir des composantes principales.</li>
+                </ul>
+              </li>
             </ul>
 
             <h3>Conseils &amp; remarques</h3>
             <ul>
-              <li>Le nom des courbes provient de <b>Sample description</b> dès que le fichier combiné est disponible.</li>
-              <li>La correction de baseline (<i>modpoly</i>) est réalisée lors de l'assemblage.</li>
-              <li>Vous pouvez trier les colonnes des tableaux en cliquant sur leurs en-têtes.</li>
-              <li>Pour des performances optimales, évitez d'ouvrir des centaines de fichiers simultanément.</li>
+              <li>Le nom des courbes dans les tracés provient de <b>Sample description</b> dès que les métadonnées sont complètes.</li>
+              <li>La correction de baseline (<i>modpoly</i>) est appliquée lors de la construction du fichier combiné.</li>
+              <li>Vous pouvez trier les colonnes des tableaux en cliquant sur leurs en-têtes et utiliser les barres de défilement pour explorer toutes les lignes.</li>
+              <li>Pour des performances optimales, évitez d’ouvrir des centaines de fichiers simultanément.</li>
             </ul>
             """
         )

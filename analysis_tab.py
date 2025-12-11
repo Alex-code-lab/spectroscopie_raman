@@ -121,7 +121,7 @@ class AnalysisTab(QWidget):
         self.table.setVisible(False)
 
         # Graphique des ratios
-        layout.addWidget(QLabel("<b>Graphique – Rapports d’intensité Raman selon [EGTA]</b>"))
+        layout.addWidget(QLabel("<b>Graphique – Rapports d’intensité Raman selon [titrant]</b>"))
         self.plot_view = QWebEngineView(self)
         layout.addWidget(self.plot_view, 1)
 
@@ -181,10 +181,6 @@ class AnalysisTab(QWidget):
         # Récupérer le créateur de métadonnées
         metadata_creator = getattr(main, "metadata_creator", None)
         if metadata_creator is None or not hasattr(metadata_creator, "build_merged_metadata"):
-            # TEST
-            print("DEBUG metadata_creator:", metadata_creator)
-            print("DEBUG has build_merged_metadata ? ", hasattr(metadata_creator, "build_merged_metadata"))
-            # FIN TEST
             self._combined_df = None
             self.lbl_status.setText("Fichier combiné : non chargé ✗ — définissez d'abord les métadonnées dans l'onglet Métadonnées")
             QMessageBox.warning(
@@ -279,11 +275,6 @@ class AnalysisTab(QWidget):
         # On travaille sur une copie locale pour ne pas modifier le fichier combiné global
         df = self._combined_df.copy()
         
-        # TEST 
-        print("\n=== Colonnes du combined_df ===")
-        print(df.columns.tolist())
-        print(df.head())
-        # FIN TEST
 
         required = {"Raman Shift", "Intensity_corrected", "file"}
         if not required.issubset(df.columns):
@@ -363,43 +354,43 @@ class AnalysisTab(QWidget):
         metadata_df = df[meta_cols].drop_duplicates(subset=["Spectrum name"], keep="first") if "Spectrum name" in df.columns else None
         merged = peak_intensities.merge(metadata_df, on="Spectrum name", how="left") if metadata_df is not None else peak_intensities.copy()
 
-        # Harmonisation de la colonne utilisée pour l'axe X (EGTA)
-        # Objectif : disposer d'une colonne 'n(EGTA) (mol)' quand c'est possible,
+        # Harmonisation de la colonne utilisée pour l'axe X (titrant)
+        # Objectif : disposer d'une colonne 'n(titrant) (mol)' quand c'est possible,
         # en restant compatible avec :
         #  - les anciens fichiers (GC514) qui utilisent 'C (EGTA) (M)' et volume en mL
         #  - les nouveaux tableaux générés dans MetadataCreator, qui fournissent
-        #    '[EGTA] (M)' et 'V cuvette (µL)'.
-        if "n(EGTA) (mol)" not in merged.columns:
+        #    '[titrant] (M)' et 'V cuvette (µL)'.
+        if "n(titrant) (mol)" not in merged.columns:
             # 1) Cas anciens fichiers : C (EGTA) (M) et volume en mL
             if "C (EGTA) (M)" in merged.columns and "V cuvette (mL)" in merged.columns:
                 c = pd.to_numeric(merged["C (EGTA) (M)"], errors="coerce")
                 v_ml = pd.to_numeric(merged["V cuvette (mL)"], errors="coerce")
                 # n = C * V(L) = C * V(mL)/1000
-                merged["n(EGTA) (mol)"] = c * v_ml * 1e-3
+                merged["n(titrant) (mol)"] = c * v_ml * 1e-3
             elif "C (EGTA) (M)" in merged.columns:
                 # Cas Angelina : pas de volume explicite, on utilise la concentration comme proxy
                 c = pd.to_numeric(merged["C (EGTA) (M)"], errors="coerce")
-                merged["n(EGTA) (mol)"] = c
+                merged["n(titrant) (mol)"] = c
 
-            # 2) Nouveau pipeline : colonne [EGTA] (M) et volume en µL ou mL
-            elif "[EGTA] (M)" in merged.columns and "V cuvette (µL)" in merged.columns:
-                c = pd.to_numeric(merged["[EGTA] (M)"], errors="coerce")
+            # 2) Nouveau pipeline : colonne [titrant] (M) et volume en µL ou mL
+            elif "[titrant] (M)" in merged.columns and "V cuvette (µL)" in merged.columns:
+                c = pd.to_numeric(merged["[titrant] (M)"], errors="coerce")
                 v_ul = pd.to_numeric(merged["V cuvette (µL)"], errors="coerce")
                 # n = C * V(L) = C * V(µL) * 1e-6
-                merged["n(EGTA) (mol)"] = c * v_ul * 1e-6
-            elif "[EGTA] (M)" in merged.columns and "V cuvette (mL)" in merged.columns:
-                c = pd.to_numeric(merged["[EGTA] (M)"], errors="coerce")
+                merged["n(titrant) (mol)"] = c * v_ul * 1e-6
+            elif "[titrant] (M)" in merged.columns and "V cuvette (mL)" in merged.columns:
+                c = pd.to_numeric(merged["[titrant] (M)"], errors="coerce")
                 v_ml = pd.to_numeric(merged["V cuvette (mL)"], errors="coerce")
-                merged["n(EGTA) (mol)"] = c * v_ml * 1e-3
-            elif "[EGTA] (M)" in merged.columns:
+                merged["n(titrant) (mol)"] = c * v_ml * 1e-3
+            elif "[titrant] (M)" in merged.columns:
                 # Pas de volume explicite : on utilise la concentration comme axe,
-                # ce qui garde un axe croissant en EGTA (unité "mol" approximative ici).
-                c = pd.to_numeric(merged["[EGTA] (M)"], errors="coerce")
-                merged["n(EGTA) (mol)"] = c
+                # ce qui garde un axe croissant en titrant (unité "mol" approximative ici).
+                c = pd.to_numeric(merged["[titrant] (M)"], errors="coerce")
+                merged["n(titrant) (mol)"] = c
 
         # Mise en forme long pour les ratios
         ratio_cols = [c for c in merged.columns if c.startswith("ratio_I_")]
-        id_vars = [c for c in ["file", "Spectrum name", "Sample description", "n(EGTA) (mol)"] if c in merged.columns]
+        id_vars = [c for c in ["file", "Spectrum name", "Sample description", "n(titrant) (mol)"] if c in merged.columns]
         df_ratios = merged.melt(id_vars=id_vars, value_vars=ratio_cols, var_name="Ratio", value_name="Value") if ratio_cols else None
 
         # Mémoriser + aperçu
@@ -409,8 +400,8 @@ class AnalysisTab(QWidget):
         self.btn_export.setEnabled(True)
 
         # --- Tracé interactif (équivalent au ggplot fourni) ---
-        if df_ratios is not None and not df_ratios.empty and "n(EGTA) (mol)" in df_ratios.columns:
-            df_plot = df_ratios.sort_values(["Ratio", "n(EGTA) (mol)"])
+        if df_ratios is not None and not df_ratios.empty and "n(titrant) (mol)" in df_ratios.columns:
+            df_plot = df_ratios.sort_values(["Ratio", "n(titrant) (mol)"])
 
             # Palette de couleurs plus riche et contrastée pour éviter les répétitions trop rapides
             # On concatène plusieurs palettes qualitatives de Plotly pour avoir plus de couleurs distinctes.
@@ -422,11 +413,11 @@ class AnalysisTab(QWidget):
 
             fig = px.line(
                 df_plot,
-                x="n(EGTA) (mol)",
+                x="n(titrant) (mol)",
                 y="Value",
                 color="Ratio",
                 markers=True,
-                title="Rapports d’intensité Raman selon [EGTA]",
+                title="Rapports d’intensité Raman selon [titrant]",
                 color_discrete_sequence=color_seq,
             )
 
@@ -434,7 +425,7 @@ class AnalysisTab(QWidget):
             # légende positionnée à droite.
             fig.update_traces(line=dict(width=2), marker=dict(size=6))
             fig.update_layout(
-                xaxis_title="Quantité EGTA (mol)",
+                xaxis_title="Quantité de titrant (mol)",
                 yaxis_title="Rapport d’intensité (a.u.)",
                 width=1200,
                 height=600,
