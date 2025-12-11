@@ -7,8 +7,7 @@ from pybaselines import Baseline
 import plotly.graph_objects as go
 from dataclasses import dataclass, field
 from typing import Dict, Optional
-from data_processing import load_spectrum_file
-
+from data_processing import load_spectrum_file, build_combined_dataframe_from_df
 
 @dataclass
 class Spectrum:
@@ -123,12 +122,34 @@ class SpectraTab(QWidget):
         self.plot_view.setHtml("<h3>DEBUG : entrée dans plot_selected_with_baseline()</h3>")
 
         try:
-            # 1) On tente d'utiliser le fichier combiné fourni par l'onglet Métadonnées
+            # 1) On tente de construire un fichier combiné à partir des métadonnées créées dans l'onglet Métadonnées
             main = self.window()
-            metadata_picker = getattr(main, 'metadata_picker', None) if main is not None else None
-            combined_df = getattr(metadata_picker, 'combined_df', None) if metadata_picker is not None else None
+            metadata_creator = getattr(main, 'metadata_creator', None) if main is not None else None
+            combined_df = None
+            if metadata_creator is not None and hasattr(metadata_creator, 'build_merged_metadata'):
+                # Récupérer les fichiers .txt à partir du FilePicker associé à cet onglet
+                if hasattr(self.file_picker, 'get_selected_files'):
+                    txt_files = self.file_picker.get_selected_files()
+                else:
+                    txt_files = getattr(self.file_picker, 'selected_files', [])
+                if txt_files:
+                    try:
+                        merged_meta = metadata_creator.build_merged_metadata()
+                        combined_df = build_combined_dataframe_from_df(
+                            txt_files,
+                            merged_meta,
+                            poly_order=5,
+                            exclude_brb=True,
+                            apply_baseline=True,
+                        )
+                    except Exception as e_inner:
+                        QMessageBox.warning(
+                            self,
+                            "Avertissement",
+                            f"Impossible de construire le fichier combiné à partir des métadonnées :\n{e_inner}"
+                        )
         except Exception as e:
-            QMessageBox.critical(self, "Erreur interne", f"Impossible de récupérer le fichier combiné :\n{e}")
+            QMessageBox.critical(self, "Erreur interne", f"Impossible de construire le fichier combiné :\n{e}")
             combined_df = None
 
         # --- CAS 1 : Fichier combiné présent ---

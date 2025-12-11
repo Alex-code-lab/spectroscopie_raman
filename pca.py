@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import plotly.express as px
+from data_processing import build_combined_dataframe_from_df
 
 from sklearn.decomposition import PCA
 
@@ -212,22 +213,73 @@ class PCATab(QWidget):
     # Chargement et préparation des données
     # ------------------------------------------------------------------
     def _reload_combined(self):
-        """Récupère le DataFrame combiné depuis l'onglet Métadonnées."""
+        """Reconstruit le DataFrame combiné à partir des métadonnées créées dans l'onglet Métadonnées
+        et des fichiers .txt sélectionnés dans l'onglet Fichiers.
+        """
         main = self.window()
         if main is None:
             QMessageBox.critical(self, "Erreur", "Fenêtre principale introuvable.")
             return
-        metadata_picker = getattr(main, "metadata_picker", None)
-        df = getattr(metadata_picker, "combined_df", None) if metadata_picker is not None else None
 
-        if isinstance(df, pd.DataFrame) and not df.empty:
-            self._combined_df = df
-            self.lbl_status.setText(f"Fichier combiné : chargé ✓ ({df['file'].nunique() if 'file' in df.columns else len(df)} spectres)")
-            self._populate_controls_from_df(df)
-        else:
+        metadata_creator = getattr(main, "metadata_creator", None)
+        if metadata_creator is None or not hasattr(metadata_creator, "build_merged_metadata"):
             self._combined_df = None
-            self.lbl_status.setText("Fichier combiné : non chargé ✗ — assemblez et validez dans l’onglet Métadonnées")
-            QMessageBox.warning(self, "Données manquantes", "Aucun fichier combiné disponible. Allez dans l’onglet Métadonnées et assemblez les données.")
+            self.lbl_status.setText("Fichier combiné : non chargé ✗ — définissez d'abord les métadonnées")
+            QMessageBox.warning(
+                self,
+                "Métadonnées manquantes",
+                "L'onglet Métadonnées n'est pas correctement initialisé ou ne fournit pas encore les tableaux.\n"
+                "Créez d'abord les tableaux de compositions et de correspondance dans l'onglet Métadonnées.",
+            )
+            return
+
+        file_picker = getattr(main, "file_picker", None)
+        txt_files = file_picker.get_selected_files() if (file_picker is not None and hasattr(file_picker, "get_selected_files")) else []
+        if not txt_files:
+            self._combined_df = None
+            self.lbl_status.setText("Fichier combiné : non chargé ✗ — sélectionnez d'abord des fichiers .txt")
+            QMessageBox.warning(
+                self,
+                "Fichiers manquants",
+                "Aucun fichier .txt sélectionné. Allez dans l'onglet Fichiers et ajoutez des spectres.",
+            )
+            return
+
+        try:
+            merged_meta = metadata_creator.build_merged_metadata()
+        except Exception as e:
+            self._combined_df = None
+            self.lbl_status.setText("Fichier combiné : non chargé ✗ — erreur lors de la fusion des métadonnées")
+            QMessageBox.critical(
+                self,
+                "Erreur métadonnées",
+                f"Impossible de construire les métadonnées fusionnées (correspondance ↔ composition) :\n{e}",
+            )
+            return
+
+        try:
+            combined = build_combined_dataframe_from_df(
+                txt_files,
+                merged_meta,
+                poly_order=5,
+                exclude_brb=True,
+                apply_baseline=True,
+            )
+        except Exception as e:
+            self._combined_df = None
+            self.lbl_status.setText("Fichier combiné : non chargé ✗ — erreur lors de l'assemblage")
+            QMessageBox.critical(
+                self,
+                "Échec assemblage",
+                f"Impossible d'assembler les données spectres + métadonnées :\n{e}",
+            )
+            return
+
+        self._combined_df = combined
+        self.lbl_status.setText(
+            f"Fichier combiné : chargé ✓ ({combined['file'].nunique() if 'file' in combined.columns else len(combined)} spectres)"
+        )
+        self._populate_controls_from_df(combined)
 
     def _populate_controls_from_df(self, df: pd.DataFrame):
         """Met à jour les bornes de shifts et la liste des colonnes de coloration à partir du DataFrame."""

@@ -24,7 +24,8 @@ class AnalysisTab(QWidget):
     pour extraire les intensités au voisinage de pics d'intérêt et calculer
     les rapports d'intensité.
 
-    ➜ Pas de recombinaison ici. On consomme `metadata_picker.combined_df`.
+    ➜ Ici, on reconstruit le fichier combiné à partir des spectres .txt sélectionnés
+    et des tableaux créés dans `MetadataCreatorWidget` (onglet Métadonnées).
     """
 
     def __init__(self, parent=None):
@@ -126,7 +127,11 @@ class AnalysisTab(QWidget):
 
         # Init valeurs
         self._on_preset_changed(self.cmb_presets.currentIndex())
-        self._reload_combined()  # tente de charger au démarrage si déjà assemblé
+        # Ne pas recharger automatiquement le fichier combiné au démarrage pour éviter
+        # les popups d'avertissement si aucun .txt/metadonnée n'est encore défini.
+        # L'utilisateur cliquera sur "Recharger le fichier combiné depuis Métadonnées"
+        # quand il sera prêt.
+        # self._reload_combined()
 
     # ---------- Helpers ----------
     def _on_preset_changed(self, idx: int):
@@ -164,20 +169,76 @@ class AnalysisTab(QWidget):
                 self.edit_custom_waves.setEnabled(True)
 
     def _reload_combined(self):
+        """Reconstruit le DataFrame combiné à partir des métadonnées créées dans l'onglet Métadonnées
+        et des fichiers .txt sélectionnés dans l'onglet Fichiers.
+        """
         # Utiliser la fenêtre principale (MainWindow), pas le parent immédiat (TabWidget)
         main = self.window()
         if main is None:
             QMessageBox.critical(self, "Erreur", "Fenêtre principale introuvable.")
             return
-        metadata_picker = getattr(main, 'metadata_picker', None)
-        df = getattr(metadata_picker, 'combined_df', None) if metadata_picker is not None else None
-        if isinstance(df, pd.DataFrame) and not df.empty:
-            self._combined_df = df
-            self.lbl_status.setText("Fichier combiné : chargé ✓")
-        else:
-            self._combined_df = None
-            self.lbl_status.setText("Fichier combiné : non chargé ✗ — assemblez et validez dans l’onglet Métadonnées")
 
+        # Récupérer le créateur de métadonnées
+        metadata_creator = getattr(main, "metadata_creator", None)
+        if metadata_creator is None or not hasattr(metadata_creator, "build_merged_metadata"):
+            self._combined_df = None
+            self.lbl_status.setText("Fichier combiné : non chargé ✗ — définissez d'abord les métadonnées dans l'onglet Métadonnées")
+            QMessageBox.warning(
+                self,
+                "Métadonnées manquantes",
+                "L'onglet Métadonnées n'est pas correctement initialisé ou ne fournit pas encore les tableaux.\n"
+                "Créez d'abord les tableaux de compositions et de correspondance dans l'onglet Métadonnées.",
+            )
+            return
+
+        # Récupérer les fichiers .txt depuis l'onglet Fichiers
+        file_picker = getattr(main, "file_picker", None)
+        txt_files = file_picker.get_selected_files() if (file_picker is not None and hasattr(file_picker, "get_selected_files")) else []
+        if not txt_files:
+            self._combined_df = None
+            self.lbl_status.setText("Fichier combiné : non chargé ✗ — sélectionnez d'abord des fichiers .txt")
+            QMessageBox.warning(
+                self,
+                "Fichiers manquants",
+                "Aucun fichier .txt sélectionné. Allez dans l'onglet Fichiers et ajoutez des spectres.",
+            )
+            return
+
+        # Construire le DataFrame de métadonnées fusionnées (correspondance ↔ composition)
+        try:
+            merged_meta = metadata_creator.build_merged_metadata()
+        except Exception as e:
+            self._combined_df = None
+            self.lbl_status.setText("Fichier combiné : non chargé ✗ — erreur lors de la fusion des métadonnées")
+            QMessageBox.critical(
+                self,
+                "Erreur métadonnées",
+                f"Impossible de construire les métadonnées fusionnées (correspondance ↔ composition) :\n{e}",
+            )
+            return
+
+        # Construire le DataFrame combiné (spectres + métadonnées)
+        try:
+            combined = build_combined_dataframe_from_df(
+                txt_files,
+                merged_meta,
+                poly_order=5,
+                exclude_brb=True,
+                apply_baseline=True,
+            )
+        except Exception as e:
+            self._combined_df = None
+            self.lbl_status.setText("Fichier combiné : non chargé ✗ — erreur lors de l'assemblage")
+            QMessageBox.critical(
+                self,
+                "Échec assemblage",
+                f"Impossible d'assembler les données spectres + métadonnées :\n{e}",
+            )
+            return
+
+        self._combined_df = combined
+        self.lbl_status.setText("Fichier combiné : chargé ✓")
+        
     def _set_preview(self, df: pd.DataFrame, n: int = 20):  # n conservé pour compat, ignoré ici
         # Afficher TOUT le DataFrame avec défilement et tri
         self.table.setSortingEnabled(False)
