@@ -661,7 +661,18 @@ class PCATab(QWidget):
             if extra in df.columns and extra not in hover_cols:
                 hover_cols.append(extra)
 
-        title = "Scores PCA – PC1 vs PC2"
+        # title = "Scores PCA – PC1 vs PC2"
+        # Nom de la manip pour le titre
+        manip_name = None
+        main = self.window()
+        if main is not None:
+            metadata_creator = getattr(main, "metadata_creator", None)
+            if metadata_creator is not None and hasattr(metadata_creator, "edit_manip"):
+                manip_name = metadata_creator.edit_manip.text().strip()
+
+        base_title = manip_name if manip_name else "Scores PCA"
+        title = f"{base_title} – PC1 vs PC2"
+        
         if self._pca is not None and hasattr(self._pca, "explained_variance_ratio_"):
             vr = self._pca.explained_variance_ratio_
             if len(vr) >= 2:

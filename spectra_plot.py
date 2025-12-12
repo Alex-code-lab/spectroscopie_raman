@@ -297,9 +297,19 @@ class SpectraTab(QWidget):
                     )
                     return
 
+                # Récupérer le nom de la manip pour le titre
+                manip_name = None
+                main = self.window()
+                if main is not None:
+                    metadata_creator = getattr(main, "metadata_creator", None)
+                    if metadata_creator is not None and hasattr(metadata_creator, "edit_manip"):
+                        manip_name = metadata_creator.edit_manip.text().strip()
+
+                title = manip_name if manip_name else "Spectres Raman"
+
                 fig = go.Figure(traces)
                 fig.update_layout(
-                    title="Spectres Raman (depuis le fichier combiné)",
+                    title=title,
                     xaxis_title="Raman Shift (cm⁻¹)",
                     yaxis_title="Intensité corrigée (a.u.)",
                     width=1200,
