@@ -34,6 +34,8 @@ class AnalysisTab(QWidget):
         self._peaks: List[int] = []
         self._peak_intensities: Optional[pd.DataFrame] = None
         self._ratios_long: Optional[pd.DataFrame] = None
+        # Indique que l'analyse doit être (re)lancée (données ou paramètres modifiés)
+        self._analysis_dirty: bool = True
 
         # --- UI ---
         layout = QVBoxLayout(self)
@@ -94,6 +96,13 @@ class AnalysisTab(QWidget):
         self.btn_refresh.clicked.connect(self._reload_combined)
         self.btn_analyze.clicked.connect(self._run_analysis)
         self.btn_export.clicked.connect(self._export_results)
+        # Tout changement de paramètres d'analyse => il faudra relancer l'analyse
+        self.spin_tol.valueChanged.connect(self._on_analysis_param_changed)
+        self.cmb_presets.currentIndexChanged.connect(self._on_analysis_param_changed)
+        if hasattr(self, "spin_laser_nm"):
+            self.spin_laser_nm.valueChanged.connect(self._on_analysis_param_changed)
+        if hasattr(self, "edit_custom_waves"):
+            self.edit_custom_waves.textChanged.connect(self._on_analysis_param_changed)
         actions.addWidget(self.btn_refresh)
         actions.addWidget(self.btn_analyze)
         actions.addWidget(self.btn_export)
@@ -127,6 +136,47 @@ class AnalysisTab(QWidget):
 
         # Init valeurs
         self._on_preset_changed(self.cmb_presets.currentIndex())
+        # Couleurs initiales des boutons
+        self._refresh_button_states()
+    def _refresh_button_states(self) -> None:
+        """Met à jour la couleur des boutons selon l'état du fichier combiné et de l'analyse."""
+        red = "background-color: #d9534f; color: white; font-weight: 600;"
+        green = "background-color: #5cb85c; color: white; font-weight: 600;"
+
+        combined_ready = (
+            self._combined_df is not None
+            and isinstance(self._combined_df, pd.DataFrame)
+            and not self._combined_df.empty
+        )
+
+        analysis_ready = (
+            combined_ready
+            and (self._analysis_dirty is False)
+            and (self._ratios_long is not None)
+            and isinstance(self._ratios_long, pd.DataFrame)
+            and (not self._ratios_long.empty)
+        )
+
+        # Bouton reload : vert si le fichier combiné est chargé
+        self.btn_refresh.setStyleSheet(green if combined_ready else red)
+        self.btn_refresh.setToolTip(
+            "Vert = fichier combiné chargé" if combined_ready else "Rouge = recharger le fichier combiné"
+        )
+
+        # Bouton analyse : vert seulement si l'analyse a été faite et est à jour
+        self.btn_analyze.setStyleSheet(green if analysis_ready else red)
+        self.btn_analyze.setToolTip(
+            "Vert = analyse à jour"
+            if analysis_ready
+            else (
+                "Rouge = lancez (ou relancez) l'analyse" if combined_ready else "Rouge = chargez d'abord le fichier combiné"
+            )
+        )
+
+    def _on_analysis_param_changed(self, *args) -> None:
+        """Marque l'analyse comme à relancer si un paramètre change."""
+        self._analysis_dirty = True
+        self._refresh_button_states()
         # Ne pas recharger automatiquement le fichier combiné au démarrage pour éviter
         # les popups d'avertissement si aucun .txt/metadonnée n'est encore défini.
         # L'utilisateur cliquera sur "Recharger le fichier combiné depuis Métadonnées"
@@ -182,6 +232,8 @@ class AnalysisTab(QWidget):
         metadata_creator = getattr(main, "metadata_creator", None)
         if metadata_creator is None or not hasattr(metadata_creator, "build_merged_metadata"):
             self._combined_df = None
+            self._analysis_dirty = True
+            self._refresh_button_states()
             self.lbl_status.setText("Fichier combiné : non chargé ✗ — définissez d'abord les métadonnées dans l'onglet Métadonnées")
             QMessageBox.warning(
                 self,
@@ -196,6 +248,8 @@ class AnalysisTab(QWidget):
         txt_files = file_picker.get_selected_files() if (file_picker is not None and hasattr(file_picker, "get_selected_files")) else []
         if not txt_files:
             self._combined_df = None
+            self._analysis_dirty = True
+            self._refresh_button_states()
             self.lbl_status.setText("Fichier combiné : non chargé ✗ — sélectionnez d'abord des fichiers .txt")
             QMessageBox.warning(
                 self,
@@ -209,6 +263,8 @@ class AnalysisTab(QWidget):
             merged_meta = metadata_creator.build_merged_metadata()
         except Exception as e:
             self._combined_df = None
+            self._analysis_dirty = True
+            self._refresh_button_states()
             self.lbl_status.setText("Fichier combiné : non chargé ✗ — erreur lors de la fusion des métadonnées")
             QMessageBox.critical(
                 self,
@@ -228,6 +284,8 @@ class AnalysisTab(QWidget):
             )
         except Exception as e:
             self._combined_df = None
+            self._analysis_dirty = True
+            self._refresh_button_states()
             self.lbl_status.setText("Fichier combiné : non chargé ✗ — erreur lors de l'assemblage")
             QMessageBox.critical(
                 self,
@@ -238,7 +296,12 @@ class AnalysisTab(QWidget):
 
         self._combined_df = combined
         self.lbl_status.setText("Fichier combiné : chargé ✓")
-        
+        # Nouvelles données => analyse doit être relancée
+        self._analysis_dirty = True
+        self._peak_intensities = None
+        self._ratios_long = None
+        self.btn_export.setEnabled(False)
+        self._refresh_button_states()
     def _set_preview(self, df: pd.DataFrame, n: int = 20):  # n conservé pour compat, ignoré ici
         # Afficher TOUT le DataFrame avec défilement et tri
         self.table.setSortingEnabled(False)
@@ -269,6 +332,8 @@ class AnalysisTab(QWidget):
     # ---------- Analyse ----------
     def _run_analysis(self):
         if self._combined_df is None or self._combined_df.empty:
+            self._analysis_dirty = True
+            self._refresh_button_states()
             QMessageBox.warning(self, "Données manquantes", "Aucun fichier combiné chargé. Allez dans l’onglet Métadonnées, assemblez puis validez le choix.")
             return
 
@@ -398,6 +463,8 @@ class AnalysisTab(QWidget):
         self._ratios_long = df_ratios
         self._set_preview(merged)
         self.btn_export.setEnabled(True)
+        self._analysis_dirty = False
+        self._refresh_button_states()
 
         # --- Tracé interactif (équivalent au ggplot fourni) ---
         if df_ratios is not None and not df_ratios.empty and "n(titrant) (mol)" in df_ratios.columns:

@@ -1,7 +1,16 @@
 import os
 import numpy as np
 import pandas as pd
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QMessageBox, QLabel
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QMessageBox,
+    QLabel,
+    QDoubleSpinBox,
+    QFileDialog,
+)
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from pybaselines import Baseline
 import plotly.graph_objects as go
@@ -100,14 +109,83 @@ class SpectraTab(QWidget):
         super().__init__(parent)
         self.file_picker = file_picker
 
+        # Dernière figure Plotly affichée (pour export PNG)
+        self._last_fig = None
+
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Tracer les spectres sélectionnés"))
+
+        # --- Contrôle manuel des axes (optionnel) ---
+        # Convention : valeur = -1 => autoscale (affiché comme "auto")
+        axes = QHBoxLayout()
+        axes.addWidget(QLabel("X min (cm⁻¹):"))
+        self.spin_xmin = QDoubleSpinBox(self)
+        self.spin_xmin.setRange(-1.0, 5000.0)
+        self.spin_xmin.setDecimals(1)
+        self.spin_xmin.setSingleStep(10.0)
+        self.spin_xmin.setSpecialValueText("auto")
+        self.spin_xmin.setValue(-1.0)
+        axes.addWidget(self.spin_xmin)
+
+        axes.addWidget(QLabel("X max (cm⁻¹):"))
+        self.spin_xmax = QDoubleSpinBox(self)
+        self.spin_xmax.setRange(-1.0, 5000.0)
+        self.spin_xmax.setDecimals(1)
+        self.spin_xmax.setSingleStep(10.0)
+        self.spin_xmax.setSpecialValueText("auto")
+        self.spin_xmax.setValue(-1.0)
+        axes.addWidget(self.spin_xmax)
+
+        axes.addSpacing(20)
+
+        axes.addWidget(QLabel("Y min:"))
+        self.spin_ymin = QDoubleSpinBox(self)
+        self.spin_ymin.setRange(-1.0, 1e12)
+        self.spin_ymin.setDecimals(2)
+        self.spin_ymin.setSingleStep(100.0)
+        self.spin_ymin.setSpecialValueText("auto")
+        self.spin_ymin.setValue(-1.0)
+        axes.addWidget(self.spin_ymin)
+
+        axes.addWidget(QLabel("Y max:"))
+        self.spin_ymax = QDoubleSpinBox(self)
+        self.spin_ymax.setRange(-1.0, 1e12)
+        self.spin_ymax.setDecimals(2)
+        self.spin_ymax.setSingleStep(100.0)
+        self.spin_ymax.setSpecialValueText("auto")
+        self.spin_ymax.setValue(-1.0)
+        axes.addWidget(self.spin_ymax)
+
+        axes.addStretch(1)
+
+        self.btn_reset_axes = QPushButton("Reset axes", self)
+        self.btn_reset_axes.clicked.connect(self._reset_axes)
+        axes.addWidget(self.btn_reset_axes)
+
+        layout.addLayout(axes)
+
         self.btn_plot = QPushButton("Tracer avec baseline")
         self.btn_plot.clicked.connect(self.plot_selected_with_baseline)
         layout.addWidget(self.btn_plot)
+        self.btn_export_png = QPushButton("Exporter le graphique (PNG)")
+        self.btn_export_png.clicked.connect(self._export_png)
+        layout.addWidget(self.btn_export_png)
+
+
 
         self.plot_view = QWebEngineView(self)
         layout.addWidget(self.plot_view, 1)
+
+    def _reset_axes(self):
+        """Remet les axes en autoscale."""
+        if hasattr(self, "spin_xmin"):
+            self.spin_xmin.setValue(-1.0)
+        if hasattr(self, "spin_xmax"):
+            self.spin_xmax.setValue(-1.0)
+        if hasattr(self, "spin_ymin"):
+            self.spin_ymin.setValue(-1.0)
+        if hasattr(self, "spin_ymax"):
+            self.spin_ymax.setValue(-1.0)
 
     def plot_selected_with_baseline(self):
         """
@@ -227,6 +305,19 @@ class SpectraTab(QWidget):
                     width=1200,
                     height=600,
                 )
+
+                # --- Axes manuels si définis (valeur -1 => auto) ---
+                xmin = float(self.spin_xmin.value()) if hasattr(self, "spin_xmin") else -1.0
+                xmax = float(self.spin_xmax.value()) if hasattr(self, "spin_xmax") else -1.0
+                ymin = float(self.spin_ymin.value()) if hasattr(self, "spin_ymin") else -1.0
+                ymax = float(self.spin_ymax.value()) if hasattr(self, "spin_ymax") else -1.0
+
+                if xmin >= 0 and xmax >= 0 and xmin < xmax:
+                    fig.update_xaxes(range=[xmin, xmax])
+                if ymin >= 0 and ymax >= 0 and ymin < ymax:
+                    fig.update_yaxes(range=[ymin, ymax])
+
+                self._last_fig = fig  # Sauvegarde pour export PNG
                 self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn"))
                 return
 
@@ -295,4 +386,50 @@ class SpectraTab(QWidget):
             width=1200,
             height=600,
         )
+
+        # --- Axes manuels si définis (valeur -1 => auto) ---
+        xmin = float(self.spin_xmin.value()) if hasattr(self, "spin_xmin") else -1.0
+        xmax = float(self.spin_xmax.value()) if hasattr(self, "spin_xmax") else -1.0
+        ymin = float(self.spin_ymin.value()) if hasattr(self, "spin_ymin") else -1.0
+        ymax = float(self.spin_ymax.value()) if hasattr(self, "spin_ymax") else -1.0
+
+        if xmin >= 0 and xmax >= 0 and xmin < xmax:
+            fig.update_xaxes(range=[xmin, xmax])
+        if ymin >= 0 and ymax >= 0 and ymin < ymax:
+            fig.update_yaxes(range=[ymin, ymax])
+
+        self._last_fig = fig
         self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn"))
+
+    def _export_png(self):
+        """Exporte le dernier graphique Plotly affiché vers un fichier PNG."""
+        if self._last_fig is None:
+            QMessageBox.information(
+                self,
+                "Aucun graphique",
+                "Aucun graphique n'est disponible à l'export.\n"
+                "Tracez d'abord les spectres."
+            )
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Exporter le graphique (PNG)",
+            "spectres_raman.png",
+            "Image PNG (*.png)"
+        )
+        if not path:
+            return
+
+        try:
+            # Export haute résolution (nécessite kaleido)
+            self._last_fig.write_image(path, format="png", scale=2)
+            QMessageBox.information(self, "Export réussi", f"Graphique exporté :\n{path}")
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Erreur d'export",
+                "Impossible d'exporter le graphique en PNG.\n"
+                "Vérifiez que 'kaleido' est installé (pip install -U kaleido).\n\n"
+                f"Détail : {e}"
+            )
