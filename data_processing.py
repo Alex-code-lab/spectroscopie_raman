@@ -167,8 +167,7 @@ def build_combined_dataframe_from_df(
 
     if exclude_brb and "Sample description" in combined_df.columns:
         combined_df = combined_df[
-            ~combined_df["Sample description"].isin(["Tube MQW", "Tube BRB", "BRB",
-                                                     "Cuvette BRB", "MQW", "Cuvette MQW"])
+            ~combined_df["Sample description"].isin(["Tube BRB", "BRB","Cuvette BRB","Contrôle BRB"])
         ].copy()
     return combined_df
 

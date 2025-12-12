@@ -212,7 +212,7 @@ class SpectraTab(QWidget):
                     txt_files = getattr(self.file_picker, 'selected_files', [])
                 if txt_files:
                     try:
-                        merged_meta = metadata_creator.build_merged_metadata()
+                        merged_meta = metadata_creator.build_merged_metadata(exclude_brb=True)
                         combined_df = build_combined_dataframe_from_df(
                             txt_files,
                             merged_meta,

@@ -390,7 +390,7 @@ class MetadataCreatorWidget(QWidget):
                 {
                     "Réactif": [
                         "Echantillon",
-                        "Eau de contrôle",
+                        "Contrôle",
                         "Solution A",
                         "Solution B",
                         "Solution C",
@@ -480,127 +480,7 @@ class MetadataCreatorWidget(QWidget):
 
         # Mettre à jour l'état des boutons
         self._refresh_button_states()
-    # ------------------------------------------------------------------
-    # Construction des métadonnées fusionnées (mapping + concentrations)
-    # ------------------------------------------------------------------
-    def build_merged_metadata(self) -> pd.DataFrame:
-        """Construit un DataFrame de métadonnées par spectre.
 
-        Base obligatoire :
-          - 'Spectrum name'      (depuis df_map['Nom du spectre'])
-          - 'Tube'               (depuis df_map['Tube'])
-          - 'Sample description' (dérivé de Tube)
-
-        Ajout (si possible) :
-          - une colonne par réactif (Solution A/B/..., etc.) issue du tableau des concentrations calculées
-          - 'V cuvette (µL)' si présente dans df_conc
-          - '[titrant] (M)' et '[titrant] (mM)' si on détecte une colonne titrant (par défaut Solution B)
-
-        Cette fonction est utilisée par PCA / Analyse pour reconstruire le fichier combiné.
-        """
-        if self.df_map is None or not isinstance(self.df_map, pd.DataFrame) or self.df_map.empty:
-            raise ValueError("Le tableau de correspondance spectres ↔ tubes n'est pas encore défini.")
-
-        df_map = self.df_map.copy()
-        if "Nom du spectre" not in df_map.columns or "Tube" not in df_map.columns:
-            raise ValueError("Le tableau de correspondance doit contenir les colonnes 'Nom du spectre' et 'Tube'.")
-
-        # Normaliser
-        df_map["Nom du spectre"] = df_map["Nom du spectre"].astype(str)
-        df_map["Tube"] = df_map["Tube"].astype(str)
-
-        # Retirer les lignes avant/après l'en-tête interne "Nom du spectre" / "Tube"
-        col_ns = df_map["Nom du spectre"].astype(str).str.strip()
-        header_mask = col_ns.eq("Nom du spectre")
-        if header_mask.any():
-            last_header_idx = header_mask[header_mask].index[-1]
-            df_map = df_map.loc[df_map.index > last_header_idx].copy()
-
-        # Nettoyage : lignes vides
-        df_map["Nom du spectre"] = df_map["Nom du spectre"].astype(str).str.strip()
-        df_map["Tube"] = df_map["Tube"].astype(str).str.strip()
-        df_map = df_map[(df_map["Nom du spectre"] != "") & (df_map["Tube"] != "")].copy()
-
-        # Base meta
-        meta = df_map.rename(columns={"Nom du spectre": "Spectrum name"})
-
-        tube_to_desc = {
-            "Tube BRB": "Cuvette BRB",
-            "Tube MQW": "MQW",
-        }
-        meta["Sample description"] = meta["Tube"].map(tube_to_desc).fillna(meta["Tube"])
-
-        # Calculer df_conc si nécessaire
-        if self.df_conc is None or not isinstance(self.df_conc, pd.DataFrame) or self.df_conc.empty:
-            if self.df_comp is None or not isinstance(self.df_comp, pd.DataFrame) or self.df_comp.empty:
-                # Pas de volumes => impossible de calculer les concentrations
-                self.df_conc = None
-            else:
-                # Volumes définis => on DOIT pouvoir calculer les concentrations
-                try:
-                    self.df_conc = self._compute_concentration_table()
-                except Exception as e:
-                    raise ValueError(
-                        "Impossible de calculer le tableau des concentrations à partir du tableau des volumes. "
-                        "Vérifiez que df_comp contient bien 'Réactif', 'Concentration', 'Unité' et des colonnes 'Tube X'.\n"
-                        f"Détail : {e}"
-                    )
-
-        # Sécurité : si df_conc a été calculé mais est vide, on le considère non exploitable
-        if self.df_conc is not None and isinstance(self.df_conc, pd.DataFrame) and self.df_conc.empty:
-            self.df_conc = None
-
-        # Merge concentrations
-        if self.df_conc is not None and isinstance(self.df_conc, pd.DataFrame) and not self.df_conc.empty:
-            conc = self.df_conc.copy()
-            if "Réactif" not in conc.columns:
-                raise ValueError("Le tableau des concentrations (df_conc) doit contenir une colonne 'Réactif'.")
-
-            tube_cols = [c for c in conc.columns if c != "Réactif"]
-            if not tube_cols:
-                raise ValueError("Le tableau des concentrations (df_conc) ne contient aucune colonne de tube.")
-
-            long = conc.melt(
-                id_vars="Réactif",
-                value_vars=tube_cols,
-                var_name="Tube",
-                value_name="C_M",
-            )
-            conc_wide = long.pivot(index="Tube", columns="Réactif", values="C_M")
-
-            # Forcer numérique pour Plotly (échelle continue)
-            for c in conc_wide.columns:
-                conc_wide[c] = pd.to_numeric(conc_wide[c], errors="coerce")
-
-            # Assurer que la colonne Tube est comparable
-            meta["Tube"] = meta["Tube"].astype(str).str.strip()
-            conc_wide = conc_wide.reset_index()
-            conc_wide["Tube"] = conc_wide["Tube"].astype(str).str.strip()
-
-            meta = meta.merge(conc_wide, on="Tube", how="left")
-
-            # Détection du titrant : d'abord une colonne qui contient "titrant", sinon Solution B
-            titrant_candidates: list[str] = []
-            for col in conc_wide.columns:
-                name_low = str(col).strip().lower()
-                if "titrant" in name_low:
-                    titrant_candidates.append(col)
-                elif name_low in {"solution b", "solutionb", "sol b", "solb", "b"}:
-                    titrant_candidates.append(col)
-
-            if titrant_candidates:
-                tit_col = titrant_candidates[0]
-                meta["[titrant] (M)"] = meta[tit_col]
-                meta["[titrant] (mM)"] = meta[tit_col] * 1e3
-
-        # Exclure BRB/MQW
-        meta = meta[~meta["Tube"].isin(["Tube BRB", "Tube MQW"])].copy()
-
-        return meta.reset_index(drop=True)
-
-    # ------------------------------------------------------------------
-    # Gestion du tableau de correspondance spectres ↔ tubes
-    # ------------------------------------------------------------------
 
     def _on_edit_map_clicked(self) -> None:
         """
@@ -727,7 +607,7 @@ class MetadataCreatorWidget(QWidget):
         # Si aucune correspondance existante, on génère un brouillon par défaut
         if mapping_rows is None:
             # Tubes par défaut : Tube MQW, Tube BRB, puis Tube 1..11
-            tube_labels = ["Tube MQW", "Tube BRB"] + [f"Tube {i}" for i in range(1, 12)]
+            tube_labels = ["Contrôle BRB"] + [f"Tube {i}" for i in range(0, 10)] + ["Contrôle"]
             mapping_rows = pd.DataFrame(
                 {
                     "Nom du spectre": [f"{manip_name}_{i:02d}" for i in range(len(tube_labels))],
@@ -1055,8 +935,8 @@ class MetadataCreatorWidget(QWidget):
 
         # Construire une "Sample description" à partir du nom de tube
         tube_to_desc = {
-            "Tube BRB": "Cuvette BRB",
-            "Tube MQW": "MQW",
+            "Contrôle BRB": "Contrôle BRB",
+            "Contrôle": "Contrôle",
         }
         meta["Sample description"] = meta["Tube"].map(tube_to_desc).fillna(meta["Tube"])
 
@@ -1109,7 +989,7 @@ class MetadataCreatorWidget(QWidget):
 
         # Exclure explicitement les tubes de type "Tube BRB" et "Tube MQW"
         # des métadonnées utilisées pour l'assemblage (tracés, analyse)
-        meta = meta[~meta["Tube"].isin(["Tube BRB", "Tube MQW"])].copy()
+        meta = meta[~meta["Tube"].isin(["Tube BRB"])].copy()
 
         # Réindexer proprement
         meta = meta.reset_index(drop=True)
