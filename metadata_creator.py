@@ -607,7 +607,7 @@ class MetadataCreatorWidget(QWidget):
         # Si aucune correspondance existante, on génère un brouillon par défaut
         if mapping_rows is None:
             # Tubes par défaut : Tube MQW, Tube BRB, puis Tube 1..11
-            tube_labels = ["Contrôle BRB"] + [f"Tube {i}" for i in range(0, 10)] + ["Contrôle"]
+            tube_labels = ["Contrôle BRB"] + [f"Tube {i}" for i in range(1, 11)] + ["Contrôle"]
             mapping_rows = pd.DataFrame(
                 {
                     "Nom du spectre": [f"{manip_name}_{i:02d}" for i in range(len(tube_labels))],
