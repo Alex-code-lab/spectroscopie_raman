@@ -221,6 +221,8 @@ class MetadataCreatorWidget(QWidget):
         self.edit_manip = QLineEdit(self)
         self.edit_manip.setPlaceholderText("ex : GROUPE_20251203")
         row1.addWidget(self.edit_manip)
+        # Synchroniser automatiquement le nom de la manip avec df_map
+        self.edit_manip.textChanged.connect(self._on_manip_name_changed)
 
         row1.addWidget(QLabel("Date :", self))
         self.edit_date = QDateEdit(self)
@@ -527,6 +529,57 @@ class MetadataCreatorWidget(QWidget):
         self.lbl_status_map.setText(
             f"Tableau de correspondance : {df.shape[0]} ligne(s), {df.shape[1]} colonne(s)"
         )
+
+    def _on_manip_name_changed(self, text: str) -> None:
+        """
+        Slot appelé automatiquement quand le champ 'Nom de la manip' change.
+        Met à jour df_map en mémoire (ligne 'Nom de la manip' + noms des spectres).
+        """
+        new_name = (text or "").strip()
+        if not new_name:
+            return
+        self._apply_manip_name_to_df_map(new_name)
+
+    def _apply_manip_name_to_df_map(self, manip_name: str) -> None:
+        """
+        Applique le nom de la manip à df_map :
+        - met à jour la ligne 'Nom de la manip'
+        - régénère tous les noms de spectres sous la forme NomManip_XX
+        sans modifier l'affectation des tubes.
+        """
+        if self.df_map is None or self.df_map.empty:
+            return
+        if "Nom du spectre" not in self.df_map.columns or "Tube" not in self.df_map.columns:
+            return
+
+        df = self.df_map.copy()
+        col_ns = df["Nom du spectre"].astype(str).str.strip()
+
+        # 1) Mettre à jour la ligne d'en-tête "Nom de la manip"
+        mask_manip = col_ns.isin(["Nom de la manip", "Nom de la manip :"])
+        if mask_manip.any():
+            df.loc[mask_manip, "Tube"] = manip_name
+
+        # 2) Trouver la ligne d'en-tête interne "Nom du spectre"
+        header_mask = col_ns == "Nom du spectre"
+        if not header_mask.any():
+            self.df_map = df
+            return
+
+        last_header_idx = header_mask[header_mask].index[-1]
+
+        # 3) Régénérer les noms des spectres après cette ligne
+        mapping_idx = df.index[df.index > last_header_idx].tolist()
+        for i, ridx in enumerate(mapping_idx):
+            df.at[ridx, "Nom du spectre"] = f"{manip_name}_{i:02d}"
+
+        self.df_map = df
+
+        # Mettre à jour le label d'état si présent
+        if hasattr(self, "lbl_status_map"):
+            self.lbl_status_map.setText(
+                f"Tableau de correspondance : {df.shape[0]} ligne(s), {df.shape[1]} colonne(s)"
+            )
 
     # ------------------------------------------------------------------
     # Calcul du tableau des concentrations à partir des volumes
