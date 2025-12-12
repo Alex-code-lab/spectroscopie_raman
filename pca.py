@@ -40,6 +40,8 @@ class PCATab(QWidget):
         self._X_proc: np.ndarray | None = None
         self._wavenumbers: np.ndarray | None = None
         self._spec_ids: np.ndarray | None = None
+        # Indique que la PCA doit être (re)lancée (données ou paramètres modifiés)
+        self._pca_dirty: bool = True
 
         layout = QVBoxLayout(self)
 
@@ -70,6 +72,8 @@ class PCATab(QWidget):
         self.spin_min_shift.setDecimals(1)
         self.spin_min_shift.setSingleStep(10.0)
         ctrl1.addWidget(self.spin_min_shift)
+        self.spin_min_shift.valueChanged.connect(self._on_pca_param_changed)
+
 
         ctrl1.addWidget(QLabel("Raman max (cm⁻¹):"))
         self.spin_max_shift = QDoubleSpinBox(self)
@@ -77,6 +81,8 @@ class PCATab(QWidget):
         self.spin_max_shift.setDecimals(1)
         self.spin_max_shift.setSingleStep(10.0)
         ctrl1.addWidget(self.spin_max_shift)
+        self.spin_max_shift.valueChanged.connect(self._on_pca_param_changed)
+
 
         layout.addLayout(ctrl1)
 
@@ -91,18 +97,22 @@ class PCATab(QWidget):
             "Standardisation (z-score par longueur d'onde)",
         ])
         ctrl2.addWidget(self.cmb_norm)
+        self.cmb_norm.currentIndexChanged.connect(self._on_pca_param_changed)
+
 
         ctrl2.addWidget(QLabel("Nombre de composantes :"))
         self.spin_n_comp = QSpinBox(self)
         self.spin_n_comp.setRange(2, 20)
         self.spin_n_comp.setValue(5)
         ctrl2.addWidget(self.spin_n_comp)
+        self.spin_n_comp.valueChanged.connect(self._on_pca_param_changed)
 
         ctrl2.addWidget(QLabel("Colorer par :"))
         self.cmb_color = QComboBox(self)
         self.cmb_color.addItem("(aucune)")
         ctrl2.addWidget(self.cmb_color)
-
+        # La coloration est un réglage d'affichage : ne rend pas la PCA "dirty".
+        self.cmb_color.currentIndexChanged.connect(self._on_color_changed)
         layout.addLayout(ctrl2)
 
         # ---- Boutons d'action ----
@@ -153,6 +163,51 @@ class PCATab(QWidget):
         layout.addWidget(self.btn_show_recon)
 
         self._init_plot_windows()
+        # Couleurs initiales des boutons (rouge tant que rien n'est chargé)
+        self._refresh_button_states()
+
+
+    def _refresh_button_states(self) -> None:
+        """Met à jour la couleur des boutons selon l'état du fichier combiné et de la PCA."""
+        red = "background-color: #d9534f; color: white; font-weight: 600;"
+        green = "background-color: #5cb85c; color: white; font-weight: 600;"
+
+        combined_ready = (
+            self._combined_df is not None
+            and isinstance(self._combined_df, pd.DataFrame)
+            and not self._combined_df.empty
+        )
+
+        pca_ready = (
+            combined_ready
+            and (self._pca_dirty is False)
+            and (self._pca is not None)
+            and (self._scores_df is not None and not self._scores_df.empty)
+        )
+
+        # Bouton reload : vert si le fichier combiné est chargé
+        self.btn_reload.setStyleSheet(green if combined_ready else red)
+        self.btn_reload.setToolTip(
+            "Vert = fichier combiné chargé" if combined_ready else "Rouge = recharger le fichier combiné"
+        )
+
+        # Bouton PCA : vert seulement si PCA déjà lancée et à jour
+        self.btn_run.setStyleSheet(green if pca_ready else red)
+        self.btn_run.setToolTip(
+            "Vert = PCA à jour"
+            if pca_ready
+            else ("Rouge = lancez (ou relancez) la PCA" if combined_ready else "Rouge = chargez d'abord le fichier combiné")
+        )
+
+    def _on_pca_param_changed(self, *args) -> None:
+        """Marque la PCA comme à relancer si un paramètre change."""
+        self._pca_dirty = True
+        self._refresh_button_states()
+
+    def _on_color_changed(self, *args) -> None:
+        """Recolore le nuage PC1 vs PC2 sans relancer la PCA."""
+        if self._scores_df is not None and not self._scores_df.empty:
+            self._update_scores_plot()
 
 
     def _init_plot_windows(self):
@@ -181,6 +236,10 @@ class PCATab(QWidget):
         recon_layout.addWidget(self.recon_view)
         self.recon_dialog.resize(900, 500)
 
+    def _on_pca_param_changed(self, *args) -> None:
+        """Marque la PCA comme à relancer si un paramètre change."""
+        self._pca_dirty = True
+        self._refresh_button_states()
 
     def _show_scores_window(self):
         """Affiche la fenêtre contenant le nuage de scores PCA."""
@@ -224,6 +283,8 @@ class PCATab(QWidget):
         metadata_creator = getattr(main, "metadata_creator", None)
         if metadata_creator is None or not hasattr(metadata_creator, "build_merged_metadata"):
             self._combined_df = None
+            self._pca_dirty = True
+            self._refresh_button_states()
             self.lbl_status.setText("Fichier combiné : non chargé ✗ — définissez d'abord les métadonnées")
             QMessageBox.warning(
                 self,
@@ -237,6 +298,8 @@ class PCATab(QWidget):
         txt_files = file_picker.get_selected_files() if (file_picker is not None and hasattr(file_picker, "get_selected_files")) else []
         if not txt_files:
             self._combined_df = None
+            self._pca_dirty = True
+            self._refresh_button_states()
             self.lbl_status.setText("Fichier combiné : non chargé ✗ — sélectionnez d'abord des fichiers .txt")
             QMessageBox.warning(
                 self,
@@ -247,8 +310,15 @@ class PCATab(QWidget):
 
         try:
             merged_meta = metadata_creator.build_merged_metadata()
+            print("\n=== merged_meta.columns ===")
+            print(list(merged_meta.columns))
+
+            print("\n=== merged_meta.head() ===")
+            print(merged_meta.head())
         except Exception as e:
             self._combined_df = None
+            self._pca_dirty = True
+            self._refresh_button_states()
             self.lbl_status.setText("Fichier combiné : non chargé ✗ — erreur lors de la fusion des métadonnées")
             QMessageBox.critical(
                 self,
@@ -267,6 +337,8 @@ class PCATab(QWidget):
             )
         except Exception as e:
             self._combined_df = None
+            self._pca_dirty = True
+            self._refresh_button_states()
             self.lbl_status.setText("Fichier combiné : non chargé ✗ — erreur lors de l'assemblage")
             QMessageBox.critical(
                 self,
@@ -276,18 +348,37 @@ class PCATab(QWidget):
             return
 
         self._combined_df = combined
+        # Nouvelles données => PCA doit être relancée
+        self._pca_dirty = True
+        self._pca = None
+        self._scores_df = None
+        self._loadings_df = None
+        self._X_proc = None
+        self._wavenumbers = None
+        self._spec_ids = None
+
+        self.lbl_variance.setText("Variance expliquée : -")
         self.lbl_status.setText(
             f"Fichier combiné : chargé ✓ ({combined['file'].nunique() if 'file' in combined.columns else len(combined)} spectres)"
         )
-        self._populate_controls_from_df(combined)
+        self._populate_controls_from_df(combined_df=combined, meta_df=merged_meta)
+        # Conserver "(aucune)" sélectionné si possible
+        if self.cmb_color.count() > 0:
+            self.cmb_color.setCurrentIndex(0)
+        self._refresh_button_states()
 
-    def _populate_controls_from_df(self, df: pd.DataFrame):
-        """Met à jour les bornes de shifts et la liste des colonnes de coloration à partir du DataFrame."""
-        if "Raman Shift" in df.columns:
+    def _populate_controls_from_df(self, combined_df: pd.DataFrame, meta_df: pd.DataFrame | None = None) -> None:
+        """Met à jour les bornes Raman (depuis combined_df) et la liste des colonnes de coloration.
+
+        Important : la liste "Colorer par" est construite à partir des métadonnées par spectre (meta_df)
+        pour inclure correctement les colonnes de concentrations (Solutions A/B/…).
+        Si meta_df n'est pas fourni, on retombe sur combined_df.
+        """
+        # --- bornes Raman (depuis combined_df) ---
+        if "Raman Shift" in combined_df.columns:
             try:
-                r_min = float(df["Raman Shift"].min())
-                r_max = float(df["Raman Shift"].max())
-                # Sécurise les limites des spinbox
+                r_min = float(combined_df["Raman Shift"].min())
+                r_max = float(combined_df["Raman Shift"].max())
                 self.spin_min_shift.setRange(r_min, r_max)
                 self.spin_max_shift.setRange(r_min, r_max)
                 self.spin_min_shift.setValue(r_min)
@@ -295,17 +386,73 @@ class PCATab(QWidget):
             except Exception:
                 pass
 
-        # Colonnes candidates pour la coloration (métadonnées)
+        # --- colonnes de coloration (depuis meta_df si possible) ---
+        src = meta_df if (meta_df is not None and isinstance(meta_df, pd.DataFrame) and not meta_df.empty) else combined_df
+
+        # Colonnes à exclure (spectre / techniques / identifiants bruts)
+        excluded = {"Raman Shift", "Intensity_corrected", "Dark Subtracted #1"}
+
+        # On évite aussi de proposer la colonne de jointure si elle existe
+        if "Spectrum name" in src.columns:
+            excluded.add("Spectrum name")
+        if "file" in src.columns:
+            excluded.add("file")
+
+        # Alimenter la combo
+        self.cmb_color.blockSignals(True)
         self.cmb_color.clear()
         self.cmb_color.addItem("(aucune)")
-        excluded = {"Raman Shift", "Intensity_corrected"}
-        for col in df.columns:
-            if col not in excluded:
-                self.cmb_color.addItem(col)
+
+        # 1) D’abord, ajouter en priorité les colonnes "utiles" (titrant / volumes / tubes)
+        priority = []
+        for p in ["[titrant] (M)", "[titrant] (mM)", "V cuvette (µL)", "Tube", "Sample description"]:
+            if p in src.columns and p not in excluded:
+                priority.append(p)
+
+        for col in priority:
+            self.cmb_color.addItem(col)
+
+        # 2) Puis toutes les autres métadonnées, y compris les solutions (A/B/…)
+        for col in src.columns:
+            if col in excluded or col in priority:
+                continue
+            self.cmb_color.addItem(col)
+
+        self.cmb_color.blockSignals(False)
 
     # ------------------------------------------------------------------
     # PCA principale
     # ------------------------------------------------------------------
+
+    def _populate_color_combo_from_scores(self) -> None:
+        """Remplit la combo 'Colorer par' à partir de self._scores_df (réellement utilisé pour le scatter)."""
+        if self._scores_df is None or self._scores_df.empty:
+            return
+
+        df = self._scores_df
+        current = self.cmb_color.currentText() if self.cmb_color.count() else "(aucune)"
+
+        self.cmb_color.blockSignals(True)
+        self.cmb_color.clear()
+        self.cmb_color.addItem("(aucune)")
+
+        # Exclure les colonnes PCA elles-mêmes + l'identifiant
+        excluded = {c for c in df.columns if str(c).startswith("PC")}
+        if self._index_col and self._index_col in df.columns:
+            excluded.add(self._index_col)
+
+        for col in df.columns:
+            if col in excluded:
+                continue
+            self.cmb_color.addItem(col)
+
+        # Restaurer la sélection si possible
+        if current and current != "(aucune)":
+            idx = self.cmb_color.findText(current)
+            if idx >= 0:
+                self.cmb_color.setCurrentIndex(idx)
+
+        self.cmb_color.blockSignals(False)
     def _build_matrix(self) -> tuple[np.ndarray, np.ndarray, pd.DataFrame, np.ndarray]:
         """
         Construit la matrice X (n_spectres × n_shifts) à partir du DataFrame combiné,
@@ -368,7 +515,11 @@ class PCATab(QWidget):
         # Métadonnées par spectre
         # On exclut explicitement la colonne d'index (index_col) pour éviter des doublons
         # lors du reset_index() (sinon pandas essaie d'insérer deux fois la même colonne).
-        meta_cols = [c for c in df.columns if c not in {"Raman Shift", "Intensity_corrected", index_col}]
+        # Métadonnées par spectre (on exclut les colonnes spectrales)
+        meta_cols = [
+                    c for c in df.columns
+                    if c not in {"Raman Shift", "Intensity_corrected", "Dark Subtracted #1", index_col}
+                    ]
         meta_per_spec = df.groupby(index_col)[meta_cols].first().reset_index()
 
         return X, wavenumbers, meta_per_spec, spec_ids
@@ -377,6 +528,7 @@ class PCATab(QWidget):
         """Calcule la PCA et met à jour les graphiques."""
         if self._combined_df is None or self._combined_df.empty:
             QMessageBox.warning(self, "Données manquantes", "Aucun fichier combiné chargé. Utilisez le bouton de rechargement.")
+            self._refresh_button_states()
             return
 
         try:
@@ -436,6 +588,8 @@ class PCATab(QWidget):
         # Jointure avec les métadonnées
         scores_df = scores_df.merge(meta_per_spec, on=self._index_col, how="left")
         self._scores_df = scores_df
+        # Re-remplir la liste 'Colorer par' à partir des colonnes réellement disponibles pour les scores
+        self._populate_color_combo_from_scores()
 
         # DataFrame des loadings (poids des composantes par shift Raman)
         loadings = pca.components_.T  # shape: (n_features, n_components)
@@ -475,6 +629,10 @@ class PCATab(QWidget):
         if hasattr(self, "cmb_spec") and self.cmb_spec.count() > 0:
             self.cmb_spec.setCurrentIndex(0)
             self._update_reconstruction_plot()
+        
+        # PCA calculée avec succès => état "à jour"
+        self._pca_dirty = False
+        self._refresh_button_states()
 
         QMessageBox.information(self, "PCA terminée", "La PCA a été calculée et les graphiques ont été mis à jour.")
 

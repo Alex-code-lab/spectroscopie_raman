@@ -209,6 +209,8 @@ class MetadataCreatorWidget(QWidget):
         self.df_comp: pd.DataFrame | None = None # tableau de composition des tubes
         self.df_map: pd.DataFrame | None = None # tableau de correspondance spectres ↔ tubes
         self.df_conc: pd.DataFrame | None = None  # tableau de concentrations calculé à partir des volumes
+        # Indique que la correspondance spectres↔tubes doit être revue (champs d’en-tête modifiés)
+        self.map_dirty: bool = False
 
         layout = QVBoxLayout(self)
 
@@ -230,6 +232,7 @@ class MetadataCreatorWidget(QWidget):
         self.edit_date.setDisplayFormat("dd/MM/yyyy")
         self.edit_date.setDate(QDate.currentDate())
         row1.addWidget(self.edit_date)
+        self.edit_date.dateChanged.connect(self._on_header_field_changed)
 
         header_layout.addLayout(row1)
 
@@ -239,16 +242,19 @@ class MetadataCreatorWidget(QWidget):
         self.edit_location = QLineEdit(self)
         self.edit_location.setPlaceholderText("ex : Laboratoire / Terrain")
         row2.addWidget(self.edit_location)
+        self.edit_location.textChanged.connect(self._on_header_field_changed)
 
         row2.addWidget(QLabel("Coordinateur :", self))
         self.edit_coordinator = QLineEdit(self)
         self.edit_coordinator.setPlaceholderText("ex : Nom du coordinateur")
         row2.addWidget(self.edit_coordinator)
+        self.edit_coordinator.textChanged.connect(self._on_header_field_changed)
 
         row2.addWidget(QLabel("Opérateur :", self))
         self.edit_operator = QLineEdit(self)
         self.edit_operator.setPlaceholderText("ex : Nom de l'opérateur")
         row2.addWidget(self.edit_operator)
+        self.edit_operator.textChanged.connect(self._on_header_field_changed)
 
         header_layout.addLayout(row2)
         layout.addLayout(header_layout)
@@ -266,7 +272,7 @@ class MetadataCreatorWidget(QWidget):
         btns = QHBoxLayout()
         self.btn_edit_comp = QPushButton("Créer / éditer le tableau des volumes", self)
         self.btn_edit_map = QPushButton("Créer / éditer la correspondance spectres ↔ tubes", self)
-        self.btn_show_conc = QPushButton("Calculer / afficher le tableau des concentrations", self)
+        self.btn_show_conc = QPushButton("Afficher le tableau des concentrations (info)", self)
 
         # Boutons enregistrer / charger sur une seconde ligne
         self.btn_save_meta = QPushButton("Enregistrer les métadonnées…", self)
@@ -291,6 +297,9 @@ class MetadataCreatorWidget(QWidget):
         btns2.addWidget(self.btn_load_meta)
         layout.addLayout(btns2)
 
+        # Couleurs des boutons selon l'état (rouge si non défini, vert si prêt)
+        self._refresh_button_states()
+
         # --- État ---
         self.lbl_status_comp = QLabel("Tableau des volumes : non défini", self)
         self.lbl_status_map = QLabel("Tableau de correspondance : non défini", self)
@@ -298,6 +307,59 @@ class MetadataCreatorWidget(QWidget):
         layout.addWidget(self.lbl_status_map)
 
         layout.addStretch(1)
+
+    def _refresh_button_states(self) -> None:
+        """Met à jour la couleur des boutons selon l'état des DataFrames.
+
+        - rouge si le tableau n'est pas défini
+        - vert si le tableau est prêt (df non vide)
+        """
+        red = "background-color: #d9534f; color: white; font-weight: 600;"
+        green = "background-color: #5cb85c; color: white; font-weight: 600;"
+        neutral = ""  # laisse le style par défaut
+
+        comp_ready = self.df_comp is not None and isinstance(self.df_comp, pd.DataFrame) and not self.df_comp.empty
+        map_ready = (
+            self.df_map is not None
+            and isinstance(self.df_map, pd.DataFrame)
+            and not self.df_map.empty
+            and not self.map_dirty
+        )
+        conc_ready = self.df_conc is not None and isinstance(self.df_conc, pd.DataFrame) and not self.df_conc.empty
+
+        # Bouton volumes
+        if comp_ready:
+            self.btn_edit_comp.setStyleSheet(green)
+        else:
+            self.btn_edit_comp.setStyleSheet(red)
+
+        # Bouton correspondance spectres↔tubes
+        if map_ready:
+            self.btn_edit_map.setStyleSheet(green)
+        else:
+            self.btn_edit_map.setStyleSheet(red)
+
+        # Bouton concentrations : vert si le tableau des volumes existe (calcul possible),
+        # sinon rouge. (Optionnel : vert plus foncé si conc_ready.)
+        if comp_ready:
+            self.btn_show_conc.setStyleSheet(green if conc_ready else green)
+        else:
+            self.btn_show_conc.setStyleSheet(red)
+
+        # Mettre à jour les tooltips (optionnel mais utile)
+        self.btn_edit_comp.setToolTip("Vert = tableau des volumes défini" if comp_ready else "Rouge = à créer / éditer")
+        self.btn_edit_map.setToolTip("Vert = correspondance définie" if map_ready else "Rouge = à créer / éditer")
+        if comp_ready:
+            self.btn_show_conc.setToolTip("Calculable (volumes définis)" if not conc_ready else "Concentrations calculées")
+        else:
+            self.btn_show_conc.setToolTip("Rouge = définir d'abord les volumes")
+    def _on_header_field_changed(self, *args) -> None:
+        """Marque la correspondance spectres↔tubes comme à revoir quand un champ d’en-tête change."""
+        # On ne marque dirty que si un df_map existe déjà (sinon c'est déjà rouge)
+        if self.df_map is None or self.df_map.empty:
+            return
+        self.map_dirty = True
+        self._refresh_button_states()
 
     # ------------------------------------------------------------------
     # Gestion du tableau des volumes (avec concentrations)
@@ -363,23 +425,183 @@ class MetadataCreatorWidget(QWidget):
             if df.empty:
                 QMessageBox.warning(self, "Tableau vide", "Le tableau des volumes est vide.")
                 return
+
+            # Sauvegarde du tableau des volumes
             self.df_comp = df
             self.lbl_status_comp.setText(
                 f"Tableau des volumes : {df.shape[0]} ligne(s), {df.shape[1]} colonne(s)"
             )
 
+            # IMPORTANT : recalcul automatique des concentrations (pas besoin de valider un 2e tableau)
+            try:
+                self.df_conc = self._compute_concentration_table()
+            except Exception as e:
+                # On garde df_comp mais on informe l'utilisateur que les concentrations ne sont pas calculables
+                self.df_conc = None
+                QMessageBox.warning(
+                    self,
+                    "Concentrations non calculées",
+                    "Le tableau des volumes a été enregistré, mais le tableau des concentrations n'a pas pu être calculé.\n"
+                    "Vous pourrez corriger le tableau des volumes puis réessayer.\n\n"
+                    f"Détail : {e}",
+                )
+
+            # Toute modification de volumes invalide la correspondance (dépendance possible pour l'analyse)
+            # et met à jour les couleurs
+            self._refresh_button_states()
+
+    def _on_show_conc_clicked(self) -> None:
+        """Affiche le tableau des concentrations déjà calculé (calcul à la demande uniquement si manquant)."""
+        if self.df_comp is None or not isinstance(self.df_comp, pd.DataFrame) or self.df_comp.empty:
+            QMessageBox.warning(
+                self,
+                "Volumes manquants",
+                "Le tableau des volumes n'est pas défini. Créez d'abord / éditez le tableau des volumes.",
+            )
+            return
+
+        # Normalement df_conc est calculé automatiquement quand on valide le tableau des volumes.
+        # On garde un calcul à la demande uniquement si df_conc est manquant.
+        if self.df_conc is None or not isinstance(self.df_conc, pd.DataFrame) or self.df_conc.empty:
+            try:
+                self.df_conc = self._compute_concentration_table()
+            except Exception as e:
+                QMessageBox.critical(self, "Erreur calcul", f"Impossible de calculer le tableau des concentrations :\n{e}")
+                return
+
+        # Afficher dans un éditeur (lecture/édition tolérée, mais ce tableau est normalement calculé)
+        dlg = TableEditorDialog(
+            title="Tableau des concentrations (calculé)",
+            columns=list(self.df_conc.columns),
+            initial_df=self.df_conc,
+            parent=self,
+        )
+        dlg.exec()
+
+        # Mettre à jour l'état des boutons
+        self._refresh_button_states()
+    # ------------------------------------------------------------------
+    # Construction des métadonnées fusionnées (mapping + concentrations)
+    # ------------------------------------------------------------------
+    def build_merged_metadata(self) -> pd.DataFrame:
+        """Construit un DataFrame de métadonnées par spectre.
+
+        Base obligatoire :
+          - 'Spectrum name'      (depuis df_map['Nom du spectre'])
+          - 'Tube'               (depuis df_map['Tube'])
+          - 'Sample description' (dérivé de Tube)
+
+        Ajout (si possible) :
+          - une colonne par réactif (Solution A/B/..., etc.) issue du tableau des concentrations calculées
+          - 'V cuvette (µL)' si présente dans df_conc
+          - '[titrant] (M)' et '[titrant] (mM)' si on détecte une colonne titrant (par défaut Solution B)
+
+        Cette fonction est utilisée par PCA / Analyse pour reconstruire le fichier combiné.
+        """
+        if self.df_map is None or not isinstance(self.df_map, pd.DataFrame) or self.df_map.empty:
+            raise ValueError("Le tableau de correspondance spectres ↔ tubes n'est pas encore défini.")
+
+        df_map = self.df_map.copy()
+        if "Nom du spectre" not in df_map.columns or "Tube" not in df_map.columns:
+            raise ValueError("Le tableau de correspondance doit contenir les colonnes 'Nom du spectre' et 'Tube'.")
+
+        # Normaliser
+        df_map["Nom du spectre"] = df_map["Nom du spectre"].astype(str)
+        df_map["Tube"] = df_map["Tube"].astype(str)
+
+        # Retirer les lignes avant/après l'en-tête interne "Nom du spectre" / "Tube"
+        col_ns = df_map["Nom du spectre"].astype(str).str.strip()
+        header_mask = col_ns.eq("Nom du spectre")
+        if header_mask.any():
+            last_header_idx = header_mask[header_mask].index[-1]
+            df_map = df_map.loc[df_map.index > last_header_idx].copy()
+
+        # Nettoyage : lignes vides
+        df_map["Nom du spectre"] = df_map["Nom du spectre"].astype(str).str.strip()
+        df_map["Tube"] = df_map["Tube"].astype(str).str.strip()
+        df_map = df_map[(df_map["Nom du spectre"] != "") & (df_map["Tube"] != "")].copy()
+
+        # Base meta
+        meta = df_map.rename(columns={"Nom du spectre": "Spectrum name"})
+
+        tube_to_desc = {
+            "Tube BRB": "Cuvette BRB",
+            "Tube MQW": "MQW",
+        }
+        meta["Sample description"] = meta["Tube"].map(tube_to_desc).fillna(meta["Tube"])
+
+        # Calculer df_conc si nécessaire
+        if self.df_conc is None or not isinstance(self.df_conc, pd.DataFrame) or self.df_conc.empty:
+            if self.df_comp is None or not isinstance(self.df_comp, pd.DataFrame) or self.df_comp.empty:
+                # Pas de volumes => impossible de calculer les concentrations
+                self.df_conc = None
+            else:
+                # Volumes définis => on DOIT pouvoir calculer les concentrations
+                try:
+                    self.df_conc = self._compute_concentration_table()
+                except Exception as e:
+                    raise ValueError(
+                        "Impossible de calculer le tableau des concentrations à partir du tableau des volumes. "
+                        "Vérifiez que df_comp contient bien 'Réactif', 'Concentration', 'Unité' et des colonnes 'Tube X'.\n"
+                        f"Détail : {e}"
+                    )
+
+        # Sécurité : si df_conc a été calculé mais est vide, on le considère non exploitable
+        if self.df_conc is not None and isinstance(self.df_conc, pd.DataFrame) and self.df_conc.empty:
+            self.df_conc = None
+
+        # Merge concentrations
+        if self.df_conc is not None and isinstance(self.df_conc, pd.DataFrame) and not self.df_conc.empty:
+            conc = self.df_conc.copy()
+            if "Réactif" not in conc.columns:
+                raise ValueError("Le tableau des concentrations (df_conc) doit contenir une colonne 'Réactif'.")
+
+            tube_cols = [c for c in conc.columns if c != "Réactif"]
+            if not tube_cols:
+                raise ValueError("Le tableau des concentrations (df_conc) ne contient aucune colonne de tube.")
+
+            long = conc.melt(
+                id_vars="Réactif",
+                value_vars=tube_cols,
+                var_name="Tube",
+                value_name="C_M",
+            )
+            conc_wide = long.pivot(index="Tube", columns="Réactif", values="C_M")
+
+            # Forcer numérique pour Plotly (échelle continue)
+            for c in conc_wide.columns:
+                conc_wide[c] = pd.to_numeric(conc_wide[c], errors="coerce")
+
+            # Assurer que la colonne Tube est comparable
+            meta["Tube"] = meta["Tube"].astype(str).str.strip()
+            conc_wide = conc_wide.reset_index()
+            conc_wide["Tube"] = conc_wide["Tube"].astype(str).str.strip()
+
+            meta = meta.merge(conc_wide, on="Tube", how="left")
+
+            # Détection du titrant : d'abord une colonne qui contient "titrant", sinon Solution B
+            titrant_candidates: list[str] = []
+            for col in conc_wide.columns:
+                name_low = str(col).strip().lower()
+                if "titrant" in name_low:
+                    titrant_candidates.append(col)
+                elif name_low in {"solution b", "solutionb", "sol b", "solb", "b"}:
+                    titrant_candidates.append(col)
+
+            if titrant_candidates:
+                tit_col = titrant_candidates[0]
+                meta["[titrant] (M)"] = meta[tit_col]
+                meta["[titrant] (mM)"] = meta[tit_col] * 1e3
+
+        # Exclure BRB/MQW
+        meta = meta[~meta["Tube"].isin(["Tube BRB", "Tube MQW"])].copy()
+
+        return meta.reset_index(drop=True)
+
     # ------------------------------------------------------------------
     # Gestion du tableau de correspondance spectres ↔ tubes
     # ------------------------------------------------------------------
-       # ------------------------------------------------------------------
-    # Gestion du tableau de correspondance spectres ↔ tubes
-    # ------------------------------------------------------------------
-    # ------------------------------------------------------------------
-    # Gestion du tableau de correspondance spectres ↔ tubes
-    # ------------------------------------------------------------------
-    # ------------------------------------------------------------------
-    # Gestion du tableau de correspondance spectres ↔ tubes
-    # ------------------------------------------------------------------
+
     def _on_edit_map_clicked(self) -> None:
         """
         Ouvre le dialog d'édition pour la correspondance spectres ↔ tubes.
@@ -441,6 +663,31 @@ class MetadataCreatorWidget(QWidget):
                 operator = self.edit_operator.text().strip()
             except Exception:
                 operator = ""
+
+        # Si df_map existe, on met à jour les lignes d'en-tête pour refléter l'UI
+        if self.df_map is not None and not self.df_map.empty:
+            try:
+                df_tmp = self.df_map.copy()
+                col_ns_tmp = df_tmp["Nom du spectre"].astype(str).str.strip()
+                header_values = {
+                    "Nom de la manip": manip_name,
+                    "Nom de la manip :": manip_name,
+                    "Date": date_str,
+                    "Date :": date_str,
+                    "Lieu": location,
+                    "Lieu :": location,
+                    "Coordinateur": coordinator,
+                    "Coordinateur :": coordinator,
+                    "Opérateur": operator,
+                    "Opérateur :": operator,
+                }
+                for idx in df_tmp.index:
+                    label = str(df_tmp.at[idx, "Nom du spectre"]).strip()
+                    if label in header_values:
+                        df_tmp.at[idx, "Tube"] = header_values[label]
+                self.df_map = df_tmp
+            except Exception:
+                pass
 
         # 2) Lignes d'en-tête construites à partir de l'UI (toujours recalculées)
         header_rows = [
@@ -526,9 +773,11 @@ class MetadataCreatorWidget(QWidget):
                 df.at[idx, "Tube"] = header_values[label]
 
         self.df_map = df
+        self.map_dirty = False
         self.lbl_status_map.setText(
             f"Tableau de correspondance : {df.shape[0]} ligne(s), {df.shape[1]} colonne(s)"
         )
+        self._refresh_button_states()
 
     def _on_manip_name_changed(self, text: str) -> None:
         """
@@ -539,6 +788,9 @@ class MetadataCreatorWidget(QWidget):
         if not new_name:
             return
         self._apply_manip_name_to_df_map(new_name)
+        # Un changement de nom de manip impacte directement la correspondance (noms de spectres)
+        self.map_dirty = True
+        self._refresh_button_states()
 
     def _apply_manip_name_to_df_map(self, manip_name: str) -> None:
         """
@@ -740,6 +992,7 @@ class MetadataCreatorWidget(QWidget):
             return
 
         self.df_conc = conc_df
+        self._refresh_button_states()
 
         # Affichage dans une boîte de dialogue type Excel
         cols = ["Réactif"] + [c for c in conc_df.columns if c != "Réactif"]
@@ -983,6 +1236,7 @@ class MetadataCreatorWidget(QWidget):
                 )
                 # Mettre à jour les champs d'en-tête d'après df_map
                 self._update_header_fields_from_df_map()
+                self.map_dirty = False
             else:
                 QMessageBox.warning(
                     self,
@@ -990,6 +1244,7 @@ class MetadataCreatorWidget(QWidget):
                     "La feuille 'Correspondance' est absente du fichier Excel chargé.\n"
                     "Le tableau de correspondance n'a pas pu être restauré.",
                 )
+            self._refresh_button_states()
         except Exception as e:
             QMessageBox.critical(
                 self,
