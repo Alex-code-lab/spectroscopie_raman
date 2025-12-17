@@ -170,3 +170,23 @@ def build_combined_dataframe_from_df(
             ~combined_df["Sample description"].isin(["Tube BRB", "BRB","Cuvette BRB","Contrôle BRB"])
         ].copy()
     return combined_df
+
+def build_combined_dataframe_from_ui(
+    txt_files: list[str],
+    metadata_creator,
+    poly_order: int = 5,
+    exclude_brb: bool = True,
+    apply_baseline: bool = True,
+) -> pd.DataFrame:
+    """Construit le DataFrame combiné (spectres + métadonnées) à partir des éléments UI."""
+    if metadata_creator is None or not hasattr(metadata_creator, "build_merged_metadata"):
+        raise ValueError("metadata_creator manquant ou incompatible (build_merged_metadata introuvable).")
+
+    merged_meta = metadata_creator.build_merged_metadata()
+    return build_combined_dataframe_from_df(
+        txt_files,
+        merged_meta,
+        poly_order=poly_order,
+        exclude_brb=exclude_brb,
+        apply_baseline=apply_baseline,
+    )

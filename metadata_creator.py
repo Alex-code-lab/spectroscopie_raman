@@ -236,7 +236,7 @@ class MetadataCreatorWidget(QWidget):
 
     # Modèles prédéfinis de tableaux des volumes
     VOLUME_PRESETS: dict[str, pd.DataFrame] = {
-       "Titration EGTA / PAN (historique)": pd.DataFrame(
+       "Titration classique (historique)": pd.DataFrame(
             {
                 "Réactif": [
                     "Echantillon",
@@ -261,6 +261,31 @@ class MetadataCreatorWidget(QWidget):
                 "Tube 9":  [1000, 0,  98, 402,  30, 750, 750,  60],
                 "Tube 10": [1000, 0,  54, 446,  30, 750, 750,  60],
                 "Tube 11": [   0, 1000,  54, 446,  30, 750, 750,  60],
+            }
+        ),
+        "Titration Angelina": pd.DataFrame(
+            {
+                "Réactif": [
+                    "Echantillon",
+                    "Contrôle",
+                    "Solution B",
+                    "Solution C",
+                    "Solution D",
+                    "Solution E",
+                ],
+                "Concentration": ["0,5", "", "4", "2", "0,05", "1",],
+                "Unité": ["µM", "", "mM",  "µM", "mM","mM"],
+                "Tube 1":  [1000, 0, 500,   0, 750, 750],
+                "Tube 2":  [1000, 0, 411,  89, 750, 750],
+                "Tube 3":  [1000, 0, 321, 179, 750, 750],
+                "Tube 4":  [1000, 0, 299, 201, 750, 750],
+                "Tube 5":  [1000, 0, 277, 223, 750, 750],
+                "Tube 6":  [1000, 0, 254, 246, 750, 750],
+                "Tube 7":  [1000, 0, 232, 268, 750, 750],
+                "Tube 8":  [1000, 0, 188, 312, 750, 750],
+                "Tube 9":  [1000, 0,  98, 402, 750, 750],
+                "Tube 10": [1000, 0,  54, 446, 750, 750],
+                "Tube 11": [1000, 0,  54, 446, 750, 750],
             }
         ),
     }
@@ -341,9 +366,16 @@ class MetadataCreatorWidget(QWidget):
         # --- Sélecteur de modèle de tableau des volumes ---
         preset_layout = QHBoxLayout()
         preset_layout.addWidget(QLabel("Modèle de tableau des volumes :", self))
+
         self.combo_volume_preset = QComboBox(self)
         self.combo_volume_preset.addItems(self.VOLUME_PRESETS.keys())
         preset_layout.addWidget(self.combo_volume_preset)
+
+        # Le changement de modèle ne s'applique pas automatiquement : il faut valider.
+        self.btn_validate_volume_preset = QPushButton("Valider le modèle", self)
+        self.btn_validate_volume_preset.clicked.connect(self._on_validate_volume_preset_clicked)
+        preset_layout.addWidget(self.btn_validate_volume_preset)
+
         preset_layout.addStretch(1)
         layout.addLayout(preset_layout)
 
@@ -685,6 +717,22 @@ class MetadataCreatorWidget(QWidget):
         # Un changement de nom de manip impacte directement la correspondance (noms de spectres)
         self.map_dirty = True
         self._refresh_button_states()
+
+    def _on_validate_volume_preset_clicked(self) -> None:
+        """Applique le modèle sélectionné au tableau des volumes (df_comp)."""
+        name = self.combo_volume_preset.currentText().strip()
+        if not name or name not in self.VOLUME_PRESETS:
+            QMessageBox.warning(self, "Modèle introuvable", "Le modèle sélectionné est introuvable.")
+            return
+
+        self.df_comp = self.VOLUME_PRESETS[name].copy()
+
+        QMessageBox.information(
+            self,
+            "Modèle appliqué",
+            f"Le modèle '{name}' a été appliqué au tableau des volumes.\n\n"
+            "Vous pouvez maintenant ouvrir 'Créer / éditer le tableau des volumes' pour l'ajuster.",
+        )
 
     def _apply_manip_name_to_df_map(self, manip_name: str) -> None:
         """

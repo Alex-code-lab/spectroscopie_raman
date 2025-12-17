@@ -16,8 +16,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtCore import QModelIndex
 
-from data_processing import build_combined_dataframe_from_df
-
+from data_processing import build_combined_dataframe_from_ui
 
 class AnalysisTab(QWidget):
     """
@@ -276,9 +275,9 @@ class AnalysisTab(QWidget):
 
         # Construire le DataFrame combiné (spectres + métadonnées)
         try:
-            combined = build_combined_dataframe_from_df(
+            combined = build_combined_dataframe_from_ui(
                 txt_files,
-                merged_meta,
+                metadata_creator,
                 poly_order=5,
                 exclude_brb=True,
                 apply_baseline=True,

@@ -17,7 +17,7 @@ from pybaselines import Baseline
 import plotly.graph_objects as go
 from dataclasses import dataclass, field
 from typing import Dict, Optional
-from data_processing import load_spectrum_file, build_combined_dataframe_from_df
+from data_processing import load_spectrum_file, build_combined_dataframe_from_ui
 
 @dataclass
 class Spectrum:
@@ -217,12 +217,10 @@ class SpectraTab(QWidget):
                     txt_files = getattr(self.file_picker, 'selected_files', [])
                 if txt_files:
                     try:
-                        merged_meta = metadata_creator.build_merged_metadata()
-                        # Si la case "Afficher le contrôle BRB" est cochée, on NE doit PAS exclure le BRB.
                         exclude_brb = not self.chk_show_brb.isChecked()
-                        combined_df = build_combined_dataframe_from_df(
+                        combined_df = build_combined_dataframe_from_ui(
                             txt_files,
-                            merged_meta,
+                            metadata_creator,
                             poly_order=5,
                             exclude_brb=exclude_brb,
                             apply_baseline=True,
@@ -251,9 +249,6 @@ class SpectraTab(QWidget):
                     return
 
                 df_plot = combined_df.copy()
-                # Filtrer les lignes "Contrôle BRB" si la case n'est pas cochée
-                if not self.chk_show_brb.isChecked() and "Sample description" in df_plot.columns:
-                    df_plot = df_plot[df_plot["Sample description"] != "Contrôle BRB"].copy()
                 df_plot = df_plot.dropna(subset=["Raman Shift", "Intensity_corrected"])
 
                 if df_plot.empty:

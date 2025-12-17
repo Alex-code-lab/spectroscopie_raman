@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import plotly.express as px
-from data_processing import build_combined_dataframe_from_df
+from data_processing import build_combined_dataframe_from_ui
 
 from sklearn.decomposition import PCA
 
@@ -328,9 +328,9 @@ class PCATab(QWidget):
             return
 
         try:
-            combined = build_combined_dataframe_from_df(
+            combined = build_combined_dataframe_from_ui(
                 txt_files,
-                merged_meta,
+                metadata_creator,
                 poly_order=5,
                 exclude_brb=True,
                 apply_baseline=True,
