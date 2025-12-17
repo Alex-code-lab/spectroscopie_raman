@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import pandas as pd
-import re
 
 from PySide6.QtWidgets import (
     QWidget,
@@ -22,7 +21,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QDateEdit,
     QFileDialog,
-    QComboBox,
 )
 
 from PySide6.QtCore import Qt, QDate
@@ -41,16 +39,11 @@ class TableEditorDialog(QDialog):
         columns: list[str],
         initial_df: pd.DataFrame | None = None,
         parent=None,
-        reset_df: pd.DataFrame | None = None,
-        reset_button_text: str = "Reset",
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(title)
 
         self._columns = list(columns)
-        # self.conc_user_overridden = False
-        self._reset_df = reset_df.copy() if reset_df is not None else None
-        self._reset_button_text = reset_button_text
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(title))
@@ -83,12 +76,6 @@ class TableEditorDialog(QDialog):
         btns_edit.addSpacing(20)
         btns_edit.addWidget(self.btn_add_col)
         btns_edit.addWidget(self.btn_del_col)
-
-        btns_edit.addSpacing(20)
-        self.btn_reset = QPushButton(self._reset_button_text, self)
-        self.btn_reset.setEnabled(self._reset_df is not None)
-        btns_edit.addWidget(self.btn_reset)
-
         btns_edit.addStretch(1)
         layout.addLayout(btns_edit)
 
@@ -96,7 +83,6 @@ class TableEditorDialog(QDialog):
         self.btn_del_row.clicked.connect(self._del_row)
         self.btn_add_col.clicked.connect(self._add_col)
         self.btn_del_col.clicked.connect(self._del_col)
-        self.btn_reset.clicked.connect(self._reset_table)
 
         # --- Boutons OK / Annuler ---
         btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
@@ -125,18 +111,7 @@ class TableEditorDialog(QDialog):
         for i in range(len(df)):
             for j, col in enumerate(self._columns):
                 val = df.iloc[i, j]
-                if pd.isna(val):
-                    txt = ""
-                else:
-                    # Affichage lisible : floats en notation scientifique à 2 décimales
-                    if isinstance(val, (float, int)):
-                        try:
-                            txt = f"{float(val):.2e}"
-                        except Exception:
-                            txt = str(val)
-                    else:
-                        txt = str(val)
-                item = QTableWidgetItem(txt)
+                item = QTableWidgetItem("" if pd.isna(val) else str(val))
                 self.table.setItem(i, j, item)
         self.table.resizeColumnsToContents()
 
@@ -170,12 +145,6 @@ class TableEditorDialog(QDialog):
             self._columns.pop(col)
         self.table.removeColumn(col)
         self.table.setHorizontalHeaderLabels(self._columns)
-
-    def _reset_table(self) -> None:
-        """Restaure le tableau par défaut (si fourni)."""
-        if self._reset_df is None:
-            return
-        self._load_from_dataframe(self._reset_df)
 
     def _accept_if_not_empty(self) -> None:
         df = self.to_dataframe()
@@ -234,42 +203,12 @@ class MetadataCreatorWidget(QWidget):
     `build_combined_dataframe_from_df` dans le reste du programme.
     """
 
-    # Modèles prédéfinis de tableaux des volumes
-    VOLUME_PRESETS: dict[str, pd.DataFrame] = {
-       "Titration EGTA / PAN (historique)": pd.DataFrame(
-            {
-                "Réactif": [
-                    "Echantillon",
-                    "Contrôle",
-                    "Solution A",
-                    "Solution B",
-                    "Solution C",
-                    "Solution D",
-                    "Solution E",
-                    "Solution F",
-                ],
-                "Concentration": ["0,5", "", "4", "2", "2", "0,05", "1", "1"],
-                "Unité": ["µM", "", "mM", "µM", "µM", "% en masse", "mM", "mM"],
-                "Tube 1":  [1000, 0, 500,   0,  30, 750, 750,  60],
-                "Tube 2":  [1000, 0, 411,  89,  30, 750, 750,  60],
-                "Tube 3":  [1000, 0, 321, 179,  30, 750, 750,  60],
-                "Tube 4":  [1000, 0, 299, 201,  30, 750, 750,  60],
-                "Tube 5":  [1000, 0, 277, 223,  30, 750, 750,  60],
-                "Tube 6":  [1000, 0, 254, 246,  30, 750, 750,  60],
-                "Tube 7":  [1000, 0, 232, 268,  30, 750, 750,  60],
-                "Tube 8":  [1000, 0, 188, 312,  30, 750, 750,  60],
-                "Tube 9":  [1000, 0,  98, 402,  30, 750, 750,  60],
-                "Tube 10": [1000, 0,  54, 446,  30, 750, 750,  60],
-                "Tube 11": [   0, 1000,  54, 446,  30, 750, 750,  60],
-            }
-        ),
-    }
-
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
 
         self.df_comp: pd.DataFrame | None = None # tableau de composition des tubes
         self.df_map: pd.DataFrame | None = None # tableau de correspondance spectres ↔ tubes
+        self.df_conc: pd.DataFrame | None = None  # tableau de concentrations calculé à partir des volumes
         # Indique que la correspondance spectres↔tubes doit être revue (champs d’en-tête modifiés)
         self.map_dirty: bool = False
 
@@ -325,33 +264,15 @@ class MetadataCreatorWidget(QWidget):
             "Utilisez les boutons ci-dessous pour créer / éditer :<ul>"
             "<li>le tableau des volumes (avec concentrations) pour chaque tube</li>"
             "<li>le tableau de correspondance entre les noms de spectres et les tubes</li>"
-            "</ul>"
-            "<b>Glossaire des solutions utilisées :</b><ul>"
-            "<li><b>Solution A</b> : Tampon (milieu de base, contrôle du pH)</li>"
-            "<li><b>Solution B</b> : Titrant (variable expérimentale principale)</li>"
-            "<li><b>Solution C</b> : Indicateur (molécule rapporteur suivie par spectroscopie)</li>"
-            "<li><b>Solution D</b> : PEG (agent de crowding / modification du milieu)</li>"
-            "<li><b>Solution E</b> : NPs (nanoparticules)</li>"
-            "<li><b>Solution F</b> : Crosslinker (ex. spermine, agent de réticulation)</li>"
-            "</ul>"
-            "Les tableaux sont éditables comme dans Excel mais sont stockés en interne sous forme de DataFrame pandas.",
+            "</ul>Les tableaux sont éditables comme dans Excel mais sont stockés en DataFrame pandas.",
             self,
         ))
-
-        # --- Sélecteur de modèle de tableau des volumes ---
-        preset_layout = QHBoxLayout()
-        preset_layout.addWidget(QLabel("Modèle de tableau des volumes :", self))
-        self.combo_volume_preset = QComboBox(self)
-        self.combo_volume_preset.addItems(self.VOLUME_PRESETS.keys())
-        preset_layout.addWidget(self.combo_volume_preset)
-        preset_layout.addStretch(1)
-        layout.addLayout(preset_layout)
 
         # --- Boutons pour ouvrir les éditeurs de tableaux ---
         btns = QHBoxLayout()
         self.btn_edit_comp = QPushButton("Créer / éditer le tableau des volumes", self)
         self.btn_edit_map = QPushButton("Créer / éditer la correspondance spectres ↔ tubes", self)
-        self.btn_show_conc = QPushButton("Concentration dans les cuvettes (info)", self)
+        self.btn_show_conc = QPushButton("Afficher le tableau des concentrations (info)", self)
 
         # Boutons enregistrer / charger sur une seconde ligne
         self.btn_save_meta = QPushButton("Enregistrer les métadonnées…", self)
@@ -404,6 +325,7 @@ class MetadataCreatorWidget(QWidget):
             and not self.df_map.empty
             and not self.map_dirty
         )
+        conc_ready = self.df_conc is not None and isinstance(self.df_conc, pd.DataFrame) and not self.df_conc.empty
 
         # Bouton volumes
         if comp_ready:
@@ -418,57 +340,19 @@ class MetadataCreatorWidget(QWidget):
             self.btn_edit_map.setStyleSheet(red)
 
         # Bouton concentrations : vert si le tableau des volumes existe (calcul possible),
-        # sinon rouge.
+        # sinon rouge. (Optionnel : vert plus foncé si conc_ready.)
         if comp_ready:
-            self.btn_show_conc.setStyleSheet(green)
+            self.btn_show_conc.setStyleSheet(green if conc_ready else green)
         else:
             self.btn_show_conc.setStyleSheet(red)
 
-        # Mettre à jour les tooltips
+        # Mettre à jour les tooltips (optionnel mais utile)
         self.btn_edit_comp.setToolTip("Vert = tableau des volumes défini" if comp_ready else "Rouge = à créer / éditer")
         self.btn_edit_map.setToolTip("Vert = correspondance définie" if map_ready else "Rouge = à créer / éditer")
         if comp_ready:
-            self.btn_show_conc.setToolTip("Calculable (volumes définis)")
+            self.btn_show_conc.setToolTip("Calculable (volumes définis)" if not conc_ready else "Concentrations calculées")
         else:
             self.btn_show_conc.setToolTip("Rouge = définir d'abord les volumes")
-# ------------------------------------------------------------------
-# Helpers – recalcul à partir d'un tableau des concentrations édité
-# ------------------------------------------------------------------
-    @staticmethod
-    def _to_float(x):
-        """Convertit une valeur (str avec virgule, etc.) en float ou retourne None."""
-        if x is None or (isinstance(x, float) and pd.isna(x)) or (isinstance(x, str) and x.strip() == ""):
-            return None
-        try:
-            if isinstance(x, str):
-                x = x.replace("\xa0", " ").strip().replace(",", ".")
-            return float(x)
-        except Exception:
-            return None
-
-    @staticmethod
-    def _normalize_tube_label(label: str) -> str:
-        s = ("" if label is None else str(label)).strip()
-        if not s:
-            return ""
-
-        # A1, A01, B3 ... => Tube N (on prend le nombre)
-        m = re.match(r"^[A-Za-z](\d{1,2})$", s)
-        if m:
-            return f"Tube {int(m.group(1))}"
-
-        # Tube1 / TUBE 01 / tube   2 => Tube N
-        m = re.match(r"^(?:tube)\s*(\d{1,2})$", s, flags=re.IGNORECASE)
-        if m:
-            return f"Tube {int(m.group(1))}"
-
-        # juste un nombre
-        m = re.match(r"^(\d{1,2})$", s)
-        if m:
-            return f"Tube {int(m.group(1))}"
-
-        return s
-    
     def _on_header_field_changed(self, *args) -> None:
         """Marque la correspondance spectres↔tubes comme à revoir quand un champ d’en-tête change."""
         # On ne marque dirty que si un df_map existe déjà (sinon c'est déjà rouge)
@@ -480,6 +364,124 @@ class MetadataCreatorWidget(QWidget):
     # ------------------------------------------------------------------
     # Gestion du tableau des volumes (avec concentrations)
     # ------------------------------------------------------------------
+    def _on_edit_comp_clicked(self) -> None:
+        """Ouvre le dialog d'édition pour le tableau des volumes (et concentrations) par tube."""
+        # Colonnes exactement dans l'esprit du tableau Excel : réactif + concentration + unités + volumes Tube 1–11
+        default_cols = [
+            "Réactif",
+            "Concentration",
+            "Unité",
+            "Tube 1",
+            "Tube 2",
+            "Tube 3",
+            "Tube 4",
+            "Tube 5",
+            "Tube 6",
+            "Tube 7",
+            "Tube 8",
+            "Tube 9",
+            "Tube 10",
+            "Tube 11",
+        ]
+
+        # DataFrame par défaut pré-rempli pour ressembler au tableau fourni (valeurs en µL)
+        if self.df_comp is None:
+            self.df_comp = pd.DataFrame(
+                {
+                    "Réactif": [
+                        "Echantillon",
+                        "Contrôle",
+                        "Solution A",
+                        "Solution B",
+                        "Solution C",
+                        "Solution D",
+                        "Solution E",
+                        "Solution F",
+                    ],
+                    "Concentration": ["0,5", "", "4", "2", "2", "0,05", "1", "1"],
+                    "Unité": ["µM", "", "mM", "µM", "µM", "% en masse", "mM", "mM"],
+                    "Tube 1":  [1000,    0, 500,   0,  30, 750, 750,  60],
+                    "Tube 2":  [1000,    0, 411,  89,  30, 750, 750,  60],
+                    "Tube 3":  [1000,    0, 321, 179,  30, 750, 750,  60],
+                    "Tube 4":  [1000,    0, 299, 201,  30, 750, 750,  60],
+                    "Tube 5":  [1000,    0, 277, 223,  30, 750, 750,  60],
+                    "Tube 6":  [1000,    0, 254, 246,  30, 750, 750,  60],
+                    "Tube 7":  [1000,    0, 232, 268,  30, 750, 750,  60],
+                    "Tube 8":  [1000,    0, 188, 312,  30, 750, 750,  60],
+                    "Tube 9":  [1000,    0,  98, 402,  30, 750, 750,  60],
+                    "Tube 10": [1000,    0,  54, 446,  30, 750, 750,  60],
+                    "Tube 11": [   0, 1000,  54, 446,  30, 750, 750,  60],
+                }
+            )
+
+        dlg = TableEditorDialog(
+            title="Tableau des volumes par tube",
+            columns=default_cols,
+            initial_df=self.df_comp,
+            parent=self,
+        )
+        if dlg.exec() == QDialog.Accepted:
+            df = dlg.to_dataframe()
+            if df.empty:
+                QMessageBox.warning(self, "Tableau vide", "Le tableau des volumes est vide.")
+                return
+
+            # Sauvegarde du tableau des volumes
+            self.df_comp = df
+            self.lbl_status_comp.setText(
+                f"Tableau des volumes : {df.shape[0]} ligne(s), {df.shape[1]} colonne(s)"
+            )
+
+            # IMPORTANT : recalcul automatique des concentrations (pas besoin de valider un 2e tableau)
+            try:
+                self.df_conc = self._compute_concentration_table()
+            except Exception as e:
+                # On garde df_comp mais on informe l'utilisateur que les concentrations ne sont pas calculables
+                self.df_conc = None
+                QMessageBox.warning(
+                    self,
+                    "Concentrations non calculées",
+                    "Le tableau des volumes a été enregistré, mais le tableau des concentrations n'a pas pu être calculé.\n"
+                    "Vous pourrez corriger le tableau des volumes puis réessayer.\n\n"
+                    f"Détail : {e}",
+                )
+
+            # Toute modification de volumes invalide la correspondance (dépendance possible pour l'analyse)
+            # et met à jour les couleurs
+            self._refresh_button_states()
+
+    def _on_show_conc_clicked(self) -> None:
+        """Affiche le tableau des concentrations déjà calculé (calcul à la demande uniquement si manquant)."""
+        if self.df_comp is None or not isinstance(self.df_comp, pd.DataFrame) or self.df_comp.empty:
+            QMessageBox.warning(
+                self,
+                "Volumes manquants",
+                "Le tableau des volumes n'est pas défini. Créez d'abord / éditez le tableau des volumes.",
+            )
+            return
+
+        # Normalement df_conc est calculé automatiquement quand on valide le tableau des volumes.
+        # On garde un calcul à la demande uniquement si df_conc est manquant.
+        if self.df_conc is None or not isinstance(self.df_conc, pd.DataFrame) or self.df_conc.empty:
+            try:
+                self.df_conc = self._compute_concentration_table()
+            except Exception as e:
+                QMessageBox.critical(self, "Erreur calcul", f"Impossible de calculer le tableau des concentrations :\n{e}")
+                return
+
+        # Afficher dans un éditeur (lecture/édition tolérée, mais ce tableau est normalement calculé)
+        dlg = TableEditorDialog(
+            title="Tableau des concentrations (calculé)",
+            columns=list(self.df_conc.columns),
+            initial_df=self.df_conc,
+            parent=self,
+        )
+        dlg.exec()
+
+        # Mettre à jour l'état des boutons
+        self._refresh_button_states()
+
+
     def _on_edit_map_clicked(self) -> None:
         """
         Ouvre le dialog d'édition pour la correspondance spectres ↔ tubes.
@@ -580,20 +582,6 @@ class MetadataCreatorWidget(QWidget):
         blank_row = pd.DataFrame([["", ""]], columns=default_cols)
         internal_header = pd.DataFrame([["Nom du spectre", "Tube"]], columns=default_cols)
 
-        # --- DataFrame RESET (valeurs par défaut) ---
-        tube_labels_default = ["Contrôle BRB"] + [f"Tube {i}" for i in range(1, 11)] + ["Contrôle"]
-        mapping_rows_default = pd.DataFrame(
-            {
-                "Nom du spectre": [f"{manip_name}_{i:02d}" for i in range(len(tube_labels_default))],
-                "Tube": tube_labels_default,
-            },
-            columns=default_cols,
-        )
-        reset_df = pd.concat(
-            [df_header, blank_row, internal_header, mapping_rows_default],
-            ignore_index=True,
-        )
-
         # 3) Récupération de la partie "correspondance" existante si elle a déjà été éditée
         mapping_rows = None
         if self.df_map is not None and not self.df_map.empty:
@@ -640,8 +628,6 @@ class MetadataCreatorWidget(QWidget):
             columns=default_cols,
             initial_df=initial_df,
             parent=self,
-            reset_df=reset_df,
-            reset_button_text="Reset (valeurs par défaut)",
         )
         if dlg.exec() != QDialog.Accepted:
             return
@@ -865,163 +851,150 @@ class MetadataCreatorWidget(QWidget):
         # Construction finale du DataFrame de concentrations
         conc_df = pd.DataFrame(out_rows, columns=["Réactif"] + tube_cols)
 
-        # IMPORTANT : on conserve des valeurs numériques (float) pour permettre
-        # l'édition + la rétro-propagation vers les concentrations stock.
-        # L'affichage à 2 décimales est géré dans TableEditorDialog._load_from_dataframe.
+        # ---- Formatage : écriture scientifique à 2 décimales ----
+        for col in tube_cols:
+            conc_df[col] = conc_df[col].apply(
+                lambda v: f"{float(v):.2e}" if pd.notna(v) else ""
+            )
+
         return conc_df
     
     def _on_show_conc_clicked(self) -> None:
-        """Affiche le tableau des concentrations dans les cuvettes (information uniquement)."""
-
-        if self.df_comp is None or self.df_comp.empty:
-            QMessageBox.warning(self, "Erreur", "Le tableau des volumes n'est pas défini.")
+        """Calcule et affiche le tableau des concentrations lié au tableau des volumes."""
+        try:
+            conc_df = self._compute_concentration_table()
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Erreur de calcul",
+                f"Impossible de calculer le tableau des concentrations :\n{e}",
+            )
             return
 
-        conc_df = self._compute_concentration_table()
+        self.df_conc = conc_df
+        self._refresh_button_states()
 
+        # Affichage dans une boîte de dialogue type Excel
+        cols = ["Réactif"] + [c for c in conc_df.columns if c != "Réactif"]
         dlg = TableEditorDialog(
-            "Concentration dans les cuvettes (info)",
-            list(conc_df.columns),
-            conc_df,
-            self,
+            title="Tableau des concentrations dans les cuvettes (M)",
+            columns=cols,
+            initial_df=conc_df,
+            parent=self,
         )
-
-        # Lecture seule
-        dlg.table.setEditTriggers(QTableWidget.NoEditTriggers)
-
         dlg.exec()
+
 
     # ------------------------------------------------------------------
     # Méthode utilitaire optionnelle
     # ------------------------------------------------------------------
     def build_merged_metadata(self) -> pd.DataFrame:
         """
-        Construit le DataFrame de métadonnées final utilisé pour :
-        - tracés des spectres
-        - PCA
-        - analyses de pics
+        Construit un DataFrame de métadonnées à partir des tableaux créés
+        dans l'onglet Métadonnées :
 
-        Sources :
-        - df_map  : correspondance spectre ↔ tube
-        - df_conc : concentrations finales par tube (PRIORITAIRE si défini)
-        - df_comp : tableau des volumes (fallback)
+        - df_map  : correspondance spectres ↔ tubes (Nom du spectre / Tube)
+        - df_conc : tableau des concentrations par tube (réactifs en lignes, tubes en colonnes)
 
-        Sortie :
-        DataFrame contenant au minimum :
-            - Spectrum name
-            - Tube
-            - Sample description
-        + colonnes de concentrations (une par réactif si disponibles)
-        + colonnes dérivées pour le titrant ([titrant] (M), [titrant] (mM))
+        Le DataFrame retourné contient au minimum :
+            - "Spectrum name"      : nom du spectre (pour la jointure avec les .txt)
+            - "Tube"               : identifiant du tube (ex : "Tube 1", "Tube BRB", "Tube MQW")
+            - "Sample description" : description textuelle pour les tracés (ex : "Cuvette BRB")
+        Et, si df_conc est défini :
+            - une colonne par réactif (pivot de df_conc)
+            - des colonnes dérivées "[EGTA] (M)" et "[EGTA] (mM)" si un réactif contenant "EGTA" est trouvé.
         """
-
-        # ------------------------------------------------------------------
-        # 1) Vérifications de base
-        # ------------------------------------------------------------------
         if self.df_map is None or self.df_map.empty:
-            raise ValueError("Le tableau de correspondance spectres ↔ tubes n'est pas défini.")
+            raise ValueError("Le tableau de correspondance spectres ↔ tubes n'est pas encore défini.")
 
         df_map = self.df_map.copy()
-        df_map["Tube_norm"] = df_map["Tube"].apply(self._normalize_tube_label)
 
-        if not {"Nom du spectre", "Tube"}.issubset(df_map.columns):
-            raise ValueError(
-                "Le tableau de correspondance doit contenir les colonnes "
-                "'Nom du spectre' et 'Tube'."
-            )
+        # Vérifier la présence des colonnes attendues
+        if "Nom du spectre" not in df_map.columns or "Tube" not in df_map.columns:
+            raise ValueError("Le tableau de correspondance doit contenir les colonnes 'Nom du spectre' et 'Tube'.")
 
-        # Nettoyage texte
-        df_map["Nom du spectre"] = df_map["Nom du spectre"].astype(str).str.strip()
-        df_map["Tube"] = df_map["Tube"].astype(str).str.strip()
+        # Normaliser les textes
+        df_map["Nom du spectre"] = df_map["Nom du spectre"].astype(str)
+        df_map["Tube"] = df_map["Tube"].astype(str)
 
-        # Supprimer une éventuelle ligne d'en-tête interne
-        header_mask = df_map["Nom du spectre"] == "Nom du spectre"
+        # Repérer la ligne d'en-tête interne "Nom du spectre" / "Tube"
+        col_ns = df_map["Nom du spectre"].str.strip()
+        header_mask = col_ns.eq("Nom du spectre")
         if header_mask.any():
+            # On garde uniquement les lignes situées APRÈS cette ligne d'en-tête
             last_header_idx = header_mask[header_mask].index[-1]
             df_map = df_map.loc[df_map.index > last_header_idx].copy()
 
-        # Retirer lignes vides
-        df_map = df_map[
-            (df_map["Nom du spectre"] != "") &
-            (df_map["Tube"] != "")
-        ].copy()
+        # Nettoyage : retirer les lignes vides ou incomplètes
+        df_map["Nom du spectre"] = df_map["Nom du spectre"].str.strip()
+        df_map["Tube"] = df_map["Tube"].str.strip()
+        df_map = df_map[(df_map["Nom du spectre"] != "") & (df_map["Tube"] != "")].copy()
 
-        # ------------------------------------------------------------------
-        # 2) Base des métadonnées : spectre ↔ tube
-        # ------------------------------------------------------------------
+        # Base des métadonnées : Spectrum name + Tube
         meta = df_map.rename(columns={"Nom du spectre": "Spectrum name"})
 
-        # Description lisible des échantillons
+        # Construire une "Sample description" à partir du nom de tube
         tube_to_desc = {
             "Contrôle BRB": "Contrôle BRB",
             "Contrôle": "Contrôle",
         }
-        meta["Sample description"] = (
-            meta["Tube"].map(tube_to_desc).fillna(meta["Tube"])
-        )
+        meta["Sample description"] = meta["Tube"].map(tube_to_desc).fillna(meta["Tube"])
 
-        # ------------------------------------------------------------------
-        # 3) Choix de la source des concentrations
-        # ------------------------------------------------------------------
-        conc_df = self._compute_concentration_table()
+        # Si on dispose du tableau de concentrations, l'exploiter pour ajouter des colonnes
+        if self.df_conc is not None and isinstance(self.df_conc, pd.DataFrame) and not self.df_conc.empty:
+            conc = self.df_conc.copy()
+            if "Réactif" in conc.columns:
+                # Colonnes de tubes dans df_conc (ex : "Tube 1", "Tube 2", ...)
+                tube_cols = [c for c in conc.columns if c != "Réactif"]
+                if tube_cols:
+                    # Mise au format long : (Réactif, Tube, C_M)
+                    long = conc.melt(
+                        id_vars="Réactif",
+                        value_vars=tube_cols,
+                        var_name="Tube",
+                        value_name="C_M",
+                    )
+                    # Pivot : un réactif par colonne, indexé par "Tube"
+                    conc_wide = long.pivot(index="Tube", columns="Réactif", values="C_M")
+                    # Forcer toutes les colonnes de conc_wide en numérique (au cas où df_conc contient des chaînes)
+                    conc_wide = conc_wide.apply(pd.to_numeric, errors="coerce")
 
-        # ------------------------------------------------------------------
-        # 4) Injection des concentrations dans les métadonnées
-        # ------------------------------------------------------------------
-        if "Réactif" in conc_df.columns:
-            tube_cols = [c for c in conc_df.columns if c != "Réactif"]
+                    # Joindre ces colonnes par tube
+                    meta = meta.merge(conc_wide, on="Tube", how="left")
 
-            if tube_cols:
-                # Passage au format long : (Tube, Réactif, C_M)
-                conc_long = conc_df.melt(
-                    id_vars="Réactif",
-                    value_vars=tube_cols,
-                    var_name="Tube",
-                    value_name="C_M",
-                )
+                    # Tenter de détecter une colonne correspondant au titrant.
+                    # On considère comme titrant :
+                    #  - tout réactif dont le nom contient "titrant"
+                    #  - ou, par compatibilité descendante, "egta"
+                    #  - ou les variantes de "solution b" utilisées dans ton protocole.
+                    titrant_candidates: list[str] = []
+                    for col in conc_wide.columns:
+                        name_low = str(col).strip().lower()
+                        # 1) Cas général : le nom du réactif contient explicitement "titrant" ou "egta"
+                        if ("titrant" in name_low) or ("egta" in name_low):
+                            titrant_candidates.append(col)
+                        # 2) Cas spécifique à ton protocole : la solution B est le titrant
+                        elif name_low in {"solution b", "solutionb", "sol b", "solb", "b"}:
+                            titrant_candidates.append(col)
 
-                # Pivot : une colonne par réactif
-                conc_wide = conc_long.pivot(
-                    index="Tube",
-                    columns="Réactif",
-                    values="C_M",
-                )
+                    # Si rien n'a été trouvé, titrant_candidates restera vide et on n'ajoutera
+                    # pas les colonnes [titrant].
+                    if titrant_candidates:
+                        titrant_col = titrant_candidates[0]
+                        # S'assurer que la colonne titrant est bien numérique
+                        meta[titrant_col] = pd.to_numeric(meta[titrant_col], errors="coerce")
+                        # Colonnes explicites pour l'analyse : [titrant] (M) et [titrant] (mM)
+                        meta["[titrant] (M)"] = meta[titrant_col]
+                        meta["[titrant] (mM)"] = meta[titrant_col] * 1e3
 
-                # Sécuriser les types numériques
-                conc_wide = conc_wide.apply(pd.to_numeric, errors="coerce")
-
-                # Jointure par tube
-                meta = meta.merge(conc_wide, on="Tube", how="left")
-
-                # ----------------------------------------------------------
-                # 5) Détection automatique du titrant
-                # ----------------------------------------------------------
-                titrant_candidates = []
-                for col in conc_wide.columns:
-                    name_low = str(col).lower()
-                    if (
-                        "titrant" in name_low
-                        or "egta" in name_low
-                        or name_low in {"solution b", "solutionb", "sol b", "b"}
-                    ):
-                        titrant_candidates.append(col)
-
-                if titrant_candidates:
-                    titrant = titrant_candidates[0]
-                    meta[titrant] = pd.to_numeric(meta[titrant], errors="coerce")
-                    meta["[titrant] (M)"] = meta[titrant]
-                    meta["[titrant] (mM)"] = meta[titrant] * 1e3
-
-        # ------------------------------------------------------------------
-        # 6) Nettoyage final
-        # ------------------------------------------------------------------
-        # Exclure explicitement les contrôles BRB des analyses
+        # Exclure explicitement les tubes de type "Tube BRB" et "Tube MQW"
+        # des métadonnées utilisées pour l'assemblage (tracés, analyse)
         meta = meta[~meta["Tube"].isin(["Tube BRB"])].copy()
 
+        # Réindexer proprement
         meta = meta.reset_index(drop=True)
 
         return meta
-    
     def _update_header_fields_from_df_map(self) -> None:
         """Met à jour les champs Nom de la manip, Date, Lieu, Coordinateur, Opérateur
         à partir des premières lignes du tableau de correspondance df_map, si possible.
@@ -1072,7 +1045,7 @@ class MetadataCreatorWidget(QWidget):
     # Sauvegarde / chargement des métadonnées complètes
     # ------------------------------------------------------------------
     def _on_save_metadata_clicked(self) -> None:
-        """Enregistre df_comp et df_map dans un fichier Excel."""
+        """Enregistre df_comp, df_conc (si dispo) et df_map dans un fichier Excel."""
         if self.df_comp is None or self.df_map is None:
             QMessageBox.warning(
                 self,
@@ -1093,6 +1066,8 @@ class MetadataCreatorWidget(QWidget):
         try:
             with pd.ExcelWriter(path) as writer:
                 self.df_comp.to_excel(writer, sheet_name="Volumes", index=False)
+                if self.df_conc is not None and isinstance(self.df_conc, pd.DataFrame) and not self.df_conc.empty:
+                    self.df_conc.to_excel(writer, sheet_name="Concentrations", index=False)
                 self.df_map.to_excel(writer, sheet_name="Correspondance", index=False)
         except Exception as e:
             QMessageBox.critical(
@@ -1105,7 +1080,7 @@ class MetadataCreatorWidget(QWidget):
         QMessageBox.information(self, "Enregistrement réussi", f"Métadonnées enregistrées dans :\n{path}")
 
     def _on_load_metadata_clicked(self) -> None:
-        """Charge df_comp et df_map à partir d'un fichier Excel précédemment sauvegardé."""
+        """Charge df_comp, df_conc et df_map à partir d'un fichier Excel précédemment sauvegardé."""
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Charger des métadonnées",
@@ -1123,6 +1098,16 @@ class MetadataCreatorWidget(QWidget):
                 self.lbl_status_comp.setText(
                     f"Tableau des volumes : {self.df_comp.shape[0]} ligne(s), {self.df_comp.shape[1]} colonne(s)"
                 )
+            # Concentrations (optionnel)
+            if "Concentrations" in xls.sheet_names:
+                self.df_conc = pd.read_excel(xls, sheet_name="Concentrations")
+            else:
+                # Recalculer à partir de df_comp si possible
+                try:
+                    self.df_conc = self._compute_concentration_table()
+                except Exception:
+                    self.df_conc = None
+
             # Correspondance
             if "Correspondance" in xls.sheet_names:
                 self.df_map = pd.read_excel(xls, sheet_name="Correspondance")
@@ -1146,60 +1131,3 @@ class MetadataCreatorWidget(QWidget):
                 "Erreur de chargement",
                 f"Impossible de charger les métadonnées depuis le fichier :\n{e}",
             )
-    def _on_edit_comp_clicked(self) -> None:
-        """Ouvre le dialogue d'édition du tableau des volumes.
-
-        Règles :
-        - Si un tableau existe déjà (self.df_comp), on le ré-ouvre tel quel.
-        - Sinon, on propose un modèle par défaut ou pré-rempli selon le preset sélectionné.
-        - À la validation, on enregistre dans self.df_comp.
-        - Si l'utilisateur n'a PAS édité les concentrations (conc_user_overridden=False),
-          on recalcule self.df_conc depuis les volumes.
-        """
-
-        # Colonnes standard
-        default_cols = ["Réactif", "Concentration", "Unité"] + [f"Tube {i}" for i in range(1, 11)]
-
-        # 1) Si un tableau existe déjà, on le ré-ouvre tel quel
-        if self.df_comp is not None and not self.df_comp.empty:
-            initial_df = self.df_comp.copy()
-
-        # 2) Sinon, on charge le modèle sélectionné
-        else:
-            preset_name = self.combo_volume_preset.currentText()
-            preset_df = self.VOLUME_PRESETS.get(preset_name)
-            if preset_df is None:
-                QMessageBox.warning(self, "Modèle inconnu", "Le modèle sélectionné est introuvable.")
-                return
-            initial_df = preset_df.copy()
-
-        # Sécurité : garantir les colonnes standard
-        for c in default_cols:
-            if c not in initial_df.columns:
-                initial_df[c] = pd.NA
-        initial_df = initial_df[default_cols]
-
-        dlg = TableEditorDialog(
-            title="Tableau des volumes",
-            columns=list(initial_df.columns),
-            initial_df=initial_df,
-            parent=self,
-        )
-        if dlg.exec() != QDialog.Accepted:
-            return
-
-        df = dlg.to_dataframe()
-        if df.empty:
-            QMessageBox.warning(self, "Tableau vide", "Le tableau des volumes est vide.")
-            return
-
-        # Nettoyage léger
-        if "Réactif" in df.columns:
-            df["Réactif"] = df["Réactif"].astype(str).str.strip()
-
-        self.df_comp = df
-        self.lbl_status_comp.setText(
-            f"Tableau des volumes : {df.shape[0]} ligne(s), {df.shape[1]} colonne(s)"
-        )
-
-        self._refresh_button_states()

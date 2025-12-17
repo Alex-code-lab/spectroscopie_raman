@@ -70,53 +70,59 @@ def load_angelina_csv(path: str) -> pd.DataFrame:
 def build_composition_table(df: pd.DataFrame) -> pd.DataFrame:
     """Construit le tableau de composition des puits (tubes).
 
-    On considère que chaque puits (Meas_sample, ex. A1, B3, ...) est l'équivalent d'un tube.
-    On regroupe donc par Meas_sample et on garde une seule ligne par puits.
+    Ici, on ne reconstruit PAS des concentrations à partir de volumes :
+    les concentrations finales sont déjà fournies dans le CSV d'Angélina.
 
-    Colonnes produites (entre autres) :
-        - Tube (ex-A1, B3, ...)
+    On ne conserve donc que les espèces d'intérêt :
+        - Cu, EGTA, PAN, NPs
+
+    Chaque puits (Meas_sample, ex. A1, B3, ...) est l'équivalent d'un tube.
+    On regroupe par Meas_sample et on garde une seule ligne par puits.
+
+    Sortie (colonnes principales) :
+        - Tube
         - C (EGTA) (M)
         - C (Cu) (M)
         - C (PAN) (M)
         - C (NPs) (M)
-        - et quelques colonnes contextuelles (NPs_batch, P (%), ...)
+
+    Notes unités :
+        - nM -> M : 1e-9
+        - µM -> M : 1e-6
     """
-    group_cols = [
+    cols_needed = [
         "Meas_sample",
         "C.Cu (nM)",
         "C.EGTA (nM)",
         "C.PAN (nM)",
         "C.NPs (microM)",
     ]
-    # On ajoute des colonnes optionnelles si elles existent (batch, etc.)
-    optional_cols = ["NPs_batch", "P (%)", "t (s)", "n", "excess.titrant"]
-    for col in optional_cols:
-        if col in df.columns and col not in group_cols:
-            group_cols.append(col)
 
-    comp = df[group_cols].drop_duplicates(subset=["Meas_sample"]).copy()
+    missing = [c for c in cols_needed if c not in df.columns]
+    if missing:
+        raise ValueError(f"Colonnes manquantes dans le CSV : {missing}")
+
+    comp = df[cols_needed].drop_duplicates(subset=["Meas_sample"]).copy()
 
     # Renommer Meas_sample en Tube
     comp = comp.rename(columns={"Meas_sample": "Tube"})
 
     # Conversion en mol/L (M)
-    # nM -> M : 1 nM = 1e-9 M
-    comp["C (EGTA) (M)"] = comp["C.EGTA (nM)"] * 1e-9
-    comp["C (Cu) (M)"] = comp["C.Cu (nM)"] * 1e-9
-    comp["C (PAN) (M)"] = comp["C.PAN (nM)"] * 1e-9
-    # microM -> M : 1 µM = 1e-6 M
-    comp["C (NPs) (M)"] = comp["C.NPs (microM)"] * 1e-6
+    comp["C (EGTA) (M)"] = pd.to_numeric(comp["C.EGTA (nM)"], errors="coerce") * 1e-9
+    comp["C (Cu) (M)"] = pd.to_numeric(comp["C.Cu (nM)"], errors="coerce") * 1e-9
+    comp["C (PAN) (M)"] = pd.to_numeric(comp["C.PAN (nM)"], errors="coerce") * 1e-9
+    comp["C (NPs) (M)"] = pd.to_numeric(comp["C.NPs (microM)"], errors="coerce") * 1e-6
 
-    # On place les colonnes principales en tête
-    main_cols = [
-        "Tube",
-        "C (EGTA) (M)",
-        "C (Cu) (M)",
-        "C (PAN) (M)",
-        "C (NPs) (M)",
-    ]
-    other_cols = [c for c in comp.columns if c not in main_cols]
-    comp = comp[main_cols + other_cols]
+    # On ne garde que les colonnes finales utiles
+    comp = comp[
+        [
+            "Tube",
+            "C (EGTA) (M)",
+            "C (Cu) (M)",
+            "C (PAN) (M)",
+            "C (NPs) (M)",
+        ]
+    ].dropna(subset=["Tube"]).reset_index(drop=True)
 
     return comp
 
@@ -141,6 +147,7 @@ def build_mapping_table(df: pd.DataFrame) -> pd.DataFrame:
 
     # Renommer Meas_sample en Tube
     m = m.rename(columns={"Meas_sample": "Tube"})
+    m["Tube"] = m["Tube"].astype(str).str.strip()
 
     # On ordonne gentiment les colonnes
     first_cols = ["Spectrum name", "Tube"]

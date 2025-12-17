@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QDoubleSpinBox,
     QFileDialog,
+    QCheckBox,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from pybaselines import Baseline
@@ -115,6 +116,11 @@ class SpectraTab(QWidget):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Tracer les spectres sélectionnés"))
 
+        # Checkbox pour afficher le contrôle BRB
+        self.chk_show_brb = QCheckBox("Afficher le contrôle BRB", self)
+        self.chk_show_brb.setChecked(False)
+        layout.addWidget(self.chk_show_brb)
+
         # --- Contrôle manuel des axes (optionnel) ---
         # Convention : valeur = -1 => autoscale (affiché comme "auto")
         axes = QHBoxLayout()
@@ -196,8 +202,7 @@ class SpectraTab(QWidget):
         - sinon lit directement les .txt sélectionnés,
         - et montre des QMessageBox si quelque chose cloche.
         """
-        # DEBUG : vérifier que la fonction est bien appelée et que la vue HTML réagit
-        self.plot_view.setHtml("<h3>DEBUG : entrée dans plot_selected_with_baseline()</h3>")
+
 
         try:
             # 1) On tente de construire un fichier combiné à partir des métadonnées créées dans l'onglet Métadonnées
@@ -213,11 +218,13 @@ class SpectraTab(QWidget):
                 if txt_files:
                     try:
                         merged_meta = metadata_creator.build_merged_metadata()
+                        # Si la case "Afficher le contrôle BRB" est cochée, on NE doit PAS exclure le BRB.
+                        exclude_brb = not self.chk_show_brb.isChecked()
                         combined_df = build_combined_dataframe_from_df(
                             txt_files,
                             merged_meta,
                             poly_order=5,
-                            exclude_brb=True,
+                            exclude_brb=exclude_brb,
                             apply_baseline=True,
                         )
                     except Exception as e_inner:
@@ -244,6 +251,9 @@ class SpectraTab(QWidget):
                     return
 
                 df_plot = combined_df.copy()
+                # Filtrer les lignes "Contrôle BRB" si la case n'est pas cochée
+                if not self.chk_show_brb.isChecked() and "Sample description" in df_plot.columns:
+                    df_plot = df_plot[df_plot["Sample description"] != "Contrôle BRB"].copy()
                 df_plot = df_plot.dropna(subset=["Raman Shift", "Intensity_corrected"])
 
                 if df_plot.empty:

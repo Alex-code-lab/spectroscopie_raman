@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import itertools
 from typing import Optional, List
 
@@ -420,38 +421,64 @@ class AnalysisTab(QWidget):
         merged = peak_intensities.merge(metadata_df, on="Spectrum name", how="left") if metadata_df is not None else peak_intensities.copy()
 
         # Harmonisation de la colonne utilisée pour l'axe X (titrant)
-        # Objectif : disposer d'une colonne 'n(titrant) (mol)' quand c'est possible,
-        # en restant compatible avec :
-        #  - les anciens fichiers (GC514) qui utilisent 'C (EGTA) (M)' et volume en mL
-        #  - les nouveaux tableaux générés dans MetadataCreator, qui fournissent
-        #    '[titrant] (M)' et 'V cuvette (µL)'.
-        if "n(titrant) (mol)" not in merged.columns:
-            # 1) Cas anciens fichiers : C (EGTA) (M) et volume en mL
-            if "C (EGTA) (M)" in merged.columns and "V cuvette (mL)" in merged.columns:
-                c = pd.to_numeric(merged["C (EGTA) (M)"], errors="coerce")
-                v_ml = pd.to_numeric(merged["V cuvette (mL)"], errors="coerce")
-                # n = C * V(L) = C * V(mL)/1000
-                merged["n(titrant) (mol)"] = c * v_ml * 1e-3
-            elif "C (EGTA) (M)" in merged.columns:
-                # Cas Angelina : pas de volume explicite, on utilise la concentration comme proxy
-                c = pd.to_numeric(merged["C (EGTA) (M)"], errors="coerce")
-                merged["n(titrant) (mol)"] = c
+        # Objectif : disposer d'une colonne 'n(titrant) (mol)' quand c'est possible.
+        #
+        # Cas gérés :
+        # - anciens fichiers : 'C (EGTA) (M)' + 'V cuvette (mL)'
+        # - pipeline MetadataCreator : '[titrant] (M)' + 'V cuvette (µL)'
+        # - fallback : détection automatique d'une colonne de concentration en M
+        #   (ex: 'C (EGTA) (M)', 'C (PAN) (M)', 'C (Cu) (M)', etc.).
 
-            # 2) Nouveau pipeline : colonne [titrant] (M) et volume en µL ou mL
-            elif "[titrant] (M)" in merged.columns and "V cuvette (µL)" in merged.columns:
-                c = pd.to_numeric(merged["[titrant] (M)"], errors="coerce")
-                v_ul = pd.to_numeric(merged["V cuvette (µL)"], errors="coerce")
-                # n = C * V(L) = C * V(µL) * 1e-6
-                merged["n(titrant) (mol)"] = c * v_ul * 1e-6
-            elif "[titrant] (M)" in merged.columns and "V cuvette (mL)" in merged.columns:
-                c = pd.to_numeric(merged["[titrant] (M)"], errors="coerce")
-                v_ml = pd.to_numeric(merged["V cuvette (mL)"], errors="coerce")
-                merged["n(titrant) (mol)"] = c * v_ml * 1e-3
-            elif "[titrant] (M)" in merged.columns:
-                # Pas de volume explicite : on utilise la concentration comme axe,
-                # ce qui garde un axe croissant en titrant (unité "mol" approximative ici).
-                c = pd.to_numeric(merged["[titrant] (M)"], errors="coerce")
-                merged["n(titrant) (mol)"] = c
+        def _to_num(s: pd.Series) -> pd.Series:
+            return pd.to_numeric(s.astype(str).str.replace(",", "."), errors="coerce")
+
+        def _pick_auto_titrant_column(df_: pd.DataFrame) -> str | None:
+            # 1) Colonnes explicites
+            for cand in ["[titrant] (M)", "C (EGTA) (M)"]:
+                if cand in df_.columns:
+                    return cand
+
+            # 2) Colonnes type C (XXX) (M)
+            cands = [c for c in df_.columns if re.match(r"^C \(.+\) \(M\)$", str(c))]
+            if not cands:
+                return None
+
+            # Choisir une colonne qui varie réellement (titrant) : plus grande variance non nulle
+            best = None
+            best_score = -1.0
+            for c in cands:
+                v = _to_num(df_[c])
+                score = float(v.var(skipna=True)) if v.notna().any() else 0.0
+                if score > best_score:
+                    best_score = score
+                    best = c
+            # Si tout est constant, on prend quand même la première (proxy)
+            return best or cands[0]
+
+        if "n(titrant) (mol)" not in merged.columns:
+            tit_col = _pick_auto_titrant_column(merged)
+
+            if tit_col is None:
+                # Pas de colonne de concentration utilisable -> on ne peut pas tracer en fonction du titrant
+                # (les ratios peuvent exister mais pas d'axe X)
+                pass
+            else:
+                c = _to_num(merged[tit_col])
+
+                # Si on a un volume, on calcule n = C * V(L)
+                if "V cuvette (µL)" in merged.columns:
+                    v_ul = _to_num(merged["V cuvette (µL)"])
+                    merged["n(titrant) (mol)"] = c * v_ul * 1e-6
+                elif "V cuvette (mL)" in merged.columns:
+                    v_ml = _to_num(merged["V cuvette (mL)"])
+                    merged["n(titrant) (mol)"] = c * v_ml * 1e-3
+                else:
+                    # Pas de volume explicite : on utilise la concentration comme proxy d'axe X
+                    merged["n(titrant) (mol)"] = c
+
+                # Garder une trace de la colonne utilisée (utile pour debug / UI)
+                if "titrant_column" not in merged.columns:
+                    merged["titrant_column"] = tit_col
 
         # Mise en forme long pour les ratios
         ratio_cols = [c for c in merged.columns if c.startswith("ratio_I_")]

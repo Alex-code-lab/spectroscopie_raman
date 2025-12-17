@@ -170,37 +170,3 @@ def build_combined_dataframe_from_df(
             ~combined_df["Sample description"].isin(["Tube BRB", "BRB","Cuvette BRB","Contrôle BRB"])
         ].copy()
     return combined_df
-
-
-def build_combined_dataframe(
-    txt_files: list[str],
-    metadata_path: str,
-    poly_order: int = 5,
-    exclude_brb: bool = True,
-    apply_baseline: bool = True,
-) -> pd.DataFrame:
-    """
-    Construit le DataFrame fusionné (spectres + métadonnées) à partir d'un fichier Excel ou CSV.
-
-    Args:
-        txt_files: liste des chemins vers les fichiers .txt
-        metadata_path: chemin vers le fichier de métadonnées (Excel ou CSV)
-        poly_order: ordre du polynôme pour la baseline
-        exclude_brb: si True, supprime les échantillons "Cuvette BRB"
-
-    Returns:
-        combined_df: DataFrame fusionné prêt pour l'analyse
-    """
-    # Charger les métadonnées en fonction de l'extension
-    if metadata_path.lower().endswith(".csv"):
-        metadata_df = pd.read_csv(metadata_path, sep=None, engine="python")
-    else:
-        metadata_df = pd.read_excel(metadata_path, skiprows=1)
-
-    return build_combined_dataframe_from_df(
-        txt_files,
-        metadata_df,
-        poly_order=poly_order,
-        exclude_brb=exclude_brb,
-        apply_baseline=apply_baseline,
-    )
