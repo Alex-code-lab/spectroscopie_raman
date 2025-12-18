@@ -1,3 +1,4 @@
+# NOTE: Legacy — prototype d'app, non utilisé par `main.py`.
 import sys
 import os
 import re

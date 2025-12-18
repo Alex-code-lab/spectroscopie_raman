@@ -1,6 +1,7 @@
 
 
 # metadata_creator.py
+# NOTE: Legacy — ancienne version conservée pour référence.
 
 from __future__ import annotations
 

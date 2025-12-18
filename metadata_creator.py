@@ -295,7 +295,56 @@ def sers_gaussian_volumes(
     step = float(pipette_step_uL)
     if step <= 0:
         raise ValueError("pipette_step_uL doit être > 0.")
-    V_B_free = np.round(V_B_free / step) * step
+
+    def _quantize_unique_increasing(vals: np.ndarray) -> np.ndarray:
+        """Quantifie `vals` sur une grille (Vmin..Vmax, pas=step) en garantissant
+        une suite strictement croissante (pas de doublons).
+        """
+        vals = np.asarray(vals, dtype=float)
+        if vals.size == 0:
+            return vals
+        if vals.size == 1:
+            out = np.round(vals / step) * step
+            return np.clip(out, Vmin_uL, Vmax_uL)
+
+        span = float(Vmax_uL) - float(Vmin_uL)
+        max_idx = int(np.floor(span / step + 1e-12))
+        if max_idx < 0:
+            max_idx = 0
+        n_grid = max_idx + 1
+        if vals.size > n_grid:
+            raise ValueError(
+                "Impossible de générer des volumes tous distincts avec ce pas de pipette "
+                "(pipette_step_uL trop grand et/ou marge trop grande)."
+            )
+
+        idx = np.rint((vals - float(Vmin_uL)) / step).astype(int)
+        idx = np.clip(idx, 0, max_idx)
+
+        # Forcer une suite strictement croissante
+        idx_adj = idx.copy()
+        for i in range(1, idx_adj.size):
+            if idx_adj[i] <= idx_adj[i - 1]:
+                idx_adj[i] = idx_adj[i - 1] + 1
+
+        # Si on dépasse la grille, on "recolle" par le haut
+        if idx_adj[-1] > max_idx:
+            idx_adj[-1] = max_idx
+            for i in range(idx_adj.size - 2, -1, -1):
+                if idx_adj[i] >= idx_adj[i + 1]:
+                    idx_adj[i] = idx_adj[i + 1] - 1
+            if idx_adj[0] < 0:
+                raise ValueError(
+                    "Impossible de générer des volumes tous distincts avec ces paramètres "
+                    "(pas trop grand / trop de tubes)."
+                )
+
+        out = float(Vmin_uL) + idx_adj.astype(float) * step
+        return np.clip(out, Vmin_uL, Vmax_uL)
+
+    # Si on ne veut PAS de duplicat, on force des volumes distincts (après quantification).
+    # Même si duplicate_last=True, on garde les valeurs libres distinctes et on duplique uniquement le dernier tube.
+    V_B_free = _quantize_unique_increasing(V_B_free)
 
     V_B = []
     if include_zero:
@@ -856,15 +905,18 @@ class MetadataCreatorWidget(QWidget):
         blank_row = pd.DataFrame([["", ""]], columns=default_cols)
         internal_header = pd.DataFrame([["Nom du spectre", "Tube"]], columns=default_cols)
 
+        # Nombre de tubes : on s'aligne sur le tableau des volumes si disponible
+        n_tubes = self._infer_n_tubes_for_mapping()
+        tube_labels_default = self._default_tube_labels_for_mapping(n_tubes)
+
+        start_index = int(self.spin_spec_start.value()) if hasattr(self, "spin_spec_start") else 0
+
+        def _make_mapping_rows(labels: list[str]) -> pd.DataFrame:
+            names = [f"{manip_name}_{i:02d}" for i in range(start_index, start_index + len(labels))]
+            return pd.DataFrame({"Nom du spectre": names, "Tube": labels}, columns=default_cols)
+
         # --- DataFrame RESET (valeurs par défaut) ---
-        tube_labels_default = ["Contrôle BRB"] + [f"Tube {i}" for i in range(1, 11)] + ["Contrôle"]
-        mapping_rows_default = pd.DataFrame(
-            {
-                "Nom du spectre": [f"{manip_name}_{i:02d}" for i in range(len(tube_labels_default))],
-                "Tube": tube_labels_default,
-            },
-            columns=default_cols,
-        )
+        mapping_rows_default = _make_mapping_rows(tube_labels_default)
         reset_df = pd.concat(
             [df_header, blank_row, internal_header, mapping_rows_default],
             ignore_index=True,
@@ -894,15 +946,78 @@ class MetadataCreatorWidget(QWidget):
 
         # Si aucune correspondance existante, on génère un brouillon par défaut
         if mapping_rows is None:
-            # Tubes par défaut : Tube MQW, Tube BRB, puis Tube 1..11
-            tube_labels = ["Contrôle BRB"] + [f"Tube {i}" for i in range(1, 11)] + ["Contrôle"]
-            mapping_rows = pd.DataFrame(
-                {
-                    "Nom du spectre": [f"{manip_name}_{i:02d}" for i in range(len(tube_labels))],
-                    "Tube": tube_labels,
-                },
-                columns=default_cols,
-            )
+            mapping_rows = _make_mapping_rows(tube_labels_default)
+        else:
+            # Si le nombre de tubes a changé (ex : 15), on complète automatiquement
+            # pour que l'utilisateur voie toutes les lignes nécessaires.
+            def _clean_text(v) -> str:
+                if v is None or (isinstance(v, float) and pd.isna(v)) or pd.isna(v):
+                    return ""
+                s = str(v).strip()
+                return "" if s == "<NA>" else s
+
+            existing_by_tube: dict[str, dict[str, str]] = {}
+            extra_rows: list[dict] = []
+            desired_keys = {self._tube_merge_key_for_mapping(t, n_tubes) for t in tube_labels_default}
+
+            for _, row in mapping_rows.iterrows():
+                tube_raw = _clean_text(row.get("Tube", ""))
+                name_raw = _clean_text(row.get("Nom du spectre", ""))
+                tube_key = self._tube_merge_key_for_mapping(tube_raw, n_tubes)
+                if not tube_key:
+                    continue
+                if tube_key in desired_keys:
+                    # Conserver la première ligne rencontrée pour ce tube (sans écraser les valeurs)
+                    if tube_key not in existing_by_tube:
+                        existing_by_tube[tube_key] = {"Nom du spectre": name_raw, "Tube": tube_raw}
+                    else:
+                        # Compléter le nom si la première occurrence était vide
+                        if name_raw and not existing_by_tube[tube_key].get("Nom du spectre"):
+                            existing_by_tube[tube_key]["Nom du spectre"] = name_raw
+                else:
+                    # Conserver les lignes hors "tubes par défaut" (ne pas les perdre)
+                    if tube_raw or name_raw:
+                        extra_rows.append({"Nom du spectre": name_raw, "Tube": tube_raw})
+
+            aligned_rows: list[dict] = []
+            for i, tube_label in enumerate(tube_labels_default):
+                tube_key = self._tube_merge_key_for_mapping(tube_label, n_tubes)
+                existing = existing_by_tube.get(tube_key, {})
+                name = existing.get("Nom du spectre") or f"{manip_name}_{start_index + i:02d}"
+                existing_tube = existing.get("Tube") or ""
+                # Forcer l'affichage du dernier tube comme "Contrôle" si le duplicat est actif,
+                # et inversement forcer "Tube N" si le duplicat n'est plus demandé.
+                if self._is_control_label(tube_label):
+                    tube_val = "Contrôle"
+                else:
+                    tube_val = tube_label if self._is_control_label(existing_tube) else (existing_tube or tube_label)
+                aligned_rows.append({"Nom du spectre": name, "Tube": tube_val})
+
+            # Si le nombre de tubes change, le dernier "Contrôle" peut changer d'index et
+            # récupérer un ancien nom déjà utilisé (ex: ..._13 en Tube 13 ET en Contrôle).
+            # Dans ce cas, on renumérote automatiquement comme le bouton Reset.
+            names_seen: set[str] = set()
+            has_dup = False
+            for r in aligned_rows:
+                nm = str(r.get("Nom du spectre", "")).strip()
+                if not nm:
+                    continue
+                if nm in names_seen:
+                    has_dup = True
+                    break
+                names_seen.add(nm)
+
+            need_renumber = has_dup or (len(existing_by_tube) != len(desired_keys))
+            if need_renumber:
+                for i in range(len(aligned_rows)):
+                    aligned_rows[i]["Nom du spectre"] = f"{manip_name}_{start_index + i:02d}"
+
+            mapping_rows = pd.DataFrame(aligned_rows, columns=default_cols)
+            if extra_rows:
+                mapping_rows = pd.concat(
+                    [mapping_rows, pd.DataFrame(extra_rows, columns=default_cols)],
+                    ignore_index=True,
+                )
 
         # 4) DataFrame initial passé au TableEditorDialog
         initial_df = pd.concat(
@@ -966,7 +1081,7 @@ class MetadataCreatorWidget(QWidget):
 
         # --- Création minimaliste si df_map n'existe pas encore ---
         if self.df_map is None or not isinstance(self.df_map, pd.DataFrame) or self.df_map.empty:
-            tube_labels_default = ["Contrôle BRB"] + [f"Tube {i}" for i in range(1, 11)] + ["Contrôle"]
+            tube_labels_default = self._default_tube_labels_for_mapping()
             n = len(tube_labels_default)
             names = [f"{manip_name}_{i:02d}" for i in range(start_index, start_index + n)]
             self.df_map = pd.DataFrame(
@@ -1037,6 +1152,9 @@ class MetadataCreatorWidget(QWidget):
             return
 
         self.df_comp = self.VOLUME_PRESETS[name].copy()
+        self.lbl_status_comp.setText(
+            f"Tableau des volumes : {self.df_comp.shape[0]} ligne(s), {self.df_comp.shape[1]} colonne(s)"
+        )
 
         QMessageBox.information(
             self,
@@ -1044,6 +1162,7 @@ class MetadataCreatorWidget(QWidget):
             f"Le modèle '{name}' a été appliqué au tableau des volumes.\n\n"
             "Vous pouvez maintenant ouvrir 'Créer / éditer le tableau des volumes' pour l'ajuster.",
         )
+        self._sync_df_map_with_df_comp()
 
     def _apply_manip_name_to_df_map(self, manip_name: str) -> None:
         """
@@ -1149,7 +1268,11 @@ class MetadataCreatorWidget(QWidget):
             QMessageBox.critical(self, "Erreur", "La colonne 'Réactif' est introuvable dans le tableau des volumes.")
             return
 
-        # Ajouter colonnes tube manquantes (si df_comp existait déjà)
+        # Aligner les colonnes Tube exactement sur le nombre demandé
+        existing_tube_cols = self._get_tube_columns(df)
+        extra = [c for c in existing_tube_cols if c not in tube_cols]
+        if extra:
+            df = df.drop(columns=extra)
         for c in tube_cols:
             if c not in df.columns:
                 df[c] = 0.0
@@ -1229,7 +1352,7 @@ class MetadataCreatorWidget(QWidget):
             f"V_AB = {meta.get('V_AB_uL', 0.0):.2f} µL\n",
         )
 
-        self._refresh_button_states()
+        self._sync_df_map_with_df_comp(duplicate_last_override=bool(params.get("duplicate_last", True)))
 
     def _get_tube_columns(self, df: pd.DataFrame) -> list[str]:
         """Retourne les colonnes 'Tube N' triées par N."""
@@ -1243,6 +1366,296 @@ class MetadataCreatorWidget(QWidget):
 
         tube_cols = sorted(tube_cols, key=_tube_key)
         return [str(c).strip() for c in tube_cols]
+
+    def _infer_n_tubes_for_mapping(self) -> int:
+        """Déduit le nombre de tubes à afficher dans la correspondance spectres↔tubes.
+
+        Priorité : le tableau des volumes (df_comp) s'il existe.
+        Fallback : 10 tubes.
+        """
+        fallback = 10
+        if self.df_comp is None or not isinstance(self.df_comp, pd.DataFrame) or self.df_comp.empty:
+            return fallback
+
+        tube_cols = self._get_tube_columns(self.df_comp)
+        if not tube_cols:
+            return fallback
+
+        max_n = 0
+        for c in tube_cols:
+            m = re.search(r"(\d+)", str(c))
+            if m:
+                max_n = max(max_n, int(m.group(1)))
+
+        return max(1, max_n or len(tube_cols) or fallback)
+
+    def _sync_df_map_with_df_comp(self, duplicate_last_override: bool | None = None) -> None:
+        """Synchronise automatiquement la correspondance spectres↔tubes avec le tableau des volumes.
+
+        Objectifs :
+        - le nombre de lignes de correspondance suit le nombre de colonnes 'Tube N'
+        - le dernier tube est 'Contrôle' uniquement si un duplicat est détecté
+        - pas de doublons de noms de spectres (renumérotation si nécessaire)
+
+        Cette méthode n'ouvre pas de dialogue : elle met à jour self.df_map en place.
+        """
+        default_cols = ["Nom du spectre", "Tube"]
+
+        # Récupération des infos d'en-tête depuis l'UI
+        try:
+            manip_name = self.edit_manip.text().strip() if hasattr(self, "edit_manip") else ""
+        except Exception:
+            manip_name = ""
+
+        # Date (format dd/MM/yyyy)
+        date_str = ""
+        if hasattr(self, "edit_date") and self.edit_date is not None:
+            try:
+                date_str = self.edit_date.date().toString("dd/MM/yyyy")
+            except Exception:
+                date_str = ""
+
+        # Lieu
+        location = ""
+        if hasattr(self, "edit_location") and self.edit_location is not None:
+            try:
+                location = self.edit_location.text().strip()
+            except Exception:
+                location = ""
+
+        # Coordinateur
+        coordinator = ""
+        if hasattr(self, "edit_coordinator") and self.edit_coordinator is not None:
+            try:
+                coordinator = self.edit_coordinator.text().strip()
+            except Exception:
+                coordinator = ""
+
+        # Opérateur
+        operator = ""
+        if hasattr(self, "edit_operator") and self.edit_operator is not None:
+            try:
+                operator = self.edit_operator.text().strip()
+            except Exception:
+                operator = ""
+
+        header_rows = [
+            ["Nom de la manip", manip_name],
+            ["Date", date_str],
+            ["Lieu", location],
+            ["Coordinateur", coordinator],
+            ["Opérateur", operator],
+        ]
+        df_header = pd.DataFrame(header_rows, columns=default_cols)
+        blank_row = pd.DataFrame([["", ""]], columns=default_cols)
+        internal_header = pd.DataFrame([["Nom du spectre", "Tube"]], columns=default_cols)
+
+        # Tubes attendus d'après df_comp
+        n_tubes = self._infer_n_tubes_for_mapping()
+        tube_labels_default = self._default_tube_labels_for_mapping(
+            n_tubes,
+            duplicate_last_override=duplicate_last_override,
+        )
+        start_index = int(self.spin_spec_start.value()) if hasattr(self, "spin_spec_start") else 0
+
+        def _make_mapping_rows(labels: list[str]) -> pd.DataFrame:
+            prefix = manip_name if manip_name else "Spectrum"
+            names = [f"{prefix}_{i:02d}" for i in range(start_index, start_index + len(labels))]
+            return pd.DataFrame({"Nom du spectre": names, "Tube": labels}, columns=default_cols)
+
+        # Extraire la partie "mapping" existante si possible
+        mapping_rows = None
+        if self.df_map is not None and isinstance(self.df_map, pd.DataFrame) and not self.df_map.empty:
+            existing = self.df_map.copy()
+            if {"Nom du spectre", "Tube"}.issubset(existing.columns):
+                try:
+                    col_ns = existing["Nom du spectre"].astype(str).str.strip()
+                    col_t = existing["Tube"].astype(str).str.strip()
+                    hdr_mask = (col_ns == "Nom du spectre") & (col_t == "Tube")
+                    if hdr_mask.any():
+                        last_hdr_idx = hdr_mask[hdr_mask].index[-1]
+                        mapping_rows = existing.loc[existing.index > last_hdr_idx, ["Nom du spectre", "Tube"]].copy()
+                    else:
+                        mapping_rows = existing[["Nom du spectre", "Tube"]].copy()
+                    mapping_rows = mapping_rows.reset_index(drop=True)
+                except Exception:
+                    mapping_rows = None
+
+        if mapping_rows is None or mapping_rows.empty:
+            mapping_rows = _make_mapping_rows(tube_labels_default)
+        else:
+            def _clean_text(v) -> str:
+                if v is None or (isinstance(v, float) and pd.isna(v)) or pd.isna(v):
+                    return ""
+                s = str(v).strip()
+                return "" if s == "<NA>" else s
+
+            existing_by_tube: dict[str, dict[str, str]] = {}
+            desired_keys = {self._tube_merge_key_for_mapping(t, n_tubes) for t in tube_labels_default}
+
+            for _, row in mapping_rows.iterrows():
+                tube_raw = _clean_text(row.get("Tube", ""))
+                name_raw = _clean_text(row.get("Nom du spectre", ""))
+                tube_key = self._tube_merge_key_for_mapping(tube_raw, n_tubes)
+                if not tube_key:
+                    continue
+                if tube_key in desired_keys:
+                    if tube_key not in existing_by_tube:
+                        existing_by_tube[tube_key] = {"Nom du spectre": name_raw, "Tube": tube_raw}
+                    else:
+                        if name_raw and not existing_by_tube[tube_key].get("Nom du spectre"):
+                            existing_by_tube[tube_key]["Nom du spectre"] = name_raw
+
+            aligned_rows: list[dict] = []
+            prefix = manip_name if manip_name else "Spectrum"
+            for i, tube_label in enumerate(tube_labels_default):
+                tube_key = self._tube_merge_key_for_mapping(tube_label, n_tubes)
+                existing = existing_by_tube.get(tube_key, {})
+                name = existing.get("Nom du spectre") or f"{prefix}_{start_index + i:02d}"
+                existing_tube = existing.get("Tube") or ""
+
+                if self._is_control_label(tube_label):
+                    tube_val = "Contrôle"
+                else:
+                    tube_val = tube_label if self._is_control_label(existing_tube) else (existing_tube or tube_label)
+                aligned_rows.append({"Nom du spectre": name, "Tube": tube_val})
+
+            # Renumérote automatiquement si doublons / mismatch (même comportement que l'ouverture du dialogue)
+            names_seen: set[str] = set()
+            has_dup = False
+            for r in aligned_rows:
+                nm = str(r.get("Nom du spectre", "")).strip()
+                if not nm:
+                    continue
+                if nm in names_seen:
+                    has_dup = True
+                    break
+                names_seen.add(nm)
+
+            need_renumber = has_dup or (len(existing_by_tube) != len(desired_keys))
+            if need_renumber:
+                for i in range(len(aligned_rows)):
+                    aligned_rows[i]["Nom du spectre"] = f"{prefix}_{start_index + i:02d}"
+
+            mapping_rows = pd.DataFrame(aligned_rows, columns=default_cols)
+
+        self.df_map = pd.concat([df_header, blank_row, internal_header, mapping_rows], ignore_index=True)
+        self.map_dirty = False
+
+        if hasattr(self, "lbl_status_map"):
+            self.lbl_status_map.setText(
+                f"Tableau de correspondance : {self.df_map.shape[0]} ligne(s), {self.df_map.shape[1]} colonne(s)"
+            )
+
+        self._refresh_button_states()
+
+    def _infer_duplicate_last_for_mapping(self, n_tubes: int | None = None) -> bool:
+        """Devine si le dernier tube est un duplicat (contrôle).
+
+        Heuristique : si, dans le tableau des volumes (df_comp), la ligne "Solution B"
+        a les deux derniers volumes identiques (Tube N-1 == Tube N), alors on considère
+        que le dernier tube est un réplicat.
+
+        Si l'information n'est pas disponible, on suppose True (comportement historique).
+        """
+        if n_tubes is None:
+            n = self._infer_n_tubes_for_mapping()
+        else:
+            n = max(1, int(n_tubes))
+
+        if n < 2:
+            return True
+
+        if self.df_comp is None or not isinstance(self.df_comp, pd.DataFrame) or self.df_comp.empty:
+            return True
+
+        df = self.df_comp
+        if "Réactif" not in df.columns:
+            return True
+
+        # Trouver la ligne Solution B (titrant)
+        reactif = df["Réactif"].astype(str).str.strip().str.lower()
+        mask = reactif == "solution b"
+        if not mask.any():
+            mask = reactif.str.startswith("solution b")
+        if not mask.any():
+            return True
+        ridx = int(mask[mask].index[0])
+
+        # Colonnes des 2 derniers tubes
+        col_prev = f"Tube {n - 1}"
+        col_last = f"Tube {n}"
+        if col_prev in df.columns and col_last in df.columns:
+            cols = [col_prev, col_last]
+        else:
+            tube_cols = self._get_tube_columns(df)
+            if len(tube_cols) < 2:
+                return True
+            cols = tube_cols[-2:]
+
+        v_prev = self._to_float(df.at[ridx, cols[0]])
+        v_last = self._to_float(df.at[ridx, cols[1]])
+        if v_prev is None or v_last is None:
+            return True
+
+        return abs(float(v_last) - float(v_prev)) <= 1e-9
+
+    @staticmethod
+    def _norm_text_key(s: str) -> str:
+        return (
+            ("" if s is None else str(s))
+            .strip()
+            .lower()
+            .replace("é", "e")
+            .replace("è", "e")
+            .replace("ê", "e")
+        )
+
+    def _is_control_label(self, label: str) -> bool:
+        """Vrai si le label correspond au tube 'Contrôle' (réplicat)."""
+        key = self._norm_text_key(label)
+        return key in {"controle", "control"}
+
+    def _tube_merge_key_for_mapping(self, label: str, n_tubes: int | None = None) -> str:
+        """Retourne la clé de tube utilisée pour relier la correspondance au tableau des volumes.
+
+        - "A13" / "13" / "Tube 13" -> "Tube 13"
+        - "Contrôle"              -> "Tube N" (le dernier tube du tableau des volumes)
+        - autres                  -> label normalisé (trim)
+        """
+        n = self._infer_n_tubes_for_mapping() if n_tubes is None else max(1, int(n_tubes))
+        norm = self._normalize_tube_label(label)
+        if self._is_control_label(norm):
+            return f"Tube {n}"
+        return norm
+
+    def _default_tube_labels_for_mapping(
+        self,
+        n_tubes: int | None = None,
+        *,
+        duplicate_last_override: bool | None = None,
+    ) -> list[str]:
+        """Liste de tubes par défaut pour la correspondance.
+
+        Convention :
+        - 1er spectre : "Contrôle BRB"
+        - puis tubes expérimentaux :
+            - si duplicat actif : Tube 1..Tube (N-1) + "Contrôle" (réplicat)
+            - sinon             : Tube 1..Tube N
+        """
+        n = self._infer_n_tubes_for_mapping() if n_tubes is None else max(1, int(n_tubes))
+        duplicate_last = (
+            bool(duplicate_last_override)
+            if duplicate_last_override is not None
+            else self._infer_duplicate_last_for_mapping(n)
+        )
+        if n <= 1:
+            tubes = ["Contrôle" if duplicate_last else "Tube 1"]
+        elif duplicate_last:
+            tubes = [f"Tube {i}" for i in range(1, n)] + ["Contrôle"]
+        else:
+            tubes = [f"Tube {i}" for i in range(1, n + 1)]
+        return ["Contrôle BRB"] + tubes
     # ------------------------------------------------------------------
     # Calcul du tableau des concentrations à partir des volumes
     # ------------------------------------------------------------------
@@ -1441,7 +1854,6 @@ class MetadataCreatorWidget(QWidget):
             raise ValueError("Le tableau de correspondance spectres ↔ tubes n'est pas défini.")
 
         df_map = self.df_map.copy()
-        df_map["Tube_norm"] = df_map["Tube"].apply(self._normalize_tube_label)
 
         if not {"Nom du spectre", "Tube"}.issubset(df_map.columns):
             raise ValueError(
@@ -1469,6 +1881,10 @@ class MetadataCreatorWidget(QWidget):
         # 2) Base des métadonnées : spectre ↔ tube
         # ------------------------------------------------------------------
         meta = df_map.rename(columns={"Nom du spectre": "Spectrum name"})
+
+        # Clé de jointure vers le tableau des volumes (tubes numérotés)
+        n_tubes = self._infer_n_tubes_for_mapping()
+        meta["Tube_merge"] = meta["Tube"].apply(lambda s: self._tube_merge_key_for_mapping(s, n_tubes))
 
         # Description lisible des échantillons
         tube_to_desc = {
@@ -1509,8 +1925,10 @@ class MetadataCreatorWidget(QWidget):
                 # Sécuriser les types numériques
                 conc_wide = conc_wide.apply(pd.to_numeric, errors="coerce")
 
-                # Jointure par tube
-                meta = meta.merge(conc_wide, on="Tube", how="left")
+                # Jointure par tube (en utilisant Tube_merge pour gérer "Contrôle" = dernier Tube N)
+                conc_wide = conc_wide.reset_index().rename(columns={"Tube": "Tube_merge"})
+                meta = meta.merge(conc_wide, on="Tube_merge", how="left")
+                meta = meta.drop(columns=["Tube_merge"])
 
                 # ----------------------------------------------------------
                 # 5) Détection automatique du titrant
@@ -1536,6 +1954,10 @@ class MetadataCreatorWidget(QWidget):
         # ------------------------------------------------------------------
         # Exclure explicitement les contrôles BRB des analyses
         meta = meta[~meta["Tube"].isin(["Tube BRB"])].copy()
+
+        # Nettoyage : ne pas exposer la clé interne de jointure si elle existe
+        if "Tube_merge" in meta.columns:
+            meta = meta.drop(columns=["Tube_merge"])
 
         meta = meta.reset_index(drop=True)
 
@@ -1778,4 +2200,4 @@ class MetadataCreatorWidget(QWidget):
             f"Tableau des volumes : {df.shape[0]} ligne(s), {df.shape[1]} colonne(s)"
         )
 
-        self._refresh_button_states()
+        self._sync_df_map_with_df_comp()

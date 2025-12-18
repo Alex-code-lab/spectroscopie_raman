@@ -236,11 +236,6 @@ class PCATab(QWidget):
         recon_layout.addWidget(self.recon_view)
         self.recon_dialog.resize(900, 500)
 
-    def _on_pca_param_changed(self, *args) -> None:
-        """Marque la PCA comme à relancer si un paramètre change."""
-        self._pca_dirty = True
-        self._refresh_button_states()
-
     def _show_scores_window(self):
         """Affiche la fenêtre contenant le nuage de scores PCA."""
         if self._scores_df is None or self._scores_df.empty:
@@ -309,12 +304,7 @@ class PCATab(QWidget):
             return
 
         try:
-            merged_meta = metadata_creator.build_merged_metadata()
-            print("\n=== merged_meta.columns ===")
-            print(list(merged_meta.columns))
-
-            print("\n=== merged_meta.head() ===")
-            print(merged_meta.head())
+            metadata_creator.build_merged_metadata()
         except Exception as e:
             self._combined_df = None
             self._pca_dirty = True

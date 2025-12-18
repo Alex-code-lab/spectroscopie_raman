@@ -1,4 +1,5 @@
 # metadata_picker.py
+# NOTE: Legacy — l'app utilise désormais `metadata_creator.py`.
 import os
 import re
 import numpy as np

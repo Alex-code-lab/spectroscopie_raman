@@ -1,5 +1,4 @@
 import os
-import numpy as np
 import pandas as pd
 from PySide6.QtWidgets import (
     QWidget,
@@ -13,97 +12,8 @@ from PySide6.QtWidgets import (
     QCheckBox,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from pybaselines import Baseline
 import plotly.graph_objects as go
-from dataclasses import dataclass, field
-from typing import Dict, Optional
 from data_processing import load_spectrum_file, build_combined_dataframe_from_ui
-
-@dataclass
-class Spectrum:
-    x: np.ndarray
-    y: np.ndarray
-    baseline: np.ndarray
-    ycorr: np.ndarray
-    meta: dict = field(default_factory=dict)
-
-
-class DataStore:
-    """Cache en mémoire des spectres chargés (clé = chemin fichier)."""
-    def __init__(self):
-        self._data: Dict[str, Spectrum] = {}
-        self._mtimes: Dict[str, float] = {}
-
-    def get(self, path: str) -> Optional[Spectrum]:
-        return self._data.get(path)
-
-    def set(self, path: str, spec: Spectrum, mtime: float):
-        self._data[path] = spec
-        self._mtimes[path] = mtime
-
-    def ensure_fresh(self, path: str) -> bool:
-        """Retourne True si présent et mtime inchangé, sinon False (à recharger)."""
-        try:
-            mtime = os.path.getmtime(path)
-        except OSError:
-            return False
-        return path in self._data and self._mtimes.get(path) == mtime
-
-    def invalidate(self, path: str):
-        self._data.pop(path, None)
-        self._mtimes.pop(path, None)
-
-
-DATASTORE = DataStore()
-
-
-def load_spectrum(path: str) -> Optional[Spectrum]:
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-        header_idx = next((i for i, line in enumerate(lines) if line.strip().startswith("Pixel;")), 0)
-
-        df = pd.read_csv(
-            path,
-            skiprows=header_idx,
-            sep=";",
-            decimal=",",
-            encoding="utf-8",
-            skipinitialspace=True,
-            na_values=["", " ", "   ", "\t"],
-            keep_default_na=True,
-        )
-        if df.columns[-1].startswith("Unnamed"):
-            df = df.iloc[:, :-1]
-        df.columns = [c.strip().replace("\xa0", " ") for c in df.columns]
-
-        if not {"Raman Shift", "Dark Subtracted #1"}.issubset(df.columns):
-            return None
-
-        temp = df[["Raman Shift", "Dark Subtracted #1"]].copy()
-        temp["Raman Shift"] = pd.to_numeric(temp["Raman Shift"], errors="coerce")
-        temp["Dark Subtracted #1"] = pd.to_numeric(temp["Dark Subtracted #1"], errors="coerce")
-        temp = temp.dropna(subset=["Raman Shift", "Dark Subtracted #1"])
-        if temp.empty:
-            return None
-
-        x = temp["Raman Shift"].to_numpy()
-        y = temp["Dark Subtracted #1"].to_numpy()
-        order = np.argsort(x)
-        x = x[order]
-        y = y[order]
-
-        try:
-            baseline, _ = Baseline(x).modpoly(y, poly_order=5)
-            ycorr = y - baseline
-        except Exception:
-            baseline = np.zeros_like(y)
-            ycorr = y
-
-        return Spectrum(x=x, y=y, baseline=baseline, ycorr=ycorr, meta={"path": path})
-    except Exception:
-        return None
-
 
 class SpectraTab(QWidget):
     def __init__(self, file_picker, parent=None):
@@ -195,12 +105,10 @@ class SpectraTab(QWidget):
 
     def plot_selected_with_baseline(self):
         """
-        Trace les spectres à partir du fichier combiné s'il est disponible.
-        Version très simplifiée + DEBUG : 
-        - affiche un message HTML dès l'entrée dans la fonction,
-        - essaye d'abord d'utiliser combined_df,
-        - sinon lit directement les .txt sélectionnés,
-        - et montre des QMessageBox si quelque chose cloche.
+        Trace les spectres sélectionnés.
+
+        Priorité : utilise le fichier combiné construit depuis l'onglet Métadonnées.
+        Fallback : lit directement les fichiers .txt sélectionnés.
         """
 
 
@@ -255,8 +163,8 @@ class SpectraTab(QWidget):
                     QMessageBox.warning(
                         self,
                         "Avertissement",
-                        "DEBUG : combined_df est présent mais toutes les lignes ont des NaN "
-                        "dans Raman Shift / Intensity_corrected."
+                        "Le fichier combiné ne contient pas de données exploitables "
+                        "(valeurs manquantes dans 'Raman Shift' / 'Intensity_corrected')."
                     )
                     return
 
@@ -298,7 +206,7 @@ class SpectraTab(QWidget):
                     QMessageBox.warning(
                         self,
                         "Avertissement",
-                        "DEBUG : combined_df non vide, mais aucune trace construite (traces = [])."
+                        "Aucun spectre à tracer après filtrage."
                     )
                     return
 
@@ -350,7 +258,7 @@ class SpectraTab(QWidget):
             QMessageBox.information(
                 self,
                 "Info",
-                "DEBUG : Aucun fichier combiné valide et aucun fichier .txt sélectionné.\n"
+                "Aucun fichier combiné valide et aucun fichier .txt sélectionné.\n"
                 "Allez dans l’onglet Fichiers, ajoutez des .txt, puis réessayez."
             )
             return
@@ -389,7 +297,7 @@ class SpectraTab(QWidget):
             QMessageBox.warning(
                 self,
                 "Avertissement",
-                "DEBUG : Lecture directe des fichiers .txt, mais aucune trace valide construite."
+                "Aucun spectre valide n'a pu être chargé depuis les fichiers .txt sélectionnés."
             )
             return
 

@@ -57,13 +57,15 @@
 ## Structure du dépôt
 
 ```
-Spectroscopie_app/
-├─ main.py                # Point d’entrée de l’application (fenêtre, onglets, aide intégrée)
+spectroscopie_raman/
+├─ main.py                # Point d’entrée de l’application (fenêtre, onglets)
 ├─ file_picker.py         # Onglet « Fichiers » : sélection et liste de .txt
-├─ metadata_picker.py     # Onglet « Métadonnées » : choix Excel/CSV, assemblage, enregistrement combiné
-├─ spectra_plot.py        # Onglet « Spectres » : tracé interactif (Plotly) depuis le combiné
+├─ metadata_creator.py    # Onglet « Métadonnées » : création/édition volumes + correspondance
+├─ spectra_plot.py        # Onglet « Spectres » : tracé interactif (Plotly)
 ├─ analysis_tab.py        # Onglet « Analyse » : intensités autour des pics, ratios, export
-└─ data_processing.py     # Chargement .txt, baseline modpoly, fusion avec métadonnées
+├─ pca.py                 # Onglet « PCA » : PCA + graphiques
+├─ data_processing.py     # Chargement .txt, baseline modpoly, fusion avec métadonnées (depuis l’UI)
+└─ legacy/                # Anciens prototypes / scripts (non utilisés par main.py)
 ```
 
 ---
@@ -192,25 +194,26 @@ Une fenêtre **Ramanalyze** s’ouvre avec 4 onglets : *Présentation*, *Fichier
   - lit `.txt` (après la ligne `Pixel;`), parse `;` et décimales `,`
   - convertit en numérique, corrige baseline (**`pybaselines.Baseline.modpoly`**)
   - retourne un `DataFrame` avec `Raman Shift`, `Dark Subtracted #1`, `Intensity_corrected`, `file`
-- `build_combined_dataframe(txt_files, metadata_path, poly_order=5, exclude_brb=True)` :
-  - lit **Excel** (ou Excel temporaire si source CSV)
+- `build_combined_dataframe_from_df(txt_files, metadata_df, poly_order=5, exclude_brb=True)` :
   - concatène les spectres valides, ajoute `Spectrum name`
-  - fusion gauche sur `Spectrum name` avec les métadonnées
-  - retire `Sample description == "Cuvette BRB"` si `exclude_brb=True`
+  - fusion gauche sur `Spectrum name` avec les métadonnées (DataFrame)
+  - retire les contrôles BRB si `exclude_brb=True`
+- `build_combined_dataframe_from_ui(txt_files, metadata_creator, poly_order=5, exclude_brb=True)` :
+  - construit les métadonnées via l’onglet Métadonnées (`metadata_creator`)
+  - appelle `build_combined_dataframe_from_df`
 
 ### `file_picker.py`
 - Navigation dans l’arborescence, filtre `.txt`, sélection multiple, liste de fichiers choisis.
 - Méthodes :
   - `get_selected_files()` → `list[str]` des chemins `.txt` sélectionnés.
 
-### `metadata_picker.py`
-- Sélection **Excel/CSV**, aperçu tabulaire.
-- **Assemblage** avec les `.txt` sélectionnés (via `build_combined_dataframe`).
-- **Enregistrement** du combiné (dialogue **CSV/Excel**, mémorisation du dernier chemin).
-- Détails :
-  - Conversion **CSV → Excel temporaire** si nécessaire pour l’assembleur.
-  - Détection auto du **séparateur CSV**.
-  - `self.combined_df` conserve le DataFrame combiné en mémoire pour les autres onglets.
+### `metadata_creator.py`
+- Création des métadonnées directement dans l’app :
+  - tableau des volumes (réactifs × tubes)
+  - correspondance spectres ↔ tubes
+  - génération de volumes (distribution gaussienne)
+- Sauvegarde / chargement des métadonnées (Excel `.xlsx`).
+- L’ancien sélecteur de fichiers de métadonnées est conservé dans `legacy/metadata_picker.py`.
 
 ### `spectra_plot.py`
 - Tracé **Plotly** depuis `self.combined_df` (via l’onglet Métadonnées).

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# NOTE: Legacy — script standalone (hors application `main.py`).
 """Réécriture des données Raman d'Angélina en deux tableaux Excel :
 
 1) Tableau de composition des "tubes" (puits de plaque) avec les concentrations,
