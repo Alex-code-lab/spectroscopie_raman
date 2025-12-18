@@ -5,7 +5,10 @@
 from __future__ import annotations
 
 import pandas as pd
+import numpy as np
 import re
+from scipy.stats import norm
+
 
 from PySide6.QtWidgets import (
     QWidget,
@@ -23,6 +26,11 @@ from PySide6.QtWidgets import (
     QDateEdit,
     QFileDialog,
     QComboBox,
+    QSpinBox,
+    QDoubleSpinBox,
+    QFormLayout,
+    QCheckBox,
+    QGroupBox,
 )
 
 from PySide6.QtCore import Qt, QDate
@@ -218,6 +226,196 @@ class TableEditorDialog(QDialog):
         return df.reset_index(drop=True)
 
 
+def sers_gaussian_volumes(
+    *,
+    n_tubes: int,
+    C0_nM: float,
+    V_echant_uL: float,
+    C_titrant_uM: float,
+    Vtot_uL: float,
+    V_Solution_C_uL: float = 30.0,
+    V_Solution_D_uL: float = 750.0,
+    V_Solution_E_uL: float = 750.0,
+    V_Solution_F_uL: float = 60.0,
+    margin_uL: float = 20.0,
+    pipette_step_uL: float = 1.0,
+    include_zero: bool = True,
+    duplicate_last: bool = True,
+) -> tuple[pd.DataFrame, dict]:
+    if norm is None:
+        raise ImportError("scipy n'est pas disponible (scipy.stats.norm requis).")
+
+    if n_tubes < 2:
+        raise ValueError("n_tubes doit être >= 2")
+
+    V_fixe_uL = (
+        float(V_echant_uL)
+        + float(V_Solution_C_uL)
+        + float(V_Solution_D_uL)
+        + float(V_Solution_E_uL)
+        + float(V_Solution_F_uL)
+    )
+
+    V_AB = float(Vtot_uL) - V_fixe_uL
+    if V_AB <= 0:
+        raise ValueError("Impossible: Vtot <= V_fixe (V_AB <= 0).")
+
+    Vmin_uL = float(margin_uL)
+    Vmax_uL = float(V_AB - margin_uL)
+    if Vmax_uL < Vmin_uL:
+        raise ValueError("Impossible: margin_uL trop grand par rapport à V_AB.")
+
+    # équivalence
+    C0_M = float(C0_nM) * 1e-9
+    V_echant_L = float(V_echant_uL) * 1e-6
+    C_titrant_M = float(C_titrant_uM) * 1e-6
+    if C_titrant_M <= 0:
+        raise ValueError("C_titrant_uM doit être > 0.")
+
+    n_Cu = C0_M * V_echant_L
+    Veq_uL = (n_Cu / C_titrant_M) * 1e6
+
+    n_free = int(n_tubes) - int(include_zero) - int(duplicate_last)
+    if n_free <= 0:
+        raise ValueError("Pas assez de tubes libres (n_free <= 0).")
+
+    p = (np.arange(1, n_free + 1) - 0.5) / n_free
+    z = norm.ppf(p)
+    zmax = np.max(np.abs(z)) if n_free > 1 else 1.0
+
+    sigma_V = max(
+        (Vmax_uL - Veq_uL) / zmax,
+        (Veq_uL - Vmin_uL) / zmax,
+    )
+    sigma_V = max(0.0, float(sigma_V))
+
+    V_B_free = Veq_uL + sigma_V * z
+    V_B_free = np.clip(V_B_free, Vmin_uL, Vmax_uL)
+
+    step = float(pipette_step_uL)
+    if step <= 0:
+        raise ValueError("pipette_step_uL doit être > 0.")
+    V_B_free = np.round(V_B_free / step) * step
+
+    V_B = []
+    if include_zero:
+        V_B.append(0.0)
+    V_B.extend(V_B_free.tolist())
+    if duplicate_last:
+        V_B.append(V_B[-1])
+    V_B = np.sort(np.array(V_B, dtype=float))
+
+    V_A = V_AB - V_B
+    if np.any(V_A < -1e-9):
+        raise ValueError("Impossible: certains tubes ont V_A négatif.")
+    V_A = np.round(V_A / step) * step
+    V_A += (V_AB - (V_A + V_B))
+
+    C_titrant_nM = float(C_titrant_uM) * 1e3
+    C_final_nM = C_titrant_nM * (V_B / float(Vtot_uL))
+
+    df = pd.DataFrame(
+        {
+            "Tube": np.arange(1, n_tubes + 1),
+            "V_B_titrant_uL": V_B,
+            "V_A_tampon_uL": V_A,
+            "C_final_from_B_nM": np.round(C_final_nM, 2),
+        }
+    )
+
+    meta = {
+        "V_fixe_uL": float(V_fixe_uL),
+        "V_AB_uL": float(V_AB),
+        "Veq_uL": float(Veq_uL),
+        "sigma_V_uL": float(sigma_V),
+        "Vmin_nonzero_uL": float(Vmin_uL),
+        "Vmax_nonzero_uL": float(Vmax_uL),
+        "n_free": int(n_free),
+    }
+    return df, meta
+
+class GaussianVolumesDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Générer volumes (gaussien)")
+        self.resize(520, 420)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(
+            "Génère automatiquement les volumes de titrant (Solution B) autour de l'équivalence.\n"
+            "Seules Solution A (tampon) et Solution B (titrant) varient."
+        ))
+
+        box = QGroupBox("Paramètres")
+        form = QFormLayout(box)
+
+        self.spin_n = QSpinBox(self); self.spin_n.setRange(2, 200); self.spin_n.setValue(11)
+        self.spin_C0 = QDoubleSpinBox(self); self.spin_C0.setDecimals(3); self.spin_C0.setRange(0.0, 1e9); self.spin_C0.setValue(492.0)
+        self.spin_Vech = QDoubleSpinBox(self); self.spin_Vech.setDecimals(1); self.spin_Vech.setRange(0.0, 1e9); self.spin_Vech.setValue(1000.0)
+        self.spin_Ctit = QDoubleSpinBox(self); self.spin_Ctit.setDecimals(3); self.spin_Ctit.setRange(0.0, 1e9); self.spin_Ctit.setValue(2.0)
+        self.spin_Vtot = QDoubleSpinBox(self); self.spin_Vtot.setDecimals(1); self.spin_Vtot.setRange(0.0, 1e9); self.spin_Vtot.setValue(3090.0)
+
+        form.addRow("Nombre de tubes", self.spin_n)
+        form.addRow("C0 Cu (nM)", self.spin_C0)
+        form.addRow("V échantillon (µL)", self.spin_Vech)
+        form.addRow("C titrant (µM)", self.spin_Ctit)
+        form.addRow("V total par tube (µL)", self.spin_Vtot)
+
+        layout.addWidget(box)
+
+        box2 = QGroupBox("Volumes fixes (µL)")
+        form2 = QFormLayout(box2)
+
+        self.spin_VC = QDoubleSpinBox(self); self.spin_VC.setDecimals(1); self.spin_VC.setRange(0.0, 1e9); self.spin_VC.setValue(30.0)
+        self.spin_VD = QDoubleSpinBox(self); self.spin_VD.setDecimals(1); self.spin_VD.setRange(0.0, 1e9); self.spin_VD.setValue(750.0)
+        self.spin_VE = QDoubleSpinBox(self); self.spin_VE.setDecimals(1); self.spin_VE.setRange(0.0, 1e9); self.spin_VE.setValue(750.0)
+        self.spin_VF = QDoubleSpinBox(self); self.spin_VF.setDecimals(1); self.spin_VF.setRange(0.0, 1e9); self.spin_VF.setValue(60.0)
+
+        form2.addRow("Solution C (µL)", self.spin_VC)
+        form2.addRow("Solution D (µL)", self.spin_VD)
+        form2.addRow("Solution E (µL)", self.spin_VE)
+        form2.addRow("Solution F (µL)", self.spin_VF)
+
+        layout.addWidget(box2)
+
+        box3 = QGroupBox("Contraintes")
+        form3 = QFormLayout(box3)
+
+        self.spin_margin = QDoubleSpinBox(self); self.spin_margin.setDecimals(1); self.spin_margin.setRange(0.0, 1e9); self.spin_margin.setValue(20.0)
+        self.spin_step = QDoubleSpinBox(self); self.spin_step.setDecimals(3); self.spin_step.setRange(0.001, 1e6); self.spin_step.setValue(1.0)
+
+        self.chk_zero = QCheckBox("Inclure un tube à 0 µL de titrant", self); self.chk_zero.setChecked(True)
+        self.chk_dup = QCheckBox("Dupliquer le dernier volume pour contrôle", self); self.chk_dup.setChecked(True)
+
+        form3.addRow("Marge (µL)", self.spin_margin)
+        form3.addRow("Pas pipette (µL)", self.spin_step)
+        form3.addRow(self.chk_zero)
+        form3.addRow(self.chk_dup)
+
+        layout.addWidget(box3)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def params(self) -> dict:
+        return {
+            "n_tubes": int(self.spin_n.value()),
+            "C0_nM": float(self.spin_C0.value()),
+            "V_echant_uL": float(self.spin_Vech.value()),
+            "C_titrant_uM": float(self.spin_Ctit.value()),
+            "Vtot_uL": float(self.spin_Vtot.value()),
+            "V_Solution_C_uL": float(self.spin_VC.value()),
+            "V_Solution_D_uL": float(self.spin_VD.value()),
+            "V_Solution_E_uL": float(self.spin_VE.value()),
+            "V_Solution_F_uL": float(self.spin_VF.value()),
+            "margin_uL": float(self.spin_margin.value()),
+            "pipette_step_uL": float(self.spin_step.value()),
+            "include_zero": bool(self.chk_zero.isChecked()),
+            "duplicate_last": bool(self.chk_dup.isChecked()),
+        }
+    
 class MetadataCreatorWidget(QWidget):
     """Remplaçant de MetadataPicker pour créer les métadonnées directement dans l'application.
 
@@ -248,7 +446,7 @@ class MetadataCreatorWidget(QWidget):
                     "Solution E",
                     "Solution F",
                 ],
-                "Concentration": ["0,5", "", "4", "2", "2", "0,05", "1", "1"],
+                "Concentration": ["0,5", "", "4", "2", "2", "0,5", "1", "1"],
                 "Unité": ["µM", "", "mM", "µM", "µM", "% en masse", "mM", "mM"],
                 "Tube 1":  [1000, 0, 500,   0,  30, 750, 750,  60],
                 "Tube 2":  [1000, 0, 411,  89,  30, 750, 750,  60],
@@ -273,8 +471,8 @@ class MetadataCreatorWidget(QWidget):
                     "Solution D",
                     "Solution E",
                 ],
-                "Concentration": ["0,5", "", "4", "2", "0,05", "1",],
-                "Unité": ["µM", "", "mM",  "µM", "mM","mM"],
+                "Concentration": ["0,5", "", "4", "2", "0,5", "1",],
+                "Unité": ["µM", "", "mM",  "µM", "% en masse","mM"],
                 "Tube 1":  [1000, 0, 500,   0, 750, 750],
                 "Tube 2":  [1000, 0, 411,  89, 750, 750],
                 "Tube 3":  [1000, 0, 321, 179, 750, 750],
@@ -311,6 +509,15 @@ class MetadataCreatorWidget(QWidget):
         row1.addWidget(self.edit_manip)
         # Synchroniser automatiquement le nom de la manip avec df_map
         self.edit_manip.textChanged.connect(self._on_manip_name_changed)
+        row1.addWidget(QLabel("Départ index spectres :", self))
+        self.spin_spec_start = QSpinBox(self)
+        self.spin_spec_start.setRange(0, 999)
+        self.spin_spec_start.setValue(0)  # par défaut : 00
+        self.spin_spec_start.setToolTip("Index de départ (0 => _00, 7 => _07).")
+        row1.addWidget(self.spin_spec_start)
+
+        # Changer l'index déclenche la mise à jour des noms
+        self.spin_spec_start.valueChanged.connect(self._on_manip_name_changed)
 
         row1.addWidget(QLabel("Date :", self))
         self.edit_date = QDateEdit(self)
@@ -378,6 +585,10 @@ class MetadataCreatorWidget(QWidget):
 
         preset_layout.addStretch(1)
         layout.addLayout(preset_layout)
+    
+        self.btn_generate_volumes = QPushButton("Générer volumes (gaussien)…", self)
+        self.btn_generate_volumes.clicked.connect(self._on_generate_volumes_clicked)
+        preset_layout.addWidget(self.btn_generate_volumes)
 
         # --- Boutons pour ouvrir les éditeurs de tableaux ---
         btns = QHBoxLayout()
@@ -705,16 +916,83 @@ class MetadataCreatorWidget(QWidget):
         )
         self._refresh_button_states()
 
-    def _on_manip_name_changed(self, text: str) -> None:
+    def _apply_spectrum_names_to_df_map(self, manip_name: str, start_index: int) -> None:
+        """Met à jour la colonne 'Nom du spectre' dans df_map sans modifier la colonne 'Tube'.
+
+        Règles :
+        - On ne touche jamais aux lignes d'en-tête (Nom de la manip, Date, etc.).
+        - Si une ligne interne d'en-tête "Nom du spectre" / "Tube" existe, on met à jour uniquement
+        les lignes situées après cette ligne.
+        - Si cette ligne n'existe pas, on met à jour uniquement les lignes qui ressemblent à un nom
+        de spectre (pattern *_NN).
+        - Si df_map n'existe pas encore, on crée un mapping minimal avec tubes par défaut.
         """
-        Slot appelé automatiquement quand le champ 'Nom de la manip' change.
-        Met à jour df_map en mémoire (ligne 'Nom de la manip' + noms des spectres).
-        """
-        new_name = (text or "").strip()
-        if not new_name:
+        manip_name = (manip_name or "").strip()
+        if not manip_name:
             return
-        self._apply_manip_name_to_df_map(new_name)
-        # Un changement de nom de manip impacte directement la correspondance (noms de spectres)
+
+        # --- Création minimaliste si df_map n'existe pas encore ---
+        if self.df_map is None or not isinstance(self.df_map, pd.DataFrame) or self.df_map.empty:
+            tube_labels_default = ["Contrôle BRB"] + [f"Tube {i}" for i in range(1, 11)] + ["Contrôle"]
+            n = len(tube_labels_default)
+            names = [f"{manip_name}_{i:02d}" for i in range(start_index, start_index + n)]
+            self.df_map = pd.DataFrame(
+                {
+                    "Nom du spectre": ["Nom du spectre"] + names,
+                    "Tube": ["Tube"] + tube_labels_default,
+                }
+            )
+            return
+
+        df = self.df_map.copy()
+        if not {"Nom du spectre", "Tube"}.issubset(df.columns):
+            return
+
+        # Cherche la ligne d'en-tête interne "Nom du spectre" / "Tube"
+        hdr_idx = None
+        for ridx, row in df.iterrows():
+            left = str(row.get("Nom du spectre", "")).strip()
+            right = str(row.get("Tube", "")).strip()
+            if left == "Nom du spectre" and right == "Tube":
+                hdr_idx = ridx
+                break
+
+        # Déterminer les indices des lignes à mettre à jour
+        if hdr_idx is not None:
+            mapping_idx = [i for i in df.index if i > hdr_idx]
+        else:
+            # Fallback : ne mettre à jour que les lignes qui ressemblent à un nom de spectre (ex: XYZ_00)
+            col_ns = df["Nom du spectre"].astype(str).str.strip()
+            mask = col_ns.str.match(r"^.+_\d+$", na=False)
+            mapping_idx = df.index[mask].tolist()
+
+        if not mapping_idx:
+            return
+
+        names = [f"{manip_name}_{i:02d}" for i in range(start_index, start_index + len(mapping_idx))]
+        for k, ridx in enumerate(mapping_idx):
+            df.at[ridx, "Nom du spectre"] = names[k]
+
+        # Important : ne jamais toucher à la colonne Tube
+        self.df_map = df
+        
+    def _on_manip_name_changed(self, *args) -> None:
+        """Met à jour les noms de spectres générés automatiquement.
+
+        Cette méthode est connectée à la fois à :
+        - QLineEdit.textChanged (str)
+        - QSpinBox.valueChanged (int)
+
+        Donc on IGNORE l'argument du signal et on lit directement les widgets.
+        """
+        manip_name = self.edit_manip.text().strip() if hasattr(self, "edit_manip") else ""
+        start_index = int(self.spin_spec_start.value()) if hasattr(self, "spin_spec_start") else 0
+
+        if not manip_name:
+            return
+
+        self._apply_spectrum_names_to_df_map(manip_name, start_index)
+
         self.map_dirty = True
         self._refresh_button_states()
 
@@ -775,6 +1053,153 @@ class MetadataCreatorWidget(QWidget):
                 f"Tableau de correspondance : {df.shape[0]} ligne(s), {df.shape[1]} colonne(s)"
             )
 
+    def _on_generate_volumes_clicked(self) -> None:
+        """Ouvre le dialogue de génération des volumes selon une distribution gaussienne."""
+
+        dlg = GaussianVolumesDialog(self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        params = dlg.params()
+
+        try:
+            df_gen, meta = sers_gaussian_volumes(**params)
+        except Exception as e:
+            QMessageBox.critical(self, "Erreur génération", f"Impossible de générer les volumes :\n{e}")
+            return
+
+        # Toujours définir tube_cols une seule fois
+        n_tubes = int(df_gen["Tube"].max())
+        tube_cols = [f"Tube {i}" for i in range(1, n_tubes + 1)]
+
+        # --- Initialiser df_comp si aucun modèle n'a été validé ---
+        if self.df_comp is None or not isinstance(self.df_comp, pd.DataFrame) or self.df_comp.empty:
+            base_rows = [
+                {"Réactif": "Solution A", "Concentration": 4.0, "Unité": "mM"},
+                {"Réactif": "Solution B", "Concentration": float(params["C_titrant_uM"]), "Unité": "µM"},
+                {"Réactif": "Solution C", "Concentration": 2.0, "Unité": "µM"},
+                {"Réactif": "Solution D", "Concentration": 0.5, "Unité": "% en masse"},
+                {"Réactif": "Solution E", "Concentration": 1.0, "Unité": "mM"},
+                {"Réactif": "Solution F", "Concentration": 1.0, "Unité": "mM"},
+                {"Réactif": "Echantillon", "Concentration": float(params["C0_nM"]), "Unité": "nM"},
+            ]
+            df = pd.DataFrame(base_rows)
+            for c in tube_cols:
+                df[c] = 0.0
+
+            # Supprimer les colonnes Tube au-delà de n_tubes (pour que la taille corresponde exactement)
+            existing = self._get_tube_columns(df)
+            extra = [c for c in existing if c not in tube_cols]
+            if extra:
+                df = df.drop(columns=extra)
+            self.df_comp = df
+
+        # Copie de travail
+        df = self.df_comp.copy()
+
+        # Harmoniser les colonnes de concentration/unité si besoin
+        if "Concentration" not in df.columns and "Conc" in df.columns:
+            df = df.rename(columns={"Conc": "Concentration"})
+        if "Unité" not in df.columns and "Unit" in df.columns:
+            df = df.rename(columns={"Unit": "Unité"})
+        for c in ("Concentration", "Unité"):
+            if c not in df.columns:
+                df[c] = pd.NA
+
+        # Vérif structure minimale
+        if "Réactif" not in df.columns:
+            QMessageBox.critical(self, "Erreur", "La colonne 'Réactif' est introuvable dans le tableau des volumes.")
+            return
+
+        # Ajouter colonnes tube manquantes (si df_comp existait déjà)
+        for c in tube_cols:
+            if c not in df.columns:
+                df[c] = 0.0
+
+        def ensure_row(reactif_name: str) -> int:
+            mask = df["Réactif"].astype(str).str.strip().str.lower() == reactif_name.strip().lower()
+            if mask.any():
+                return int(df.index[mask][0])
+            new = {col: pd.NA for col in df.columns}
+            new["Réactif"] = reactif_name
+            df.loc[len(df)] = new
+            return int(df.index[-1])
+
+        # A (tampon) et B (titrant)
+        idx_A = ensure_row("Solution A")
+        idx_B = ensure_row("Solution B")
+        idx_sample = ensure_row("Echantillon")
+        idx_C = ensure_row("Solution C")
+        idx_D = ensure_row("Solution D")
+        idx_E = ensure_row("Solution E")
+        idx_F = ensure_row("Solution F")
+
+        # Renseigner automatiquement les concentrations stock (saisie utilisateur dans le dialogue)
+        df.at[idx_sample, "Concentration"] = float(params["C0_nM"])
+        df.at[idx_sample, "Unité"] = "nM"
+
+        df.at[idx_B, "Concentration"] = float(params["C_titrant_uM"])
+        df.at[idx_B, "Unité"] = "µM"
+
+        # Valeurs par défaut des autres solutions
+        df.at[idx_C, "Concentration"] = 2.0
+        df.at[idx_C, "Unité"] = "µM"
+
+        df.at[idx_D, "Concentration"] = 0.5
+        df.at[idx_D, "Unité"] = "% en masse"
+
+        df.at[idx_E, "Concentration"] = 1.0
+        df.at[idx_E, "Unité"] = "mM"
+
+        df.at[idx_F, "Concentration"] = 1.0
+        df.at[idx_F, "Unité"] = "mM"
+
+        for _, r in df_gen.iterrows():
+            col = f"Tube {int(r['Tube'])}"
+            df.at[idx_B, col] = float(r["V_B_titrant_uL"])
+            df.at[idx_A, col] = float(r["V_A_tampon_uL"])
+
+        # Fixes : ne remplit que si les lignes existent
+        fixed_map = {
+            "Echantillon": params["V_echant_uL"],
+            "Solution C": params["V_Solution_C_uL"],
+            "Solution D": params["V_Solution_D_uL"],
+            "Solution E": params["V_Solution_E_uL"],
+            "Solution F": params["V_Solution_F_uL"],
+        }
+
+        for reactif, val in fixed_map.items():
+            mask = df["Réactif"].astype(str).str.strip().str.lower() == reactif.strip().lower()
+            if not mask.any():
+                continue
+            ridx = int(df.index[mask][0])
+            for c in tube_cols:
+                df.at[ridx, c] = float(val)
+
+        self.df_comp = df
+
+        QMessageBox.information(
+            self,
+            "Volumes générés",
+            "Les volumes ont été générés et appliqués au tableau des volumes.\n\n"
+            f"Veq ≈ {meta.get('Veq_uL', 0.0):.2f} µL\n\n"
+            f"V_AB = {meta.get('V_AB_uL', 0.0):.2f} µL\n",
+        )
+
+        self._refresh_button_states()
+
+    def _get_tube_columns(self, df: pd.DataFrame) -> list[str]:
+        """Retourne les colonnes 'Tube N' triées par N."""
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            return []
+        tube_cols = [c for c in df.columns if isinstance(c, str) and c.strip().lower().startswith("tube ")]
+
+        def _tube_key(name: str) -> int:
+            m = re.search(r"(\d+)", str(name))
+            return int(m.group(1)) if m else 10**9
+
+        tube_cols = sorted(tube_cols, key=_tube_key)
+        return [str(c).strip() for c in tube_cols]
     # ------------------------------------------------------------------
     # Calcul du tableau des concentrations à partir des volumes
     # ------------------------------------------------------------------
@@ -861,6 +1286,9 @@ class MetadataCreatorWidget(QWidget):
             # µM -> M
             if u in ("µm", "um", "µmol/l", "umol/l"):
                 return v * 1e-6
+            # nM -> M
+            if u in ("nm", "nmol/l", "nmol.l-1"):
+                return v * 1e-9
             # Cas particulier : % en masse → on choisit ici de ne PAS l'utiliser dans le calcul
             if "%enmasse" in u:
                 return float("nan")  # ou 0.0 selon ta stratégie
@@ -1205,8 +1633,8 @@ class MetadataCreatorWidget(QWidget):
           on recalcule self.df_conc depuis les volumes.
         """
 
-        # Colonnes standard
-        default_cols = ["Réactif", "Concentration", "Unité"] + [f"Tube {i}" for i in range(1, 11)]
+        # Colonnes de base
+        base_cols = ["Réactif", "Concentration", "Unité"]
 
         # 1) Si un tableau existe déjà, on le ré-ouvre tel quel
         if self.df_comp is not None and not self.df_comp.empty:
@@ -1221,11 +1649,68 @@ class MetadataCreatorWidget(QWidget):
                 return
             initial_df = preset_df.copy()
 
+        # Harmonise les alias fréquents pour les colonnes standard (Conc/Unit -> Concentration/Unité)
+        def _norm_col(col: str) -> str:
+            return (
+                str(col)
+                .strip()
+                .lower()
+                .replace("é", "e")
+                .replace("è", "e")
+                .replace("ê", "e")
+            )
+
+        # Renommer si les colonnes standard manquent
+        rename_map: dict[str, str] = {}
+        has_conc = "Concentration" in initial_df.columns
+        has_unit = "Unité" in initial_df.columns
+
+        for col in list(initial_df.columns):
+            n = _norm_col(col)
+            if n == "conc" and not has_conc:
+                rename_map[col] = "Concentration"
+                has_conc = True
+            if n in ("unit", "units", "unite") and not has_unit:
+                rename_map[col] = "Unité"
+                has_unit = True
+
+        if rename_map:
+            initial_df = initial_df.rename(columns=rename_map)
+
+        # Fusionner d'éventuelles colonnes alias supplémentaires avec les colonnes standard
+        conc_aliases = [c for c in initial_df.columns if _norm_col(c) == "conc" and c != "Concentration"]
+        for alias in conc_aliases:
+            if "Concentration" not in initial_df.columns:
+                initial_df = initial_df.rename(columns={alias: "Concentration"})
+            else:
+                initial_df["Concentration"] = initial_df["Concentration"].fillna(initial_df[alias])
+                initial_df = initial_df.drop(columns=[alias])
+
+        unit_aliases = [
+            c for c in initial_df.columns if _norm_col(c) in ("unit", "units", "unite") and c != "Unité"
+        ]
+        for alias in unit_aliases:
+            if "Unité" not in initial_df.columns:
+                initial_df = initial_df.rename(columns={alias: "Unité"})
+            else:
+                initial_df["Unité"] = initial_df["Unité"].fillna(initial_df[alias])
+                initial_df = initial_df.drop(columns=[alias])
+
+        # Colonnes de tubes dynamiques : on reprend tout ce qui existe déjà pour ne rien perdre
+        tube_cols = self._get_tube_columns(initial_df)
+        if not tube_cols:
+            tube_cols = [f"Tube {i}" for i in range(1, 11)]
+
+        default_cols = base_cols + tube_cols
+
         # Sécurité : garantir les colonnes standard
         for c in default_cols:
             if c not in initial_df.columns:
                 initial_df[c] = pd.NA
-        initial_df = initial_df[default_cols]
+
+        # Conserver d'éventuelles colonnes supplémentaires ajoutées par l'utilisateur
+        extra_cols = [c for c in initial_df.columns if c not in default_cols]
+        initial_df = initial_df[default_cols + extra_cols]
 
         dlg = TableEditorDialog(
             title="Tableau des volumes",
