@@ -363,18 +363,43 @@ class GaussianVolumesDialog(QDialog):
 
         layout.addWidget(box)
 
-        box2 = QGroupBox("Volumes fixes (µL)")
+        box2 = QGroupBox("Solutions fixes")
         form2 = QFormLayout(box2)
+
+        unit_choices = ["M", "mM", "µM", "nM", "% en masse"]
 
         self.spin_VC = QDoubleSpinBox(self); self.spin_VC.setDecimals(1); self.spin_VC.setRange(0.0, 1e9); self.spin_VC.setValue(30.0)
         self.spin_VD = QDoubleSpinBox(self); self.spin_VD.setDecimals(1); self.spin_VD.setRange(0.0, 1e9); self.spin_VD.setValue(750.0)
         self.spin_VE = QDoubleSpinBox(self); self.spin_VE.setDecimals(1); self.spin_VE.setRange(0.0, 1e9); self.spin_VE.setValue(750.0)
         self.spin_VF = QDoubleSpinBox(self); self.spin_VF.setDecimals(1); self.spin_VF.setRange(0.0, 1e9); self.spin_VF.setValue(60.0)
 
-        form2.addRow("Solution C (µL)", self.spin_VC)
-        form2.addRow("Solution D (µL)", self.spin_VD)
-        form2.addRow("Solution E (µL)", self.spin_VE)
-        form2.addRow("Solution F (µL)", self.spin_VF)
+        self.spin_conc_C = QDoubleSpinBox(self); self.spin_conc_C.setDecimals(6); self.spin_conc_C.setRange(0.0, 1e12); self.spin_conc_C.setValue(2.0)
+        self.spin_conc_D = QDoubleSpinBox(self); self.spin_conc_D.setDecimals(6); self.spin_conc_D.setRange(0.0, 1e12); self.spin_conc_D.setValue(0.5)
+        self.spin_conc_E = QDoubleSpinBox(self); self.spin_conc_E.setDecimals(6); self.spin_conc_E.setRange(0.0, 1e12); self.spin_conc_E.setValue(1.0)
+        self.spin_conc_F = QDoubleSpinBox(self); self.spin_conc_F.setDecimals(6); self.spin_conc_F.setRange(0.0, 1e12); self.spin_conc_F.setValue(1.0)
+
+        self.combo_unit_C = QComboBox(self); self.combo_unit_C.addItems(unit_choices); self.combo_unit_C.setCurrentText("µM")
+        self.combo_unit_D = QComboBox(self); self.combo_unit_D.addItems(unit_choices); self.combo_unit_D.setCurrentText("% en masse")
+        self.combo_unit_E = QComboBox(self); self.combo_unit_E.addItems(unit_choices); self.combo_unit_E.setCurrentText("mM")
+        self.combo_unit_F = QComboBox(self); self.combo_unit_F.addItems(unit_choices); self.combo_unit_F.setCurrentText("mM")
+
+        def _row(vol_spin: QDoubleSpinBox, conc_spin: QDoubleSpinBox, unit_combo: QComboBox) -> QWidget:
+            w = QWidget(self)
+            h = QHBoxLayout(w)
+            h.setContentsMargins(0, 0, 0, 0)
+            h.addWidget(QLabel("V (µL)", w))
+            h.addWidget(vol_spin)
+            h.addSpacing(12)
+            h.addWidget(QLabel("C", w))
+            h.addWidget(conc_spin)
+            h.addWidget(unit_combo)
+            h.addStretch(1)
+            return w
+
+        form2.addRow("Solution C", _row(self.spin_VC, self.spin_conc_C, self.combo_unit_C))
+        form2.addRow("Solution D", _row(self.spin_VD, self.spin_conc_D, self.combo_unit_D))
+        form2.addRow("Solution E", _row(self.spin_VE, self.spin_conc_E, self.combo_unit_E))
+        form2.addRow("Solution F", _row(self.spin_VF, self.spin_conc_F, self.combo_unit_F))
 
         layout.addWidget(box2)
 
@@ -414,6 +439,14 @@ class GaussianVolumesDialog(QDialog):
             "pipette_step_uL": float(self.spin_step.value()),
             "include_zero": bool(self.chk_zero.isChecked()),
             "duplicate_last": bool(self.chk_dup.isChecked()),
+        }
+
+    def fixed_solution_stocks(self) -> dict[str, tuple[float, str]]:
+        return {
+            "Solution C": (float(self.spin_conc_C.value()), str(self.combo_unit_C.currentText()).strip()),
+            "Solution D": (float(self.spin_conc_D.value()), str(self.combo_unit_D.currentText()).strip()),
+            "Solution E": (float(self.spin_conc_E.value()), str(self.combo_unit_E.currentText()).strip()),
+            "Solution F": (float(self.spin_conc_F.value()), str(self.combo_unit_F.currentText()).strip()),
         }
     
 class MetadataCreatorWidget(QWidget):
@@ -1061,6 +1094,7 @@ class MetadataCreatorWidget(QWidget):
             return
 
         params = dlg.params()
+        fixed_stock = dlg.fixed_solution_stocks()
 
         try:
             df_gen, meta = sers_gaussian_volumes(**params)
@@ -1074,13 +1108,17 @@ class MetadataCreatorWidget(QWidget):
 
         # --- Initialiser df_comp si aucun modèle n'a été validé ---
         if self.df_comp is None or not isinstance(self.df_comp, pd.DataFrame) or self.df_comp.empty:
+            cC, uC = fixed_stock.get("Solution C", (2.0, "µM"))
+            cD, uD = fixed_stock.get("Solution D", (0.5, "% en masse"))
+            cE, uE = fixed_stock.get("Solution E", (1.0, "mM"))
+            cF, uF = fixed_stock.get("Solution F", (1.0, "mM"))
             base_rows = [
                 {"Réactif": "Solution A", "Concentration": 4.0, "Unité": "mM"},
                 {"Réactif": "Solution B", "Concentration": float(params["C_titrant_uM"]), "Unité": "µM"},
-                {"Réactif": "Solution C", "Concentration": 2.0, "Unité": "µM"},
-                {"Réactif": "Solution D", "Concentration": 0.5, "Unité": "% en masse"},
-                {"Réactif": "Solution E", "Concentration": 1.0, "Unité": "mM"},
-                {"Réactif": "Solution F", "Concentration": 1.0, "Unité": "mM"},
+                {"Réactif": "Solution C", "Concentration": float(cC), "Unité": str(uC)},
+                {"Réactif": "Solution D", "Concentration": float(cD), "Unité": str(uD)},
+                {"Réactif": "Solution E", "Concentration": float(cE), "Unité": str(uE)},
+                {"Réactif": "Solution F", "Concentration": float(cF), "Unité": str(uF)},
                 {"Réactif": "Echantillon", "Concentration": float(params["C0_nM"]), "Unité": "nM"},
             ]
             df = pd.DataFrame(base_rows)
@@ -1141,18 +1179,23 @@ class MetadataCreatorWidget(QWidget):
         df.at[idx_B, "Concentration"] = float(params["C_titrant_uM"])
         df.at[idx_B, "Unité"] = "µM"
 
-        # Valeurs par défaut des autres solutions
-        df.at[idx_C, "Concentration"] = 2.0
-        df.at[idx_C, "Unité"] = "µM"
+        # Solutions fixes : concentration stock + unité (saisie dans le dialogue)
+        cC, uC = fixed_stock.get("Solution C", (2.0, "µM"))
+        cD, uD = fixed_stock.get("Solution D", (0.5, "% en masse"))
+        cE, uE = fixed_stock.get("Solution E", (1.0, "mM"))
+        cF, uF = fixed_stock.get("Solution F", (1.0, "mM"))
 
-        df.at[idx_D, "Concentration"] = 0.5
-        df.at[idx_D, "Unité"] = "% en masse"
+        df.at[idx_C, "Concentration"] = float(cC)
+        df.at[idx_C, "Unité"] = str(uC)
 
-        df.at[idx_E, "Concentration"] = 1.0
-        df.at[idx_E, "Unité"] = "mM"
+        df.at[idx_D, "Concentration"] = float(cD)
+        df.at[idx_D, "Unité"] = str(uD)
 
-        df.at[idx_F, "Concentration"] = 1.0
-        df.at[idx_F, "Unité"] = "mM"
+        df.at[idx_E, "Concentration"] = float(cE)
+        df.at[idx_E, "Unité"] = str(uE)
+
+        df.at[idx_F, "Concentration"] = float(cF)
+        df.at[idx_F, "Unité"] = str(uF)
 
         for _, r in df_gen.iterrows():
             col = f"Tube {int(r['Tube'])}"
