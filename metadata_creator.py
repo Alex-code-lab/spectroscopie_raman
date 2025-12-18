@@ -575,7 +575,7 @@ class MetadataCreatorWidget(QWidget):
 
         self.df_comp: pd.DataFrame | None = None # tableau de composition des tubes
         self.df_map: pd.DataFrame | None = None # tableau de correspondance spectres ↔ tubes
-        # Indique que la correspondance spectres↔tubes doit être revue (champs d’en-tête modifiés)
+        # Indique que la correspondance spectres↔tubes doit être revue (champs d'en-tête ou volumes modifiés)
         self.map_dirty: bool = False
 
         layout = QVBoxLayout(self)
@@ -1389,7 +1389,12 @@ class MetadataCreatorWidget(QWidget):
 
         return max(1, max_n or len(tube_cols) or fallback)
 
-    def _sync_df_map_with_df_comp(self, duplicate_last_override: bool | None = None) -> None:
+    def _sync_df_map_with_df_comp(
+        self,
+        duplicate_last_override: bool | None = None,
+        *,
+        mark_dirty: bool = True,
+    ) -> None:
         """Synchronise automatiquement la correspondance spectres↔tubes avec le tableau des volumes.
 
         Objectifs :
@@ -1398,6 +1403,7 @@ class MetadataCreatorWidget(QWidget):
         - pas de doublons de noms de spectres (renumérotation si nécessaire)
 
         Cette méthode n'ouvre pas de dialogue : elle met à jour self.df_map en place.
+        Par défaut, elle marque la correspondance comme à revoir (pas de validation utilisateur).
         """
         default_cols = ["Nom du spectre", "Tube"]
 
@@ -1540,7 +1546,7 @@ class MetadataCreatorWidget(QWidget):
             mapping_rows = pd.DataFrame(aligned_rows, columns=default_cols)
 
         self.df_map = pd.concat([df_header, blank_row, internal_header, mapping_rows], ignore_index=True)
-        self.map_dirty = False
+        self.map_dirty = bool(mark_dirty)
 
         if hasattr(self, "lbl_status_map"):
             self.lbl_status_map.setText(
