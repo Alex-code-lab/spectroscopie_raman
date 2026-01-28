@@ -8,6 +8,8 @@ from typing import Optional, List
 import numpy as np
 import pandas as pd
 import plotly.express as px
+from scipy.optimize import curve_fit
+import plotly.graph_objects as go
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QMessageBox, QTableWidget, QTableWidgetItem, QSpacerItem, QSizePolicy,
@@ -35,6 +37,9 @@ class AnalysisTab(QWidget):
         self._ratios_long: Optional[pd.DataFrame] = None
         # Indique que l'analyse doit être (re)lancée (données ou paramètres modifiés)
         self._analysis_dirty: bool = True
+        self._sigmoid_params = None   # (A, B, k, x_eq)
+        self._sigmoid_cov = None
+        self._sigmoid_results = {}  # ratio_name -> {"params": popt, "cov": pcov}
 
         # --- UI ---
         layout = QVBoxLayout(self)
@@ -133,10 +138,265 @@ class AnalysisTab(QWidget):
         self.plot_view = QWebEngineView(self)
         layout.addWidget(self.plot_view, 1)
 
+        # --- Fit sigmoïde (équivalence) ---
+        fit_layout = QHBoxLayout()
+
+        fit_layout.addWidget(QLabel("Ratio à ajuster :"))
+        self.cmb_fit_ratio = QComboBox(self)
+        fit_layout.addWidget(self.cmb_fit_ratio)
+
+        self.btn_fit_sigmoid = QPushButton("Ajuster par sigmoïde", self)
+        self.btn_fit_sigmoid.clicked.connect(self._fit_sigmoid)
+        fit_layout.addWidget(self.btn_fit_sigmoid)
+
+        self.btn_show_equivalence = QPushButton("Afficher l'équivalence", self)
+        self.btn_show_equivalence.clicked.connect(self._show_equivalence)
+        self.btn_show_equivalence.setEnabled(False)
+        fit_layout.addWidget(self.btn_show_equivalence)
+
+        layout.addLayout(fit_layout)
+
         # Init valeurs
         self._on_preset_changed(self.cmb_presets.currentIndex())
+        # Figure Plotly actuellement affichée (pour overlay fit)
+        self._current_fig = None   # figure Plotly actuellement affichée
         # Couleurs initiales des boutons
         self._refresh_button_states()
+
+    @staticmethod
+    def _sigmoid(x, A, B, k, x_eq):
+        return A + B / (1 + np.exp(-k * (x - x_eq)))
+
+    def _fit_sigmoid(self):
+        if self._ratios_long is None or self._ratios_long.empty:
+            QMessageBox.warning(self, "Aucune donnée", "Aucun ratio disponible pour le fit.")
+            return
+
+        if self._current_fig is None:
+            QMessageBox.warning(self, "Graphique manquant", "Aucun graphique n'est actuellement affiché.")
+            return
+
+        ratio_name = self.cmb_fit_ratio.currentText()
+        if not ratio_name:
+            QMessageBox.warning(self, "Ratio manquant", "Veuillez sélectionner un ratio à ajuster.")
+            return
+
+        # ========== 1) Sécuriser la sélection des données (tri + copie) ==========
+        df = (
+            self._ratios_long[self._ratios_long["Ratio"] == ratio_name]
+            .dropna(subset=["n(titrant) (mol)", "Value"])
+            .sort_values("n(titrant) (mol)")
+            .copy()
+        )
+
+        if len(df) < 5:
+            QMessageBox.warning(self, "Données insuffisantes", "Pas assez de points pour un fit sigmoïde.")
+            return
+
+        x = df["n(titrant) (mol)"].to_numpy(dtype=float)
+        y = df["Value"].to_numpy(dtype=float)
+        x_min = float(np.nanmin(x))
+        x_max = float(np.nanmax(x))
+        x_span = x_max - x_min
+        if (not np.isfinite(x_span)) or x_span <= 0:
+            x_span = max(1.0, abs(x_min) if np.isfinite(x_min) else 1.0)
+        x_center = 0.5 * (x_min + x_max)
+        x_scale = x_span if x_span > 0 else 1.0
+        y_min = float(np.nanmin(y))
+        y_max = float(np.nanmax(y))
+        y_span = y_max - y_min
+        if (not np.isfinite(y_span)) or y_span <= 0:
+            QMessageBox.warning(
+                self,
+                "Données insuffisantes",
+                "Les valeurs du ratio sont quasi constantes, le fit sigmoïde est indéterminé.",
+            )
+            return
+
+        fig = self._current_fig
+
+        # ========== 2) Supprimer les anciens fits / points du même ratio ==========
+        # Supprimer les anciens fits / annotations pour ce ratio
+        fig.data = tuple(
+            tr for tr in fig.data
+            if not (
+                isinstance(tr.name, str)
+                and (f"Fit sigmoïde – {ratio_name}" in tr.name
+                     or f"Points utilisés – {ratio_name}" in tr.name
+                     or f"Équivalence – {ratio_name}" in tr.name)
+            )
+        )
+        # Supprimer les annotations liées à ce ratio
+        if hasattr(fig.layout, "annotations") and fig.layout.annotations:
+            fig.layout.annotations = tuple(
+                ann for ann in fig.layout.annotations
+                if ratio_name not in str(getattr(ann, "text", ""))
+            )
+
+        # ========== 3) Afficher explicitement les points utilisés pour le fit ==========
+        # Affichage explicite des points utilisés pour le fit (debug visuel)
+        fig.add_trace(go.Scatter(
+            x=x,
+            y=y,
+            mode="markers",
+            marker=dict(size=10, symbol="x"),
+            name=f"Points utilisés – {ratio_name}",
+        ))
+
+        # ========== 4) (Option sécurité) Forcer un refit réel même si données identiques ==========
+        # Sécurité : conversion explicite en float64 pour éviter tout cache implicite
+        x = np.asarray(x, dtype=np.float64)
+        y = np.asarray(y, dtype=np.float64)
+
+        # Estimations initiales (espace normalisé pour stabiliser le fit)
+        A0 = y_min
+        B0 = y_span
+        corr = np.corrcoef(x, y)[0, 1] if len(x) > 1 else 1.0
+        sign = -1.0 if (np.isfinite(corr) and corr < 0) else 1.0
+        k0 = sign * 8.0
+        y_mid = A0 + 0.5 * B0
+        try:
+            idx_mid = int(np.nanargmin(np.abs(y - y_mid)))
+            xeq0 = float((x[idx_mid] - x_center) / x_scale)
+        except Exception:
+            xeq0 = 0.0
+
+        def _sigmoid_scaled(x_scaled, A, B, k, x_eq_scaled):
+            return A + B / (1 + np.exp(-k * (x_scaled - x_eq_scaled)))
+
+        try:
+            popt_scaled, pcov_scaled = curve_fit(
+                _sigmoid_scaled,
+                (x - x_center) / x_scale,
+                y,
+                p0=[A0, B0, k0, xeq0],
+                maxfev=20000,
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Échec du fit", f"Impossible d'ajuster la sigmoïde :\n{e}")
+            return
+
+        k_orig = float(popt_scaled[2]) / x_scale
+        x_eq_orig = x_center + x_scale * float(popt_scaled[3])
+        popt = np.array([popt_scaled[0], popt_scaled[1], k_orig, x_eq_orig], dtype=float)
+        if pcov_scaled is not None:
+            scale = np.diag([1.0, 1.0, 1.0 / x_scale, x_scale])
+            pcov = scale @ pcov_scaled @ scale
+        else:
+            pcov = None
+
+        self._sigmoid_params = popt
+        self._sigmoid_cov = pcov
+        self.btn_show_equivalence.setEnabled(True)
+        # Enregistrer le résultat du fit par ratio
+        self._sigmoid_results[ratio_name] = {"params": popt, "cov": pcov}
+
+        # -------- Courbe de fit avec plage étendue pour afficher toute la sigmoïde --------
+        # Point d’équivalence (point d’inflexion) : coordonnées exactes
+        x_eq = float(popt[3])
+        y_eq = self._sigmoid(x_eq, *popt)
+        k = float(popt[2])
+        if np.isfinite(k) and k != 0:
+            half_span_k = 6.0 / abs(k)  # ~de 0.25% à 99.75%
+        else:
+            half_span_k = 0.0
+        half_span = max(x_span, half_span_k)
+        if (not np.isfinite(half_span)) or half_span <= 0:
+            half_span = max(1.0, abs(x_eq) if np.isfinite(x_eq) else 1.0)
+
+        x_fit_min = min(x_min, x_eq - half_span)
+        x_fit_max = max(x_max, x_eq + half_span)
+        x_fit = np.linspace(x_fit_min, x_fit_max, 1000)
+        y_fit = self._sigmoid(x_fit, *popt)
+
+        # -------- Ajout du point d'équivalence (croix) --------
+
+        # Courbe de fit
+        fig.add_trace(go.Scatter(
+            x=x_fit,
+            y=y_fit,
+            mode="lines",
+            name=f"Fit sigmoïde – {ratio_name}",
+            line=dict(dash="dash", width=3)
+        ))
+
+        # Marqueur du point d’équivalence (croix)
+        fig.add_trace(go.Scatter(
+            x=[x_eq],
+            y=[y_eq],
+            mode="markers",
+            name=f"Équivalence – {ratio_name}",
+            marker=dict(
+                symbol="x",
+                size=14,
+                color="red",
+                line=dict(width=3)
+            )
+        ))
+
+        # Ligne verticale équivalence (sans annotation automatique)
+        fig.add_vline(
+            x=x_eq,
+            line_dash="dot",
+            line_color="red",
+        )
+
+        # Annotation lisible empilée verticalement (coordonnées papier)
+        n_annot = len(self._sigmoid_results)  # 1, 2, 3...
+        y_paper = 1.0 - 0.06 * (n_annot - 1)
+        if y_paper < 0.05:
+            y_paper = 0.05
+
+        fig.add_annotation(
+            x=x_eq,
+            y=y_paper,
+            xref="x",
+            yref="paper",
+            text=f"Équiv. {ratio_name} : {x_eq:.3e}",
+            showarrow=False,
+            xanchor="left",
+            bgcolor="rgba(255,255,255,0.85)",
+            bordercolor="rgba(0,0,0,0.25)",
+            borderwidth=1,
+        )
+
+        self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn"))
+
+    def _show_equivalence(self):
+        if not getattr(self, "_sigmoid_results", None):
+            QMessageBox.information(
+                self,
+                "Aucune équivalence",
+                "Aucun fit sigmoïde n’a encore été effectué."
+            )
+            return
+
+        lines = ["Points d’équivalence (points d’inflexion) :\n"]
+        for ratio_name, res in self._sigmoid_results.items():
+            popt = res.get("params")
+            pcov = res.get("cov")
+            if popt is None:
+                continue
+
+            x_eq = float(popt[3])
+
+            if pcov is not None:
+                try:
+                    err = np.sqrt(np.diag(pcov))
+                    xeq_err = float(err[3])
+                    lines.append(
+                        f"• {ratio_name} : x_eq = {x_eq:.3e} ± {xeq_err:.1e} mol"
+                    )
+                except Exception:
+                    lines.append(
+                        f"• {ratio_name} : x_eq = {x_eq:.3e} mol"
+                    )
+            else:
+                lines.append(
+                    f"• {ratio_name} : x_eq = {x_eq:.3e} mol"
+                )
+
+        QMessageBox.information(self, "Équivalences", "\n".join(lines))
     def _refresh_button_states(self) -> None:
         """Met à jour la couleur des boutons selon l'état du fichier combiné et de l'analyse."""
         red = "background-color: #d9534f; color: white; font-weight: 600;"
@@ -431,27 +691,31 @@ class AnalysisTab(QWidget):
             return pd.to_numeric(s.astype(str).str.replace(",", "."), errors="coerce")
 
         def _pick_auto_titrant_column(df_: pd.DataFrame) -> str | None:
-            # 1) Colonnes explicites
-            for cand in ["[titrant] (M)", "C (EGTA) (M)"]:
-                if cand in df_.columns:
+            explicit = ["[titrant] (M)", "[titrant] (mM)", "C (EGTA) (M)"]
+
+            def is_valid(col):
+                v = _to_num(df_[col])
+                return (
+                    v.notna().any()
+                    and v.nunique(dropna=True) > 2
+                    and float(v.var(skipna=True)) > 0.0
+                )
+
+            for cand in explicit:
+                if cand in df_.columns and is_valid(cand):
                     return cand
 
-            # 2) Colonnes type C (XXX) (M)
             cands = [c for c in df_.columns if re.match(r"^C \(.+\) \(M\)$", str(c))]
-            if not cands:
-                return None
-
-            # Choisir une colonne qui varie réellement (titrant) : plus grande variance non nulle
-            best = None
-            best_score = -1.0
+            scored = []
             for c in cands:
                 v = _to_num(df_[c])
-                score = float(v.var(skipna=True)) if v.notna().any() else 0.0
-                if score > best_score:
-                    best_score = score
-                    best = c
-            # Si tout est constant, on prend quand même la première (proxy)
-            return best or cands[0]
+                if v.notna().any() and v.nunique(dropna=True) > 2:
+                    scored.append((float(v.var(skipna=True)), c))
+
+            if scored:
+                return max(scored)[1]
+
+            return None
 
         if "n(titrant) (mol)" not in merged.columns:
             tit_col = _pick_auto_titrant_column(merged)
@@ -490,9 +754,21 @@ class AnalysisTab(QWidget):
         self.btn_export.setEnabled(True)
         self._analysis_dirty = False
         self._refresh_button_states()
+        # Réinitialiser état du fit sigmoïde
+        self._sigmoid_params = None
+        self._sigmoid_cov = None
+        self.btn_show_equivalence.setEnabled(False)
+        self._sigmoid_results = {}
 
         # --- Tracé interactif (équivalent au ggplot fourni) ---
         if df_ratios is not None and not df_ratios.empty and "n(titrant) (mol)" in df_ratios.columns:
+            # Mettre à jour la liste des ratios disponibles pour le fit
+            self.cmb_fit_ratio.blockSignals(True)
+            self.cmb_fit_ratio.clear()
+            for r in sorted(df_ratios["Ratio"].unique()):
+                self.cmb_fit_ratio.addItem(r)
+            self.cmb_fit_ratio.blockSignals(False)
+
             df_plot = df_ratios.sort_values(["Ratio", "n(titrant) (mol)"])
 
             # Palette de couleurs plus riche et contrastée pour éviter les répétitions trop rapides
@@ -533,10 +809,13 @@ class AnalysisTab(QWidget):
             )
             # Formatage type scientifique pour l'axe X
             fig.update_xaxes(tickformat=".0e")
+            self._current_fig = fig
             self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn"))
         else:
             # Effacer le graphique si pas de ratios
             self.plot_view.setHtml("<i>Aucun ratio à afficher.</i>")
+
+        # (Suppression du reset du fit et de la combo des ratios ici -- déjà fait plus haut)
 
         QMessageBox.information(self, "Succès", "Analyse terminée : intensités et ratios calculés.")
 

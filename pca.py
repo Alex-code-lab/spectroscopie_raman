@@ -351,7 +351,7 @@ class PCATab(QWidget):
         self.lbl_status.setText(
             f"Fichier combiné : chargé ✓ ({combined['file'].nunique() if 'file' in combined.columns else len(combined)} spectres)"
         )
-        self._populate_controls_from_df(combined_df=combined, meta_df=merged_meta)
+        self._populate_controls_from_df(combined_df=combined)
         # Conserver "(aucune)" sélectionné si possible
         if self.cmb_color.count() > 0:
             self.cmb_color.setCurrentIndex(0)
