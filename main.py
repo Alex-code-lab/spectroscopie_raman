@@ -60,101 +60,158 @@ class MainWindow(QMainWindow):
 
         doc_html = (
             """
-            <h2>Présentation et mode d’emploi</h2>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    color: #2b2b2b;
+  }
 
-            <p>
-            Bienvenue dans <b>Ramanalyze</b>.<br>
-            Cette application permet d’analyser des spectres Raman à partir de fichiers <code>.txt</code>,
-            en les reliant à des informations expérimentales (métadonnées) saisies directement dans le programme.
-            </p>
+  h2 {
+    color: #46ba48;
+    margin-bottom: 6px;
+  }
 
-            <p>
-            L’application fonctionne en <b>4 grandes étapes</b>, réparties dans les onglets.
-            </p>
+  h3 {
+    color: #46ba48 ;
+    margin-top: 18px;
+    margin-bottom: 6px;
+  }
 
-            <h3>1. Onglet <i>Fichiers</i></h3>
-            <ul>
-              <li>Sélectionnez un ou plusieurs fichiers de spectres Raman au format <code>.txt</code>.</li>
-              <li>Cliquez sur <b>Ajouter la sélection</b> pour les ajouter à la liste.</li>
-              <li>Les fichiers sélectionnés seront utilisés dans les onglets <i>Spectres</i>, <i>Analyse</i> et <i>PCA</i>.</li>
-              <li>Tant qu’aucun fichier n’est sélectionné, les autres onglets ne peuvent pas fonctionner.</li>
-            </ul>
+  h4 {
+    color: #3a7ca5;
+    margin-top: 14px;
+    margin-bottom: 4px;
+  }
 
-            <h3>2. Onglet <i>Métadonnées</i></h3>
+  p {
+    line-height: 1.55;
+    margin-bottom: 10px;
+  }
 
-            <h4>a) Informations générales</h4>
-            <ul>
-              <li>Nom de la manipulation</li>
-              <li>Date</li>
-              <li>Lieu</li>
-              <li>Coordinateur</li>
-              <li>Opérateur</li>
-            </ul>
-            <p>
-            Ces informations décrivent l’expérience et sont automatiquement recopiées dans les tableaux.
-            </p>
+  ul, ol {
+    margin-left: 18px;
+  }
 
-            <h4>b) Tableau des volumes (composition des tubes)</h4>
-            <ul>
-              <li>Chaque ligne correspond à un réactif (Solution A, Solution B, etc.).</li>
-              <li>Chaque colonne <b>Tube 1, Tube 2, …</b> correspond à un tube expérimental.</li>
-              <li>Vous indiquez la concentration de la solution mère, son unité et les volumes ajoutés (en µL).</li>
-              <li>Un modèle de tableau pré-rempli est proposé et peut être modifié.</li>
-            </ul>
+  li {
+    margin-bottom: 6px;
+  }
 
-            <h4>c) Concentrations dans les cuvettes (information)</h4>
-            <ul>
-              <li>Ce tableau est calculé automatiquement à partir du tableau des volumes.</li>
-              <li>Il indique les concentrations finales dans chaque tube.</li>
-              <li>Il est en lecture seule et sert uniquement à l’analyse.</li>
-            </ul>
+  .key {
+    font-weight: 600;
+    color: #c4293d;
+  }
 
-            <h4>d) Correspondance spectres ↔ tubes</h4>
-            <ul>
-              <li>Associe chaque nom de spectre (ex. <code>AN335_00</code>) à un tube expérimental (ex. <code>A1</code>).</li>
-              <li>Les noms de spectres sont générés automatiquement à partir du nom de la manipulation.</li>
-              <li>Un bouton <b>Reset</b> permet de revenir aux valeurs par défaut.</li>
-            </ul>
+  .accent {
+    font-weight: 600;
+    color: #2f6fad;
+  }
 
-            <h4>Glossaire des solutions</h4>
-            <ul>
-              <li><b>Solution A</b> : Tampon (milieu de base)</li>
-              <li><b>Solution B</b> : Titrant (paramètre expérimental variable)</li>
-              <li><b>Solution C</b> : Indicateur</li>
-              <li><b>Solution D</b> : PEG</li>
-              <li><b>Solution E</b> : Nanoparticules</li>
-              <li><b>Solution F</b> : Crosslinker</li>
-            </ul>
+  .warn {
+    font-weight: 600;
+    color: #b00020;
+  }
 
-            <h3>3. Onglet <i>Spectres</i></h3>
-            <ul>
-              <li>Affiche les spectres Raman à partir du fichier combiné interne.</li>
-              <li>Une correction de baseline est appliquée automatiquement.</li>
-              <li>Les spectres sont regroupés selon la description des échantillons.</li>
-              <li>Il est possible d’ajuster les axes et d’exporter le graphique.</li>
-            </ul>
+  .ok {
+    font-weight: 600;
+    color: #1e7f43;
+  }
 
-            <h3>4. Onglet <i>Analyse</i></h3>
-            <ul>
-              <li>Permet d’analyser des pics Raman spécifiques.</li>
-              <li>Les intensités et rapports d’intensité sont calculés automatiquement.</li>
-              <li>Les graphiques sont tracés en fonction de la quantité de titrant.</li>
-              <li>Les résultats peuvent être exportés vers Excel.</li>
-            </ul>
+  .note {
+    border-left: 3px solid #2f6fad;
+    padding-left: 10px;
+    margin: 10px 0;
+    color: #ffffff;
+  }
 
-            <h3>5. Onglet <i>PCA</i></h3>
-            <ul>
-              <li>Réalise une analyse en composantes principales (PCA).</li>
-              <li>Permet de visualiser les scores, les loadings et la reconstruction de spectres.</li>
-              <li>Utilise le même fichier combiné que les onglets Spectres et Analyse.</li>
-            </ul>
+  .mono {
+    font-family: Menlo, Consolas, monospace;
+    font-size: 0.95em;
+  }
+</style>
 
-            <h3>Remarques importantes</h3>
-            <ul>
-              <li>Les métadonnées sont indispensables pour l’analyse.</li>
-              <li>Les concentrations sont toujours calculées automatiquement.</li>
-              <li>Un seul fichier combiné est utilisé dans toute l’application, garantissant la cohérence des résultats.</li>
-            </ul>
+<h2>Guide d’utilisation pas à pas</h2>
+
+<p>
+Bienvenue dans <span class="key">Ramanalyze</span>.<br>
+Cette application permet d’analyser des spectres Raman (<span class="mono">.txt</span>) en les liant à des
+<span class="accent">métadonnées expérimentales</span>.  
+Le guide ci‑dessous décrit l’ordre recommandé des étapes.
+</p>
+
+<h3>Parcours rapide — 5 étapes</h3>
+<ol>
+  <li><span class="key">Fichiers</span> : sélectionnez les fichiers de résultats Raman (<span class="mono">.txt</span>) puis cliquez sur <b>Ajouter la sélection</b>.</li>
+  <li><span class="key">Métadonnées</span> : complétez les informations générales, le tableau des volumes et la correspondance spectres ↔ tubes.</li>
+  <li><span class="key">Spectres</span> : vérifiez la qualité des spectres (baseline, axes, export PNG si besoin).</li>
+  <li><span class="key">PCA</span> : explorez regroupements et variances pour identifier les pics et paramètres importants.</li>
+  <li><span class="key">Analyse</span> : choisissez les pics, lancez l’analyse, puis ajustez la sigmoïde pour obtenir le point d’équivalence.</li>
+</ol>
+
+<h3>Guidage visuel</h3>
+<ul>
+  <li><span class="warn">Rouge</span> : action requise</li>
+  <li><span class="ok">Vert</span> : étape prête</li>
+  <li>Après toute modification des fichiers ou métadonnées, rechargez le <b>fichier combiné</b> dans <b>Analyse</b> ou <b>PCA</b>.</li>
+</ul>
+
+<h3>Détails par onglet</h3>
+
+<h4>1) Onglet Fichiers</h4>
+<ul>
+  <li>Navigation par double‑clic dans les dossiers.</li>
+  <li>Sélection de fichiers <span class="mono">.txt</span> de résultats Raman.</li>
+  <li><b>Ajouter la sélection</b> pour constituer le jeu d’analyse.</li>
+</ul>
+
+<h4>2) Onglet Métadonnées</h4>
+<ul>
+  <li>Informations générales de l’expérience (<b>nom requis</b>).</li>
+  <li>Tableau des volumes (solutions, unités, µL), entièrement personnalisable.</li>
+  <li>Chargement / sauvegarde de modèles de métadonnées.</li>
+  <li>Concentrations en cuvette calculées automatiquement (lecture seule).</li>
+  <li>Vérification de la correspondance spectres ↔ tubes.</li>
+</ul>
+
+<h4>Glossaire des solutions</h4>
+<ul>
+  <li><b>Solution A</b> : Tampon</li>
+  <li><b>Solution B</b> : Titrant (<span class="accent">paramètre variable</span>)</li>
+  <li><b>Solution C</b> : Indicateur</li>
+  <li><b>Solution D</b> : PEG</li>
+  <li><b>Solution E</b> : Nanoparticules</li>
+  <li><b>Solution F</b> : Crosslinker</li>
+</ul>
+
+<h4>3) Onglet Spectres</h4>
+<ul>
+  <li>Tracé avec correction de baseline.</li>
+  <li>Option d’inclusion / exclusion du contrôle BRB.</li>
+  <li>Axes configurables et export PNG.</li>
+</ul>
+
+<h4>4) Onglet Analyse (pics & équivalence)</h4>
+<ul>
+  <li>Sélection de presets (532 / 785 nm) ou mode personnalisé.</li>
+  <li>Calcul automatique des intensités et ratios (export Excel).</li>
+  <li>Ajustement <span class="accent">sigmoïdal</span> pour déterminer l’équivalence.</li>
+  <li>Affichage du point d’inflexion et de son incertitude.</li>
+</ul>
+
+<h4>5) Onglet PCA</h4>
+<ul>
+  <li>Rechargement du fichier combiné.</li>
+  <li>Choix du domaine Raman, de la normalisation et du nombre de composantes.</li>
+  <li>Visualisation des scores, loadings et reconstructions.</li>
+</ul>
+
+<h3>Si un résultat semble incohérent</h3>
+<div class="note">
+  <ul>
+    <li>Vérifiez la correspondance spectres ↔ tubes et les unités.</li>
+    <li>Relancez l’analyse après toute modification.</li>
+    <li>Assurez‑vous que les ratios ne sont pas quasi constants avant un fit sigmoïde.</li>
+  </ul>
+</div>
             """
         )
 

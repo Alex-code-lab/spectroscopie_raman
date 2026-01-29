@@ -160,6 +160,7 @@ class AnalysisTab(QWidget):
         self._on_preset_changed(self.cmb_presets.currentIndex())
         # Figure Plotly actuellement affichée (pour overlay fit)
         self._current_fig = None   # figure Plotly actuellement affichée
+        self._base_x_range = None  # plage X de la courbe initiale (pour la conserver lors des fits)
         # Couleurs initiales des boutons
         self._refresh_button_states()
 
@@ -359,6 +360,9 @@ class AnalysisTab(QWidget):
             bordercolor="rgba(0,0,0,0.25)",
             borderwidth=1,
         )
+
+        if self._base_x_range is not None:
+            fig.update_xaxes(range=list(self._base_x_range), autorange=False)
 
         self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn"))
 
@@ -809,11 +813,24 @@ class AnalysisTab(QWidget):
             )
             # Formatage type scientifique pour l'axe X
             fig.update_xaxes(tickformat=".0e")
+            # Verrouiller la plage X sur la courbe initiale pour éviter tout changement lors des fits
+            x_vals = df_plot["n(titrant) (mol)"].to_numpy(dtype=float)
+            if x_vals.size and np.isfinite(x_vals).any():
+                x_min = float(np.nanmin(x_vals))
+                x_max = float(np.nanmax(x_vals))
+                if np.isfinite(x_min) and np.isfinite(x_max) and x_min < x_max:
+                    self._base_x_range = (x_min, x_max)
+                    fig.update_xaxes(range=[x_min, x_max], autorange=False)
+                else:
+                    self._base_x_range = None
+            else:
+                self._base_x_range = None
             self._current_fig = fig
             self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn"))
         else:
             # Effacer le graphique si pas de ratios
             self.plot_view.setHtml("<i>Aucun ratio à afficher.</i>")
+            self._base_x_range = None
 
         # (Suppression du reset du fit et de la combo des ratios ici -- déjà fait plus haut)
 
