@@ -34,6 +34,13 @@ from PySide6.QtWidgets import (
 )
 
 from PySide6.QtCore import Qt, QDate
+from PySide6.QtGui import QColor, QBrush
+
+
+# Affichage numérique: précision et suppression de l'écriture scientifique.
+NUM_DISPLAY_PRECISION = 12
+DEFAULT_VTOT_UL = 3090.0
+SUM_TARGET_TOL = 1e-3
 
 
 # Affichage numérique: précision et suppression de l'écriture scientifique.
@@ -55,6 +62,9 @@ class TableEditorDialog(QDialog):
         parent=None,
         reset_df: pd.DataFrame | None = None,
         reset_button_text: str = "Reset",
+        sum_row: bool = False,
+        sum_row_label: str = "Total",
+        sum_target: float | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -63,6 +73,11 @@ class TableEditorDialog(QDialog):
         # self.conc_user_overridden = False
         self._reset_df = reset_df.copy() if reset_df is not None else None
         self._reset_button_text = reset_button_text
+        self._sum_row_enabled = bool(sum_row)
+        self._sum_row_label = str(sum_row_label)
+        self._sum_target = float(sum_target) if sum_target is not None else None
+        self._sum_row_idx: int | None = None
+        self._sum_updating = False
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(title))
@@ -74,13 +89,15 @@ class TableEditorDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setAlternatingRowColors(True)
-        self.table.itemChanged.connect(self._auto_resize_columns)
+        self.table.itemChanged.connect(self._on_item_changed)
 
         # Remplissage initial : soit à partir du DataFrame, soit quelques lignes vides
         if initial_df is not None and not initial_df.empty:
             self._load_from_dataframe(initial_df)
         else:
             self.table.setRowCount(8)  # quelques lignes vides par défaut
+            if self._sum_row_enabled:
+                self._append_sum_row()
 
         layout.addWidget(self.table, 1)
 
@@ -130,7 +147,7 @@ class TableEditorDialog(QDialog):
                 df[col] = pd.NA
         df = df[self._columns]
 
-        self.table.setRowCount(len(df))
+        self.table.setRowCount(len(df) + (1 if self._sum_row_enabled else 0))
         self.table.setColumnCount(len(self._columns))
         self.table.setHorizontalHeaderLabels(self._columns)
 
@@ -142,34 +159,155 @@ class TableEditorDialog(QDialog):
                 else:
                     # Affichage lisible : pas d'écriture scientifique, précision configurable.
                     if isinstance(val, (float, int)):
-                        try:
-                            txt = np.format_float_positional(
-                                float(val),
-                                precision=NUM_DISPLAY_PRECISION,
-                                unique=False,
-                                trim="-",
-                            )
-                        except Exception:
-                            txt = str(val)
+                        txt = self._format_number(float(val))
                     else:
                         txt = str(val)
                 item = QTableWidgetItem(txt)
                 self.table.setItem(i, j, item)
         self.table.resizeColumnsToContents()
+        if self._sum_row_enabled:
+            self._sum_row_idx = len(df)
+            self._ensure_sum_row_items()
+            self._set_sum_row_label()
+            self._refresh_sum_row()
 
+    def _format_number(self, val: float) -> str:
+        try:
+            return np.format_float_positional(
+                float(val),
+                precision=NUM_DISPLAY_PRECISION,
+                unique=False,
+                trim="-",
+            )
+        except Exception:
+            return str(val)
+
+    def _parse_float(self, txt: str | None) -> float | None:
+        if txt is None:
+            return None
+        t = str(txt).strip()
+        if t == "":
+            return None
+        t = t.replace(",", ".")
+        try:
+            return float(t)
+        except Exception:
+            return None
+
+    def _get_tube_column_indices(self) -> list[int]:
+        idxs: list[int] = []
+        for j in range(self.table.columnCount()):
+            header = self.table.horizontalHeaderItem(j)
+            name = header.text().strip() if header is not None else ""
+            if name.lower().startswith("tube "):
+                idxs.append(j)
+        return idxs
+
+    def _ensure_sum_row_items(self) -> None:
+        if self._sum_row_idx is None:
+            return
+        for j in range(self.table.columnCount()):
+            item = self.table.item(self._sum_row_idx, j)
+            if item is None:
+                item = QTableWidgetItem("")
+                self.table.setItem(self._sum_row_idx, j, item)
+            item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
+
+    def _set_sum_row_label(self) -> None:
+        if self._sum_row_idx is None or self.table.columnCount() == 0:
+            return
+        label_col = 0
+        for j in range(self.table.columnCount()):
+            header = self.table.horizontalHeaderItem(j)
+            name = header.text().strip().lower() if header is not None else ""
+            if name in ("réactif", "reactif"):
+                label_col = j
+                break
+        item = self.table.item(self._sum_row_idx, label_col)
+        if item is None:
+            item = QTableWidgetItem("")
+            self.table.setItem(self._sum_row_idx, label_col, item)
+        item.setText(self._sum_row_label)
+        item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
+
+    def _append_sum_row(self) -> None:
+        self._sum_row_idx = self.table.rowCount()
+        self.table.insertRow(self._sum_row_idx)
+        self._ensure_sum_row_items()
+        self._set_sum_row_label()
+        self._refresh_sum_row()
+
+    def _refresh_sum_row(self) -> None:
+        if not self._sum_row_enabled or self._sum_row_idx is None:
+            return
+        if self._sum_updating:
+            return
+        self._sum_updating = True
+        try:
+            self.table.blockSignals(True)
+            self._ensure_sum_row_items()
+            self._set_sum_row_label()
+            tube_cols = self._get_tube_column_indices()
+            # Nettoie les fonds
+            for j in range(self.table.columnCount()):
+                item = self.table.item(self._sum_row_idx, j)
+                if item is not None:
+                    item.setBackground(QBrush())
+            for j in tube_cols:
+                total = 0.0
+                for r in range(self._sum_row_idx):
+                    item = self.table.item(r, j)
+                    val = self._parse_float(item.text() if item is not None else "")
+                    if val is None:
+                        continue
+                    total += val
+                item = self.table.item(self._sum_row_idx, j)
+                if item is None:
+                    item = QTableWidgetItem("")
+                    self.table.setItem(self._sum_row_idx, j, item)
+                item.setText(self._format_number(total))
+                item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
+                if self._sum_target is not None and abs(total - self._sum_target) <= SUM_TARGET_TOL:
+                    item.setBackground(QBrush(QColor(198, 239, 206)))
+        finally:
+            self.table.blockSignals(False)
+            self._sum_updating = False
 
     def _auto_resize_columns(self) -> None:
         """Ajuste automatiquement la largeur des colonnes au contenu."""
         self.table.resizeColumnsToContents()
 
+    def _on_item_changed(self, item: QTableWidgetItem) -> None:
+        self._auto_resize_columns()
+        if not self._sum_row_enabled or self._sum_row_idx is None:
+            return
+        if self._sum_updating:
+            return
+        if item.row() == self._sum_row_idx:
+            return
+        self._refresh_sum_row()
+
     def _add_row(self) -> None:
-        self.table.insertRow(self.table.rowCount())
+        if self._sum_row_enabled and self._sum_row_idx is not None:
+            self.table.insertRow(self._sum_row_idx)
+            self._sum_row_idx += 1
+        else:
+            self.table.insertRow(self.table.rowCount())
+        if self._sum_row_enabled:
+            self._refresh_sum_row()
 
     def _del_row(self) -> None:
         row = self.table.currentRow()
         if row < 0:
             return
+        if self._sum_row_enabled and self._sum_row_idx is not None:
+            if row == self._sum_row_idx:
+                return
+            if row < self._sum_row_idx:
+                self._sum_row_idx -= 1
         self.table.removeRow(row)
+        if self._sum_row_enabled:
+            self._refresh_sum_row()
 
     def _add_col(self) -> None:
         col_count = self.table.columnCount()
@@ -178,6 +316,9 @@ class TableEditorDialog(QDialog):
         new_name = f"Col{col_count+1}"
         self._columns.append(new_name)
         self.table.setHorizontalHeaderLabels(self._columns)
+        if self._sum_row_enabled:
+            self._ensure_sum_row_items()
+            self._refresh_sum_row()
 
     def _del_col(self) -> None:
         col = self.table.currentColumn()
@@ -187,6 +328,8 @@ class TableEditorDialog(QDialog):
             self._columns.pop(col)
         self.table.removeColumn(col)
         self.table.setHorizontalHeaderLabels(self._columns)
+        if self._sum_row_enabled:
+            self._refresh_sum_row()
 
     def _reset_table(self) -> None:
         """Restaure le tableau par défaut (si fourni)."""
@@ -226,6 +369,8 @@ class TableEditorDialog(QDialog):
         df = pd.DataFrame(data)
         # Suppression des lignes entièrement vides
         df = df.dropna(how="all")
+        if self._sum_row_enabled and self._sum_row_idx is not None and self._sum_row_idx in df.index:
+            df = df.drop(index=self._sum_row_idx)
         # Normalise quelques colonnes si présentes
         if "Tube" in df.columns:
             df["Tube"] = df["Tube"].astype(str).str.strip()
@@ -818,6 +963,12 @@ def sers_gaussian_volumes(
 
     V_B_free = np.round(V_B_free / step) * step
 
+    # Empêcher que le premier volume libre soit nul si include_zero=True
+    # Sinon Tube 1 = 0 et Tube 2 = 0 après quantification.
+    if include_zero and len(V_B_free) > 0:
+        if V_B_free.min() <= 0:
+            V_B_free[V_B_free <= 0] = step
+
 
     # ---------------------------------------------------------
     # Construction série complète
@@ -835,14 +986,51 @@ def sers_gaussian_volumes(
 
     V_B = np.sort(np.array(V_B))
 
+    # Sécurité finale : garantir Tube 1 = 0 uniquement si include_zero
+    # et Tube 2 strictement positif
+    if include_zero and len(V_B) > 1:
+        V_B[0] = 0.0
+        if V_B[1] <= 0:
+            V_B[1] = step
+
 
     # ---------------------------------------------------------
     # Volumes tampon A
     # ---------------------------------------------------------
+    #
+    # Contraintes :
+    # - Tous les tubes doivent avoir EXACTEMENT le même volume total
+    # - Le volume total doit rester proche de Vtot (pas imposé exactement)
+    # - V_A et V_B doivent respecter le pas de pipette
+    #
+    # Stratégie :
+    # On ajuste V_AB sur la grille de pipette pour garantir :
+    #
+    #     V_A + V_B = V_AB_real   (identique pour tous les tubes)
+    #
+    # puis :
+    #
+    #     Vtot_real = V_fixe + V_AB_real
+    #
+    # ce volume total peut légèrement différer de Vtot demandé.
 
-    V_A = V_AB - V_B
+    # Ajustement de V_AB sur la grille de pipette
+    V_AB_real = np.round(V_AB / step) * step
 
+    # Volumes tampon A complémentaires
+    V_A = V_AB_real - V_B
+
+    # Sécurité numérique
+    if np.any(V_A < -1e-9):
+        raise ValueError(
+            "Pas de pipette trop grand pour les contraintes de volume."
+        )
+
+    # Quantification finale
     V_A = np.round(V_A / step) * step
+
+    # Volume total réel identique dans tous les tubes
+    Vtot_real = V_fixe_uL + V_AB_real
 
 
     # ---------------------------------------------------------
@@ -865,19 +1053,14 @@ def sers_gaussian_volumes(
     # ---------------------------------------------------------
 
     meta = {
-
         "Veq_uL": float(Veq_uL),
-
         "sigma_V_uL": float(sigma_V),
-
         "Vmin_uL": float(Vmin_uL),
-
         "Vmax_uL": float(Vmax_uL),
-
+        "V_AB_real_uL": float(V_AB_real),
+        "Vtot_real_uL": float(Vtot_real),
         "center_power": float(center_power),
-
         "span_frac": float(span_frac),
-
     }
 
     return df, meta
@@ -894,6 +1077,11 @@ class GaussianVolumesDialog(QDialog):
             "Seules Solution A (tampon) et Solution B (titrant) varient."
         ))
 
+        # Case à cocher mode compte‑goutte
+        self.chk_dropper = QCheckBox("Utilisation d'un compte‑goutte (pas = 40 µL, marge = 0)", self)
+        self.chk_dropper.setChecked(False)
+        layout.addWidget(self.chk_dropper)
+
         box = QGroupBox("Paramètres")
         form = QFormLayout(box)
 
@@ -901,7 +1089,7 @@ class GaussianVolumesDialog(QDialog):
         self.spin_C0 = QDoubleSpinBox(self); self.spin_C0.setDecimals(3); self.spin_C0.setRange(0.0, 1e9); self.spin_C0.setValue(1000.0)
         self.spin_Vech = QDoubleSpinBox(self); self.spin_Vech.setDecimals(1); self.spin_Vech.setRange(0.0, 1e9); self.spin_Vech.setValue(1000.0)
         self.spin_Ctit = QDoubleSpinBox(self); self.spin_Ctit.setDecimals(3); self.spin_Ctit.setRange(0.0, 1e9); self.spin_Ctit.setValue(5.0)
-        self.spin_Vtot = QDoubleSpinBox(self); self.spin_Vtot.setDecimals(1); self.spin_Vtot.setRange(0.0, 1e9); self.spin_Vtot.setValue(3090.0)
+        self.spin_Vtot = QDoubleSpinBox(self); self.spin_Vtot.setDecimals(1); self.spin_Vtot.setRange(0.0, 1e9); self.spin_Vtot.setValue(DEFAULT_VTOT_UL)
 
         form.addRow("Nombre de tubes", self.spin_n)
         form.addRow("C0 Cu (nM)", self.spin_C0)
@@ -949,6 +1137,54 @@ class GaussianVolumesDialog(QDialog):
         form2.addRow("Solution E", _row(self.spin_VE, self.spin_conc_E, self.combo_unit_E))
         form2.addRow("Solution F", _row(self.spin_VF, self.spin_conc_F, self.combo_unit_F))
 
+        # ---------------------------------------------------------
+        # Quantités fixes pour solutions C/D/E/F
+        # ---------------------------------------------------------
+        # On impose n = C × V constant (unités relatives).
+        # Si l'utilisateur modifie C → V est recalculé.
+        # Si l'utilisateur modifie V → C est recalculé.
+
+        self._fixed_n = {
+            "C": self.spin_conc_C.value() * self.spin_VC.value(),
+            "D": self.spin_conc_D.value() * self.spin_VD.value(),
+            "E": self.spin_conc_E.value() * self.spin_VE.value(),
+            "F": self.spin_conc_F.value() * self.spin_VF.value(),
+        }
+
+        self._updating_fixed = False
+
+        def _bind_fixed(letter, spinC, spinV):
+
+            def update_from_C(val):
+                if self._updating_fixed:
+                    return
+                self._updating_fixed = True
+                try:
+                    n = self._fixed_n[letter]
+                    if val > 0:
+                        spinV.setValue(n / val)
+                finally:
+                    self._updating_fixed = False
+
+            def update_from_V(val):
+                if self._updating_fixed:
+                    return
+                self._updating_fixed = True
+                try:
+                    n = self._fixed_n[letter]
+                    if val > 0:
+                        spinC.setValue(n / val)
+                finally:
+                    self._updating_fixed = False
+
+            spinC.valueChanged.connect(update_from_C)
+            spinV.valueChanged.connect(update_from_V)
+
+        _bind_fixed("C", self.spin_conc_C, self.spin_VC)
+        _bind_fixed("D", self.spin_conc_D, self.spin_VD)
+        _bind_fixed("E", self.spin_conc_E, self.spin_VE)
+        _bind_fixed("F", self.spin_conc_F, self.spin_VF)
+
         layout.addWidget(box2)
 
         box3 = QGroupBox("Contraintes")
@@ -956,6 +1192,23 @@ class GaussianVolumesDialog(QDialog):
 
         self.spin_margin = QDoubleSpinBox(self); self.spin_margin.setDecimals(1); self.spin_margin.setRange(0.0, 1e9); self.spin_margin.setValue(20.0)
         self.spin_step = QDoubleSpinBox(self); self.spin_step.setDecimals(3); self.spin_step.setRange(0.001, 1e6); self.spin_step.setValue(1.0)
+
+        # Synchronisation automatique si mode compte‑goutte activé
+        def _update_dropper_mode(state):
+            if state:
+                # Valeurs par défaut compte‑goutte (modifiable ensuite)
+                self.spin_margin.setValue(0.0)
+                self.spin_step.setValue(40.0)
+
+                # Volumes typiques compte‑goutte pour solutions fixes
+                self.spin_VC.setValue(40.0)
+                self.spin_VF.setValue(40.0)
+
+            # Ne jamais bloquer les widgets : l'utilisateur peut modifier
+            self.spin_margin.setEnabled(True)
+            self.spin_step.setEnabled(True)
+
+        self.chk_dropper.toggled.connect(_update_dropper_mode)
 
         self.chk_zero = QCheckBox("Inclure un tube à 0 µL de titrant", self); self.chk_zero.setChecked(True)
         self.chk_dup = QCheckBox("Dupliquer le dernier volume pour contrôle", self); self.chk_dup.setChecked(True)
@@ -1076,6 +1329,8 @@ class MetadataCreatorWidget(QWidget):
         self.df_map: pd.DataFrame | None = None # tableau de correspondance spectres ↔ tubes
         # Indique que la correspondance spectres↔tubes doit être revue (champs d'en-tête ou volumes modifiés)
         self.map_dirty: bool = False
+        # Cible de contrôle pour la somme des volumes (µL) dans le tableau
+        self._sum_target_uL: float = DEFAULT_VTOT_UL
 
         layout = QVBoxLayout(self)
 
@@ -1713,6 +1968,7 @@ class MetadataCreatorWidget(QWidget):
 
         params = dlg.params()
         fixed_stock = dlg.fixed_solution_stocks()
+        self._sum_target_uL = float(params.get("Vtot_uL", DEFAULT_VTOT_UL))
 
         try:
             df_gen, meta = sers_gaussian_volumes(**params)
@@ -1738,6 +1994,7 @@ class MetadataCreatorWidget(QWidget):
                 {"Réactif": "Solution E", "Concentration": float(cE), "Unité": str(uE)},
                 {"Réactif": "Solution F", "Concentration": float(cF), "Unité": str(uF)},
                 {"Réactif": "Echantillon", "Concentration": float(params["C0_nM"]), "Unité": "nM"},
+                {"Réactif": "Contrôle", "Concentration": float(params["C0_nM"]), "Unité": "nM"},
             ]
             df = pd.DataFrame(base_rows)
             for c in tube_cols:
@@ -1789,6 +2046,7 @@ class MetadataCreatorWidget(QWidget):
         idx_A = ensure_row("Solution A")
         idx_B = ensure_row("Solution B")
         idx_sample = ensure_row("Echantillon")
+        idx_control = ensure_row("Contrôle")
         idx_C = ensure_row("Solution C")
         idx_D = ensure_row("Solution D")
         idx_E = ensure_row("Solution E")
@@ -1827,6 +2085,7 @@ class MetadataCreatorWidget(QWidget):
         # Fixes : ne remplit que si les lignes existent
         fixed_map = {
             "Echantillon": params["V_echant_uL"],
+            "Contrôle": 0.0,
             "Solution C": params["V_Solution_C_uL"],
             "Solution D": params["V_Solution_D_uL"],
             "Solution E": params["V_Solution_E_uL"],
@@ -1840,6 +2099,18 @@ class MetadataCreatorWidget(QWidget):
             ridx = int(df.index[mask][0])
             for c in tube_cols:
                 df.at[ridx, c] = float(val)
+
+        # Le dernier tube est le contrôle : on y met l'échantillon dans la ligne "Contrôle"
+        # et on enlève l'échantillon de la ligne "Echantillon"
+        last_col = tube_cols[-1]
+
+        if "Contrôle" in df["Réactif"].values:
+            ridx_ctrl = int(df.index[df["Réactif"] == "Contrôle"][0])
+            df.at[ridx_ctrl, last_col] = float(params["V_echant_uL"])
+
+        if "Echantillon" in df["Réactif"].values:
+            ridx_samp = int(df.index[df["Réactif"] == "Echantillon"][0])
+            df.at[ridx_samp, last_col] = 0.0
 
         self.df_comp = df
 
@@ -2687,6 +2958,8 @@ class MetadataCreatorWidget(QWidget):
             columns=list(initial_df.columns),
             initial_df=initial_df,
             parent=self,
+            sum_row=True,
+            sum_target=self._sum_target_uL,
         )
         if dlg.exec() != QDialog.Accepted:
             return
