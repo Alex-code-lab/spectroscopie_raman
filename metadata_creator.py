@@ -36,6 +36,10 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QDate
 
 
+# Affichage numérique: précision et suppression de l'écriture scientifique.
+NUM_DISPLAY_PRECISION = 12
+
+
 class TableEditorDialog(QDialog):
     """Boîte de dialogue générique pour éditer un tableau type Excel.
 
@@ -136,10 +140,15 @@ class TableEditorDialog(QDialog):
                 if pd.isna(val):
                     txt = ""
                 else:
-                    # Affichage lisible : floats en notation scientifique à 2 décimales
+                    # Affichage lisible : pas d'écriture scientifique, précision configurable.
                     if isinstance(val, (float, int)):
                         try:
-                            txt = f"{float(val):.2e}"
+                            txt = np.format_float_positional(
+                                float(val),
+                                precision=NUM_DISPLAY_PRECISION,
+                                unique=False,
+                                trim="-",
+                            )
                         except Exception:
                             txt = str(val)
                     else:
@@ -226,6 +235,172 @@ class TableEditorDialog(QDialog):
         return df.reset_index(drop=True)
 
 
+# def sers_gaussian_volumes(
+#     *,
+#     n_tubes: int,
+#     C0_nM: float,
+#     V_echant_uL: float,
+#     C_titrant_uM: float,
+#     Vtot_uL: float,
+#     V_Solution_C_uL: float = 30.0,
+#     V_Solution_D_uL: float = 750.0,
+#     V_Solution_E_uL: float = 750.0,
+#     V_Solution_F_uL: float = 60.0,
+#     margin_uL: float = 20.0,
+#     pipette_step_uL: float = 1.0,
+#     include_zero: bool = True,
+#     duplicate_last: bool = True,
+# ) -> tuple[pd.DataFrame, dict]:
+#     if norm is None:
+#         raise ImportError("scipy n'est pas disponible (scipy.stats.norm requis).")
+
+#     if n_tubes < 2:
+#         raise ValueError("n_tubes doit être >= 2")
+
+#     V_fixe_uL = (
+#         float(V_echant_uL)
+#         + float(V_Solution_C_uL)
+#         + float(V_Solution_D_uL)
+#         + float(V_Solution_E_uL)
+#         + float(V_Solution_F_uL)
+#     )
+
+#     V_AB = float(Vtot_uL) - V_fixe_uL
+#     if V_AB <= 0:
+#         raise ValueError("Impossible: Vtot <= V_fixe (V_AB <= 0).")
+
+#     Vmin_uL = float(margin_uL)
+#     Vmax_uL = float(V_AB - margin_uL)
+#     if Vmax_uL < Vmin_uL:
+#         raise ValueError("Impossible: margin_uL trop grand par rapport à V_AB.")
+
+#     # équivalence
+#     C0_M = float(C0_nM) * 1e-9
+#     V_echant_L = float(V_echant_uL) * 1e-6
+#     C_titrant_M = float(C_titrant_uM) * 1e-6
+#     if C_titrant_M <= 0:
+#         raise ValueError("C_titrant_uM doit être > 0.")
+
+#     n_Cu = C0_M * V_echant_L
+#     Veq_uL = (n_Cu / C_titrant_M) * 1e6
+
+#     n_free = int(n_tubes) - int(include_zero) - int(duplicate_last)
+#     if n_free <= 0:
+#         raise ValueError("Pas assez de tubes libres (n_free <= 0).")
+
+#     p = (np.arange(1, n_free + 1) - 0.5) / n_free
+#     z = norm.ppf(p)
+#     zmax = np.max(np.abs(z)) if n_free > 1 else 1.0
+
+#     sigma_V = max(
+#         (Vmax_uL - Veq_uL) / zmax,
+#         (Veq_uL - Vmin_uL) / zmax,
+#     )
+#     sigma_V = max(0.0, float(sigma_V))
+
+#     V_B_free = Veq_uL + sigma_V * z
+#     V_B_free = np.clip(V_B_free, Vmin_uL, Vmax_uL)
+
+#     step = float(pipette_step_uL)
+#     if step <= 0:
+#         raise ValueError("pipette_step_uL doit être > 0.")
+
+#     def _quantize_unique_increasing(vals: np.ndarray) -> np.ndarray:
+#         """Quantifie `vals` sur une grille (Vmin..Vmax, pas=step) en garantissant
+#         une suite strictement croissante (pas de doublons).
+#         """
+#         vals = np.asarray(vals, dtype=float)
+#         if vals.size == 0:
+#             return vals
+#         if vals.size == 1:
+#             out = np.round(vals / step) * step
+#             return np.clip(out, Vmin_uL, Vmax_uL)
+
+#         span = float(Vmax_uL) - float(Vmin_uL)
+#         max_idx = int(np.floor(span / step + 1e-12))
+#         if max_idx < 0:
+#             max_idx = 0
+#         n_grid = max_idx + 1
+#         if vals.size > n_grid:
+#             raise ValueError(
+#                 "Impossible de générer des volumes tous distincts avec ce pas de pipette "
+#                 "(pipette_step_uL trop grand et/ou marge trop grande)."
+#             )
+
+#         idx = np.rint((vals - float(Vmin_uL)) / step).astype(int)
+#         idx = np.clip(idx, 0, max_idx)
+
+#         # Forcer une suite strictement croissante
+#         idx_adj = idx.copy()
+#         for i in range(1, idx_adj.size):
+#             if idx_adj[i] <= idx_adj[i - 1]:
+#                 idx_adj[i] = idx_adj[i - 1] + 1
+
+#         # Si on dépasse la grille, on "recolle" par le haut
+#         if idx_adj[-1] > max_idx:
+#             idx_adj[-1] = max_idx
+#             for i in range(idx_adj.size - 2, -1, -1):
+#                 if idx_adj[i] >= idx_adj[i + 1]:
+#                     idx_adj[i] = idx_adj[i + 1] - 1
+#             if idx_adj[0] < 0:
+#                 raise ValueError(
+#                     "Impossible de générer des volumes tous distincts avec ces paramètres "
+#                     "(pas trop grand / trop de tubes)."
+#                 )
+
+#         out = float(Vmin_uL) + idx_adj.astype(float) * step
+#         return np.clip(out, Vmin_uL, Vmax_uL)
+
+#     # Si on ne veut PAS de duplicat, on force des volumes distincts (après quantification).
+#     # Même si duplicate_last=True, on garde les valeurs libres distinctes et on duplique uniquement le dernier tube.
+#     V_B_free = _quantize_unique_increasing(V_B_free)
+
+#     V_B = []
+#     if include_zero:
+#         V_B.append(0.0)
+#     V_B.extend(V_B_free.tolist())
+#     if duplicate_last:
+#         V_B.append(V_B[-1])
+#     V_B = np.sort(np.array(V_B, dtype=float))
+
+#     V_A = V_AB - V_B
+#     if np.any(V_A < -1e-9):
+#         raise ValueError("Impossible: certains tubes ont V_A négatif.")
+#     V_A = np.round(V_A / step) * step
+#     V_A += (V_AB - (V_A + V_B))
+
+#     # Concentration finale du titrant
+#     C_titrant_nM = float(C_titrant_uM) * 1e3
+#     C_titrant_final_nM = C_titrant_nM * (V_B / float(Vtot_uL))
+
+#     # Concentration finale de Cu après dilution
+#     C_Cu_final_nM = float(C0_nM) * (float(V_echant_uL) / float(Vtot_uL))
+
+#     # Ratio chimique (ce qui définit la titration)
+#     ratio = C_titrant_final_nM / C_Cu_final_nM
+
+#     df = pd.DataFrame(
+#         {
+#             "Tube": np.arange(1, n_tubes + 1),
+#             "V_B_titrant_uL": V_B,
+#             "V_A_tampon_uL": V_A,
+#             "C_titrant_final_nM": np.round(C_titrant_final_nM, 2),
+#             "C_Cu_final_nM": np.round(C_Cu_final_nM, 2),
+#             "Ratio_titrant_Cu": np.round(ratio, 3),
+#         }
+#     )
+
+#     meta = {
+#         "V_fixe_uL": float(V_fixe_uL),
+#         "V_AB_uL": float(V_AB),
+#         "Veq_uL": float(Veq_uL),
+#         "sigma_V_uL": float(sigma_V),
+#         "Vmin_nonzero_uL": float(Vmin_uL),
+#         "Vmax_nonzero_uL": float(Vmax_uL),
+#         "n_free": int(n_free),
+#     }
+#     return df, meta
+
 def sers_gaussian_volumes(
     *,
     n_tubes: int,
@@ -241,12 +416,276 @@ def sers_gaussian_volumes(
     pipette_step_uL: float = 1.0,
     include_zero: bool = True,
     duplicate_last: bool = True,
+    center_power: float = 1.8,
+    span_frac: float = 1.0,
 ) -> tuple[pd.DataFrame, dict]:
+    """
+    Génère une série de volumes de titrant (Solution B) pour une titration SERS.
+
+    Objectif expérimental
+    ---------------------
+    Tous les tubes contiennent le même volume d'échantillon V_echant_uL,
+    donc le même nombre de moles de Cu :
+
+        n_Cu = C0 * V_echant
+
+    L'équivalence chimique est atteinte lorsque :
+
+        n_titrant = n_Cu
+
+    donc :
+
+        Veq = (C0 * V_echant) / C_titrant
+
+    On veut générer des volumes V_B :
+
+        - centrés sur Veq
+        - plus serrés près de Veq
+        - plus espacés loin de Veq
+
+    exactement comme une titration classique.
+
+    Méthode mathématique détaillée
+    ------------------------------
+
+    Objectif physique
+    -----------------
+
+    Le but est de générer une série de volumes de titrant (Solution B)
+    permettant de réaliser une titration autour de l’équivalence chimique.
+
+    Tous les tubes contiennent le même volume d’échantillon :
+
+        V_echant
+
+    et donc le même nombre de moles de Cu :
+
+        n_Cu = C0 × V_echant
+
+    L'équivalence chimique correspond à :
+
+        n_titrant = n_Cu
+
+    Comme :
+
+        n_titrant = C_titrant × V_B
+
+    on obtient le volume d’équivalence :
+
+        Veq = n_Cu / C_titrant
+
+    Les volumes générés doivent :
+
+    - être centrés sur Veq
+    - être plus serrés autour de Veq
+    - être plus espacés loin de Veq
+
+    ce qui correspond au comportement classique d’une titration.
+
+    Principe mathématique
+    ---------------------
+
+    Les volumes sont générés en trois étapes :
+
+        1) Génération de positions suivant une loi gaussienne
+        2) Déformation pour densifier autour de Veq
+        3) Conversion en volumes physiques
+
+    -----------------------------------
+    1) Quantiles d'une loi normale
+    -----------------------------------
+
+    On commence par générer N probabilités uniformément réparties :
+
+        p_i = (i - 0.5) / N
+
+    avec i = 1 ... N
+
+    Ces valeurs p_i sont comprises entre 0 et 1 et représentent des
+    positions dans une distribution cumulative.
+
+    On transforme ensuite ces probabilités en positions gaussiennes
+    normalisées :
+
+        z_i = norm.ppf(p_i)
+
+    où norm.ppf est la fonction quantile (Percent Point Function)
+    de la loi normale standard N(0,1).
+
+    Définition :
+
+        norm.ppf(p) = z  tel que  P(Z ≤ z) = p
+
+    Autrement dit :
+
+        z est la valeur pour laquelle la fraction p des valeurs
+        d'une gaussienne sont inférieures à z.
+
+    Exemples :
+
+        p = 0.5  → z = 0
+        p = 0.16 → z ≈ -1
+        p = 0.84 → z ≈ +1
+
+    Cette transformation produit automatiquement :
+
+    - beaucoup de points près de z = 0
+    - peu de points loin de 0
+
+    Ce comportement correspond naturellement à une titration,
+    où l'on souhaite beaucoup de mesures près de l'équivalence.
+
+    -----------------------------------
+    2) Déformation pour densifier le centre
+    -----------------------------------
+
+    Les quantiles gaussiens sont ensuite transformés par :
+
+        z' = sign(z) × |z|^center_power
+
+    où center_power > 0 est un paramètre utilisateur.
+
+    Si :
+
+        center_power = 1
+
+    la distribution reste gaussienne.
+
+    Si :
+
+        center_power > 1
+
+    alors :
+
+    - les valeurs proches de 0 deviennent encore plus proches
+    - les valeurs éloignées deviennent plus éloignées
+
+    Cela augmente la densité de points autour de Veq.
+
+    Exemple :
+
+        z  =  -2  -1  -0.5   0   0.5   1   2
+        z' =  -4  -1  -0.25  0   0.25  1   4   (center_power = 2)
+
+    Ce comportement reproduit mieux les stratégies expérimentales
+    de titration où l'on mesure plus finement près de l'équivalence.
+
+    -----------------------------------
+    3) Conversion en volumes physiques
+    -----------------------------------
+
+    Les positions gaussiennes sont ensuite converties en volumes :
+
+        V_B = Veq + σ × z'
+
+    où :
+
+        Veq  = volume d'équivalence
+        σ    = facteur d'échelle en µL
+
+    z' est sans dimension et σ convertit les unités gaussiennes en µL.
+
+    -----------------------------------
+    Choix du facteur σ
+    -----------------------------------
+
+    Le facteur σ est choisi de façon à maintenir les volumes
+    dans les bornes autorisées :
+
+        Vmin ≤ V_B ≤ Vmax
+
+    avec :
+
+        Vmin = margin
+        Vmax = V_AB - margin
+
+    On utilise :
+
+        σ = min(
+            (Vmax − Veq) / zmax,
+            (Veq − Vmin) / zmax
+        )
+
+    où :
+
+        zmax = max(|z'|)
+
+    Ce choix garantit :
+
+    - aucun dépassement des bornes
+    - pas d'écrasement contre Vmin ou Vmax
+    - distribution stable
+
+    -----------------------------------
+    Interprétation chimique
+    -----------------------------------
+
+    Comme :
+
+        n_B = C_titrant × V_B
+
+    et que C_titrant est constant :
+
+        n_B ∝ V_B
+
+    Donc générer une distribution en V_B revient à générer
+    une distribution en quantité de matière de titrant.
+
+    Le générateur produit donc :
+
+        n_B ≈ n_eq ± Δn
+
+    c'est-à-dire une distribution de quantités de titrant
+    autour de l'équivalence chimique.
+
+    Cela correspond exactement au principe d'une titration réelle.
+
+    -----------------------------------
+    Avantages de la méthode
+    -----------------------------------
+
+    Cette méthode présente plusieurs avantages :
+
+    - centrage exact sur l'équivalence chimique
+    - reproductibilité
+    - contrôle simple du resserrement (center_power)
+    - indépendance vis-à-vis des unités
+    - adaptation automatique aux contraintes de volume
+
+    Elle permet de générer des séries de titration réalistes
+    pour la spectroscopie SERS.
+
+    Paramètres importants
+    ---------------------
+
+    center_power:
+
+        1.0  → gaussienne standard
+        1.5  → centre plus dense
+        2.0  → très dense autour de Veq
+
+    span_frac:
+
+        1.0 → atteint les bornes
+        0.8 → plus resserré
+        0.6 → très resserré
+
+    """
+
+    # ---------------------------------------------------------
+    # Vérifications de base
+    # ---------------------------------------------------------
+
     if norm is None:
-        raise ImportError("scipy n'est pas disponible (scipy.stats.norm requis).")
+        raise ImportError("scipy.stats.norm requis.")
 
     if n_tubes < 2:
         raise ValueError("n_tubes doit être >= 2")
+
+
+    # ---------------------------------------------------------
+    # Volume fixe identique dans tous les tubes
+    # ---------------------------------------------------------
 
     V_fixe_uL = (
         float(V_echant_uL)
@@ -256,131 +695,191 @@ def sers_gaussian_volumes(
         + float(V_Solution_F_uL)
     )
 
+    # Volume total disponible pour A + B
     V_AB = float(Vtot_uL) - V_fixe_uL
+
     if V_AB <= 0:
-        raise ValueError("Impossible: Vtot <= V_fixe (V_AB <= 0).")
+        raise ValueError("Vtot <= V_fixe")
+
+
+    # ---------------------------------------------------------
+    # Bornes autorisées pour le titrant
+    # ---------------------------------------------------------
 
     Vmin_uL = float(margin_uL)
     Vmax_uL = float(V_AB - margin_uL)
-    if Vmax_uL < Vmin_uL:
-        raise ValueError("Impossible: margin_uL trop grand par rapport à V_AB.")
 
-    # équivalence
+    if Vmax_uL < Vmin_uL:
+        raise ValueError("margin_uL trop grand")
+
+
+    # ---------------------------------------------------------
+    # Calcul de l'équivalence chimique
+    # ---------------------------------------------------------
+
+    # Conversion unités
     C0_M = float(C0_nM) * 1e-9
     V_echant_L = float(V_echant_uL) * 1e-6
     C_titrant_M = float(C_titrant_uM) * 1e-6
-    if C_titrant_M <= 0:
-        raise ValueError("C_titrant_uM doit être > 0.")
 
+    if C_titrant_M <= 0:
+        raise ValueError("C_titrant_uM doit être > 0")
+
+    # nombre de moles Cu identique dans tous les tubes
     n_Cu = C0_M * V_echant_L
+
+    # volume titrant équivalence
     Veq_uL = (n_Cu / C_titrant_M) * 1e6
 
+
+    # ---------------------------------------------------------
+    # Nombre de volumes réellement générés
+    # ---------------------------------------------------------
+
     n_free = int(n_tubes) - int(include_zero) - int(duplicate_last)
+
     if n_free <= 0:
-        raise ValueError("Pas assez de tubes libres (n_free <= 0).")
+        raise ValueError("Pas assez de tubes libres")
+
+
+    # ---------------------------------------------------------
+    # Quantiles gaussiens
+    # ---------------------------------------------------------
 
     p = (np.arange(1, n_free + 1) - 0.5) / n_free
-    z = norm.ppf(p)
-    zmax = np.max(np.abs(z)) if n_free > 1 else 1.0
 
-    sigma_V = max(
+    z = norm.ppf(p)
+
+    if n_free > 1:
+        zmax = np.max(np.abs(z))
+    else:
+        zmax = 1.0
+
+
+    # ---------------------------------------------------------
+    # Déformation pour densifier autour de Veq
+    # ---------------------------------------------------------
+
+    gamma = float(center_power)
+
+    if gamma <= 0:
+        raise ValueError("center_power > 0 requis")
+
+    z = np.sign(z) * (np.abs(z) ** gamma)
+
+
+    # ---------------------------------------------------------
+    # Calcul de sigma
+    # ---------------------------------------------------------
+
+    # Choix de sigma :
+    # On utilise le MIN et non le MAX pour éviter que la gaussienne
+    # touche les bornes. Sinon toute la partie gauche peut être
+    # écrasée par le clip + la quantification (effet plateau à Vmin).
+    #
+    # Ce choix garantit :
+    # - des volumes plus serrés autour de Veq
+    # - pas de répétitions artificielles au début
+    # - une titration plus réaliste expérimentalement
+
+    span = float(span_frac)
+
+    if span <= 0:
+        raise ValueError("span_frac > 0 requis")
+
+    sigma_V = span * min(
         (Vmax_uL - Veq_uL) / zmax,
         (Veq_uL - Vmin_uL) / zmax,
     )
-    sigma_V = max(0.0, float(sigma_V))
+
+
+    # ---------------------------------------------------------
+    # Volumes titrant
+    # ---------------------------------------------------------
 
     V_B_free = Veq_uL + sigma_V * z
-    V_B_free = np.clip(V_B_free, Vmin_uL, Vmax_uL)
 
-    step = float(pipette_step_uL)
-    if step <= 0:
-        raise ValueError("pipette_step_uL doit être > 0.")
+    V_B_free = np.clip(
 
-    def _quantize_unique_increasing(vals: np.ndarray) -> np.ndarray:
-        """Quantifie `vals` sur une grille (Vmin..Vmax, pas=step) en garantissant
-        une suite strictement croissante (pas de doublons).
-        """
-        vals = np.asarray(vals, dtype=float)
-        if vals.size == 0:
-            return vals
-        if vals.size == 1:
-            out = np.round(vals / step) * step
-            return np.clip(out, Vmin_uL, Vmax_uL)
+        V_B_free,
 
-        span = float(Vmax_uL) - float(Vmin_uL)
-        max_idx = int(np.floor(span / step + 1e-12))
-        if max_idx < 0:
-            max_idx = 0
-        n_grid = max_idx + 1
-        if vals.size > n_grid:
-            raise ValueError(
-                "Impossible de générer des volumes tous distincts avec ce pas de pipette "
-                "(pipette_step_uL trop grand et/ou marge trop grande)."
-            )
+        Vmin_uL,
 
-        idx = np.rint((vals - float(Vmin_uL)) / step).astype(int)
-        idx = np.clip(idx, 0, max_idx)
+        Vmax_uL
 
-        # Forcer une suite strictement croissante
-        idx_adj = idx.copy()
-        for i in range(1, idx_adj.size):
-            if idx_adj[i] <= idx_adj[i - 1]:
-                idx_adj[i] = idx_adj[i - 1] + 1
-
-        # Si on dépasse la grille, on "recolle" par le haut
-        if idx_adj[-1] > max_idx:
-            idx_adj[-1] = max_idx
-            for i in range(idx_adj.size - 2, -1, -1):
-                if idx_adj[i] >= idx_adj[i + 1]:
-                    idx_adj[i] = idx_adj[i + 1] - 1
-            if idx_adj[0] < 0:
-                raise ValueError(
-                    "Impossible de générer des volumes tous distincts avec ces paramètres "
-                    "(pas trop grand / trop de tubes)."
-                )
-
-        out = float(Vmin_uL) + idx_adj.astype(float) * step
-        return np.clip(out, Vmin_uL, Vmax_uL)
-
-    # Si on ne veut PAS de duplicat, on force des volumes distincts (après quantification).
-    # Même si duplicate_last=True, on garde les valeurs libres distinctes et on duplique uniquement le dernier tube.
-    V_B_free = _quantize_unique_increasing(V_B_free)
-
-    V_B = []
-    if include_zero:
-        V_B.append(0.0)
-    V_B.extend(V_B_free.tolist())
-    if duplicate_last:
-        V_B.append(V_B[-1])
-    V_B = np.sort(np.array(V_B, dtype=float))
-
-    V_A = V_AB - V_B
-    if np.any(V_A < -1e-9):
-        raise ValueError("Impossible: certains tubes ont V_A négatif.")
-    V_A = np.round(V_A / step) * step
-    V_A += (V_AB - (V_A + V_B))
-
-    C_titrant_nM = float(C_titrant_uM) * 1e3
-    C_final_nM = C_titrant_nM * (V_B / float(Vtot_uL))
-
-    df = pd.DataFrame(
-        {
-            "Tube": np.arange(1, n_tubes + 1),
-            "V_B_titrant_uL": V_B,
-            "V_A_tampon_uL": V_A,
-            "C_final_from_B_nM": np.round(C_final_nM, 2),
-        }
     )
 
+
+    # ---------------------------------------------------------
+    # Quantification pipette
+    # ---------------------------------------------------------
+
+    step = float(pipette_step_uL)
+
+    V_B_free = np.round(V_B_free / step) * step
+
+
+    # ---------------------------------------------------------
+    # Construction série complète
+    # ---------------------------------------------------------
+
+    V_B = []
+
+    if include_zero:
+        V_B.append(0.0)
+
+    V_B.extend(V_B_free.tolist())
+
+    if duplicate_last:
+        V_B.append(V_B[-1])
+
+    V_B = np.sort(np.array(V_B))
+
+
+    # ---------------------------------------------------------
+    # Volumes tampon A
+    # ---------------------------------------------------------
+
+    V_A = V_AB - V_B
+
+    V_A = np.round(V_A / step) * step
+
+
+    # ---------------------------------------------------------
+    # Tableau résultat
+    # ---------------------------------------------------------
+
+    df = pd.DataFrame({
+
+        "Tube": np.arange(1, n_tubes + 1),
+
+        "V_B_titrant_uL": V_B,
+
+        "V_A_tampon_uL": V_A,
+
+    })
+
+
+    # ---------------------------------------------------------
+    # Métadonnées utiles
+    # ---------------------------------------------------------
+
     meta = {
-        "V_fixe_uL": float(V_fixe_uL),
-        "V_AB_uL": float(V_AB),
+
         "Veq_uL": float(Veq_uL),
+
         "sigma_V_uL": float(sigma_V),
-        "Vmin_nonzero_uL": float(Vmin_uL),
-        "Vmax_nonzero_uL": float(Vmax_uL),
-        "n_free": int(n_free),
+
+        "Vmin_uL": float(Vmin_uL),
+
+        "Vmax_uL": float(Vmax_uL),
+
+        "center_power": float(center_power),
+
+        "span_frac": float(span_frac),
+
     }
+
     return df, meta
 
 class GaussianVolumesDialog(QDialog):
@@ -399,9 +898,9 @@ class GaussianVolumesDialog(QDialog):
         form = QFormLayout(box)
 
         self.spin_n = QSpinBox(self); self.spin_n.setRange(2, 200); self.spin_n.setValue(11)
-        self.spin_C0 = QDoubleSpinBox(self); self.spin_C0.setDecimals(3); self.spin_C0.setRange(0.0, 1e9); self.spin_C0.setValue(492.0)
+        self.spin_C0 = QDoubleSpinBox(self); self.spin_C0.setDecimals(3); self.spin_C0.setRange(0.0, 1e9); self.spin_C0.setValue(1000.0)
         self.spin_Vech = QDoubleSpinBox(self); self.spin_Vech.setDecimals(1); self.spin_Vech.setRange(0.0, 1e9); self.spin_Vech.setValue(1000.0)
-        self.spin_Ctit = QDoubleSpinBox(self); self.spin_Ctit.setDecimals(3); self.spin_Ctit.setRange(0.0, 1e9); self.spin_Ctit.setValue(2.0)
+        self.spin_Ctit = QDoubleSpinBox(self); self.spin_Ctit.setDecimals(3); self.spin_Ctit.setRange(0.0, 1e9); self.spin_Ctit.setValue(5.0)
         self.spin_Vtot = QDoubleSpinBox(self); self.spin_Vtot.setDecimals(1); self.spin_Vtot.setRange(0.0, 1e9); self.spin_Vtot.setValue(3090.0)
 
         form.addRow("Nombre de tubes", self.spin_n)
@@ -1805,7 +2304,7 @@ class MetadataCreatorWidget(QWidget):
 
         # IMPORTANT : on conserve des valeurs numériques (float) pour permettre
         # l'édition + la rétro-propagation vers les concentrations stock.
-        # L'affichage à 2 décimales est géré dans TableEditorDialog._load_from_dataframe.
+        # Le format d'affichage est géré dans TableEditorDialog._load_from_dataframe.
         return conc_df
     
     def _on_show_conc_clicked(self) -> None:
