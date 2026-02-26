@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QCheckBox,
     QGroupBox,
+    QAbstractItemView,
 )
 
 from PySide6.QtCore import Qt, QDate
@@ -41,6 +42,12 @@ from PySide6.QtGui import QColor, QBrush
 NUM_DISPLAY_PRECISION = 12
 DEFAULT_VTOT_UL = 3090.0
 SUM_TARGET_TOL = 1e-3
+MOLAR_UNIT_FACTORS = {
+    "M": 1.0,
+    "mM": 1e-3,
+    "µM": 1e-6,
+    "nM": 1e-9,
+}
 
 
 # Affichage numérique: précision et suppression de l'écriture scientifique.
@@ -89,6 +96,8 @@ class TableEditorDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.itemChanged.connect(self._on_item_changed)
 
         # Remplissage initial : soit à partir du DataFrame, soit quelques lignes vides
@@ -297,15 +306,20 @@ class TableEditorDialog(QDialog):
             self._refresh_sum_row()
 
     def _del_row(self) -> None:
-        row = self.table.currentRow()
-        if row < 0:
-            return
-        if self._sum_row_enabled and self._sum_row_idx is not None:
-            if row == self._sum_row_idx:
+        selected_rows = sorted({idx.row() for idx in self.table.selectedIndexes()}, reverse=True)
+        if not selected_rows:
+            row = self.table.currentRow()
+            if row < 0:
                 return
-            if row < self._sum_row_idx:
-                self._sum_row_idx -= 1
-        self.table.removeRow(row)
+            selected_rows = [row]
+
+        for row in selected_rows:
+            if self._sum_row_enabled and self._sum_row_idx is not None:
+                if row == self._sum_row_idx:
+                    continue
+                if row < self._sum_row_idx:
+                    self._sum_row_idx -= 1
+            self.table.removeRow(row)
         if self._sum_row_enabled:
             self._refresh_sum_row()
 
@@ -378,6 +392,64 @@ class TableEditorDialog(QDialog):
         if "Spectrum name" in df.columns:
             df["Spectrum name"] = df["Spectrum name"].astype(str).str.strip()
         return df.reset_index(drop=True)
+
+
+class MolesDialog(QDialog):
+    """Dialogue d'édition des quantités de matière (nmol)."""
+
+    def __init__(self, entries: list[dict], parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Quantités de matière")
+        self._entries = entries
+        self._spins: dict[str, QDoubleSpinBox] = {}
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(
+            QLabel(
+                "Éditez les quantités de matière (nmol) calculées à partir des "
+                "concentrations et volumes actuels."
+            )
+        )
+
+        form = QFormLayout()
+        for entry in self._entries:
+            key = str(entry.get("key", ""))
+            label = str(entry.get("label", ""))
+            value = entry.get("value", None)
+            editable = bool(entry.get("editable", True))
+            note = str(entry.get("note", "")).strip()
+
+            row_label = f"{label} (nmol)"
+            if editable and value is not None:
+                spin = QDoubleSpinBox(self)
+                spin.setDecimals(6)
+                spin.setRange(0.0, 1e12)
+                spin.setValue(float(value))
+                if note:
+                    spin.setToolTip(note)
+                form.addRow(row_label, spin)
+                self._spins[key] = spin
+            else:
+                txt = "N/A"
+                if value is not None:
+                    txt = str(value)
+                le = QLineEdit(txt, self)
+                le.setReadOnly(True)
+                if note:
+                    le.setToolTip(note)
+                form.addRow(row_label, le)
+
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.resize(520, 320)
+
+    def values(self) -> dict[str, float]:
+        return {k: float(spin.value()) for k, spin in self._spins.items()}
 
 
 # def sers_gaussian_volumes(
@@ -1220,6 +1292,10 @@ class GaussianVolumesDialog(QDialog):
 
         layout.addWidget(box3)
 
+        self.btn_moles = QPushButton("Quantités de matière…", self)
+        self.btn_moles.clicked.connect(self._on_edit_moles_clicked)
+        layout.addWidget(self.btn_moles)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -1249,6 +1325,103 @@ class GaussianVolumesDialog(QDialog):
             "Solution E": (float(self.spin_conc_E.value()), str(self.combo_unit_E.currentText()).strip()),
             "Solution F": (float(self.spin_conc_F.value()), str(self.combo_unit_F.currentText()).strip()),
         }
+
+    def _conc_to_n_nmol(self, conc_val: float, unit: str, vol_uL: float) -> float | None:
+        if vol_uL <= 0:
+            return None
+        factor = MOLAR_UNIT_FACTORS.get(str(unit).strip())
+        if factor is None:
+            return None
+        c_m = float(conc_val) * factor
+        return c_m * float(vol_uL) * 1e3
+
+    def _n_nmol_to_conc(self, n_nmol: float, unit: str, vol_uL: float) -> float | None:
+        if vol_uL <= 0:
+            return None
+        factor = MOLAR_UNIT_FACTORS.get(str(unit).strip())
+        if factor is None:
+            return None
+        c_m = float(n_nmol) / (float(vol_uL) * 1e3)
+        return c_m / factor
+
+    def _on_edit_moles_clicked(self) -> None:
+        """Ouvre un dialogue pour fixer les quantités de matière (nmol)."""
+
+        entries: list[dict] = []
+
+        v_echant = float(self.spin_Vech.value())
+        n_cu = self._conc_to_n_nmol(float(self.spin_C0.value()), "nM", v_echant)
+        entries.append(
+            {
+                "key": "Echantillon",
+                "label": "Echantillon (Cu)",
+                "value": n_cu if n_cu is not None else None,
+                "editable": n_cu is not None,
+                "note": "n = C0 × V échantillon",
+            }
+        )
+
+        def _add_solution(
+            key: str,
+            label: str,
+            conc_spin: QDoubleSpinBox,
+            unit_combo: QComboBox,
+            vol_spin: QDoubleSpinBox,
+        ) -> None:
+            unit = str(unit_combo.currentText()).strip()
+            vol = float(vol_spin.value())
+            conc = float(conc_spin.value())
+            n = self._conc_to_n_nmol(conc, unit, vol)
+            note = ""
+            editable = n is not None
+            if n is None:
+                if vol <= 0:
+                    note = "Volume nul"
+                else:
+                    note = "Unité non molaire"
+            entries.append(
+                {
+                    "key": key,
+                    "label": label,
+                    "value": n if n is not None else None,
+                    "editable": editable,
+                    "note": note,
+                }
+            )
+
+        _add_solution("Solution C", "Solution C", self.spin_conc_C, self.combo_unit_C, self.spin_VC)
+        _add_solution("Solution D", "Solution D", self.spin_conc_D, self.combo_unit_D, self.spin_VD)
+        _add_solution("Solution E", "Solution E", self.spin_conc_E, self.combo_unit_E, self.spin_VE)
+        _add_solution("Solution F", "Solution F", self.spin_conc_F, self.combo_unit_F, self.spin_VF)
+
+        dlg = MolesDialog(entries, parent=self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        values = dlg.values()
+        if "Echantillon" in values and v_echant > 0:
+            new_c0 = self._n_nmol_to_conc(values["Echantillon"], "nM", v_echant)
+            if new_c0 is not None:
+                self.spin_C0.setValue(float(new_c0))
+
+        def _apply_solution(
+            key: str,
+            conc_spin: QDoubleSpinBox,
+            unit_combo: QComboBox,
+            vol_spin: QDoubleSpinBox,
+        ) -> None:
+            if key not in values:
+                return
+            unit = str(unit_combo.currentText()).strip()
+            vol = float(vol_spin.value())
+            new_conc = self._n_nmol_to_conc(values[key], unit, vol)
+            if new_conc is not None:
+                conc_spin.setValue(float(new_conc))
+
+        _apply_solution("Solution C", self.spin_conc_C, self.combo_unit_C, self.spin_VC)
+        _apply_solution("Solution D", self.spin_conc_D, self.combo_unit_D, self.spin_VD)
+        _apply_solution("Solution E", self.spin_conc_E, self.combo_unit_E, self.spin_VE)
+        _apply_solution("Solution F", self.spin_conc_F, self.combo_unit_F, self.spin_VF)
     
 class MetadataCreatorWidget(QWidget):
     """Remplaçant de MetadataPicker pour créer les métadonnées directement dans l'application.
@@ -1329,6 +1502,9 @@ class MetadataCreatorWidget(QWidget):
         self.df_map: pd.DataFrame | None = None # tableau de correspondance spectres ↔ tubes
         # Indique que la correspondance spectres↔tubes doit être revue (champs d'en-tête ou volumes modifiés)
         self.map_dirty: bool = False
+        # Options d'affichage pour la correspondance spectres ↔ tubes
+        self._map_include_brb: bool = True
+        self._map_include_control: bool = True
         # Cible de contrôle pour la somme des volumes (µL) dans le tableau
         self._sum_target_uL: float = DEFAULT_VTOT_UL
 
@@ -1646,42 +1822,11 @@ class MetadataCreatorWidget(QWidget):
             except Exception:
                 pass
 
-        # 2) Lignes d'en-tête construites à partir de l'UI (toujours recalculées)
-        header_rows = [
-            ["Nom de la manip", manip_name],
-            ["Date", date_str],
-            ["Lieu", location],
-            ["Coordinateur", coordinator],
-            ["Opérateur", operator],
-        ]
-        df_header = pd.DataFrame(header_rows, columns=default_cols)
-
-        blank_row = pd.DataFrame([["", ""]], columns=default_cols)
-        internal_header = pd.DataFrame([["Nom du spectre", "Tube"]], columns=default_cols)
-
-        # Nombre de tubes : on s'aligne sur le tableau des volumes si disponible
-        n_tubes = self._infer_n_tubes_for_mapping()
-        tube_labels_default = self._default_tube_labels_for_mapping(n_tubes)
-
-        start_index = int(self.spin_spec_start.value()) if hasattr(self, "spin_spec_start") else 0
-
-        def _make_mapping_rows(labels: list[str]) -> pd.DataFrame:
-            names = [f"{manip_name}_{i:02d}" for i in range(start_index, start_index + len(labels))]
-            return pd.DataFrame({"Nom du spectre": names, "Tube": labels}, columns=default_cols)
-
-        # --- DataFrame RESET (valeurs par défaut) ---
-        mapping_rows_default = _make_mapping_rows(tube_labels_default)
-        reset_df = pd.concat(
-            [df_header, blank_row, internal_header, mapping_rows_default],
-            ignore_index=True,
-        )
-
-        # 3) Récupération de la partie "correspondance" existante si elle a déjà été éditée
-        mapping_rows = None
-        if self.df_map is not None and not self.df_map.empty:
-            existing = self.df_map.copy()
-
-            # On cherche la ligne d'en-tête interne "Nom du spectre" / "Tube"
+        def _extract_mapping_rows(existing: pd.DataFrame | None) -> pd.DataFrame | None:
+            if existing is None or not isinstance(existing, pd.DataFrame) or existing.empty:
+                return None
+            if not {"Nom du spectre", "Tube"}.issubset(existing.columns):
+                return None
             hdr_idx = None
             for idx, row in existing.iterrows():
                 left = str(row.get("Nom du spectre", "")).strip()
@@ -1689,95 +1834,148 @@ class MetadataCreatorWidget(QWidget):
                 if left == "Nom du spectre" and right == "Tube":
                     hdr_idx = idx
                     break
-
             if hdr_idx is not None:
-                # Tout ce qui est après cette ligne correspond aux couples NomSpectre ↔ Tube
-                mapping_rows = existing.loc[hdr_idx + 1 :].reset_index(drop=True)
+                return existing.loc[hdr_idx + 1 :].reset_index(drop=True)
+            return existing.reset_index(drop=True)
+
+        def _is_brb_label(label: str) -> bool:
+            return "brb" in self._norm_text_key(label)
+
+        def _build_initial_df(
+            include_brb: bool,
+            include_control: bool,
+            existing_df: pd.DataFrame | None,
+        ) -> tuple[pd.DataFrame, pd.DataFrame]:
+            # 2) Lignes d'en-tête construites à partir de l'UI (toujours recalculées)
+            header_rows = [
+                ["Nom de la manip", manip_name],
+                ["Date", date_str],
+                ["Lieu", location],
+                ["Coordinateur", coordinator],
+                ["Opérateur", operator],
+            ]
+            df_header = pd.DataFrame(header_rows, columns=default_cols)
+            blank_row = pd.DataFrame([["", ""]], columns=default_cols)
+            internal_header = pd.DataFrame([["Nom du spectre", "Tube"]], columns=default_cols)
+
+            # Nombre de tubes : on s'aligne sur le tableau des volumes si disponible
+            n_tubes = self._infer_n_tubes_for_mapping()
+            tube_labels_default = self._default_tube_labels_for_mapping(
+                n_tubes,
+                include_brb_override=include_brb,
+                include_control_override=include_control,
+            )
+
+            start_index = int(self.spin_spec_start.value()) if hasattr(self, "spin_spec_start") else 0
+
+            def _make_mapping_rows(labels: list[str]) -> pd.DataFrame:
+                names = [f"{manip_name}_{i:02d}" for i in range(start_index, start_index + len(labels))]
+                return pd.DataFrame({"Nom du spectre": names, "Tube": labels}, columns=default_cols)
+
+            # --- DataFrame RESET (valeurs par défaut) ---
+            mapping_rows_default = _make_mapping_rows(tube_labels_default)
+            reset_df = pd.concat(
+                [df_header, blank_row, internal_header, mapping_rows_default],
+                ignore_index=True,
+            )
+
+            # 3) Récupération de la partie "correspondance" existante si elle a déjà été éditée
+            mapping_rows = _extract_mapping_rows(existing_df)
+
+            # Si aucune correspondance existante, on génère un brouillon par défaut
+            if mapping_rows is None:
+                mapping_rows = _make_mapping_rows(tube_labels_default)
             else:
-                # Pas d'en-tête interne clairement identifiable :
-                # on considère tout comme mapping existant
-                mapping_rows = existing.reset_index(drop=True)
+                # Si le nombre de tubes a changé (ex : 15), on complète automatiquement
+                # pour que l'utilisateur voie toutes les lignes nécessaires.
+                def _clean_text(v) -> str:
+                    if v is None or (isinstance(v, float) and pd.isna(v)) or pd.isna(v):
+                        return ""
+                    s = str(v).strip()
+                    return "" if s == "<NA>" else s
 
-        # Si aucune correspondance existante, on génère un brouillon par défaut
-        if mapping_rows is None:
-            mapping_rows = _make_mapping_rows(tube_labels_default)
-        else:
-            # Si le nombre de tubes a changé (ex : 15), on complète automatiquement
-            # pour que l'utilisateur voie toutes les lignes nécessaires.
-            def _clean_text(v) -> str:
-                if v is None or (isinstance(v, float) and pd.isna(v)) or pd.isna(v):
-                    return ""
-                s = str(v).strip()
-                return "" if s == "<NA>" else s
+                existing_by_tube: dict[str, dict[str, str]] = {}
+                extra_rows: list[dict] = []
+                desired_keys = {self._tube_merge_key_for_mapping(t, n_tubes) for t in tube_labels_default}
 
-            existing_by_tube: dict[str, dict[str, str]] = {}
-            extra_rows: list[dict] = []
-            desired_keys = {self._tube_merge_key_for_mapping(t, n_tubes) for t in tube_labels_default}
-
-            for _, row in mapping_rows.iterrows():
-                tube_raw = _clean_text(row.get("Tube", ""))
-                name_raw = _clean_text(row.get("Nom du spectre", ""))
-                tube_key = self._tube_merge_key_for_mapping(tube_raw, n_tubes)
-                if not tube_key:
-                    continue
-                if tube_key in desired_keys:
-                    # Conserver la première ligne rencontrée pour ce tube (sans écraser les valeurs)
-                    if tube_key not in existing_by_tube:
-                        existing_by_tube[tube_key] = {"Nom du spectre": name_raw, "Tube": tube_raw}
+                for _, row in mapping_rows.iterrows():
+                    tube_raw = _clean_text(row.get("Tube", ""))
+                    name_raw = _clean_text(row.get("Nom du spectre", ""))
+                    if (not include_brb) and _is_brb_label(tube_raw):
+                        continue
+                    tube_key = self._tube_merge_key_for_mapping(tube_raw, n_tubes)
+                    if not tube_key:
+                        continue
+                    if tube_key in desired_keys:
+                        # Conserver la première ligne rencontrée pour ce tube (sans écraser les valeurs)
+                        if tube_key not in existing_by_tube:
+                            existing_by_tube[tube_key] = {"Nom du spectre": name_raw, "Tube": tube_raw}
+                        else:
+                            # Compléter le nom si la première occurrence était vide
+                            if name_raw and not existing_by_tube[tube_key].get("Nom du spectre"):
+                                existing_by_tube[tube_key]["Nom du spectre"] = name_raw
                     else:
-                        # Compléter le nom si la première occurrence était vide
-                        if name_raw and not existing_by_tube[tube_key].get("Nom du spectre"):
-                            existing_by_tube[tube_key]["Nom du spectre"] = name_raw
-                else:
-                    # Conserver les lignes hors "tubes par défaut" (ne pas les perdre)
-                    if tube_raw or name_raw:
-                        extra_rows.append({"Nom du spectre": name_raw, "Tube": tube_raw})
+                        # Conserver les lignes hors "tubes par défaut" (ne pas les perdre)
+                        if tube_raw or name_raw:
+                            extra_rows.append({"Nom du spectre": name_raw, "Tube": tube_raw})
 
-            aligned_rows: list[dict] = []
-            for i, tube_label in enumerate(tube_labels_default):
-                tube_key = self._tube_merge_key_for_mapping(tube_label, n_tubes)
-                existing = existing_by_tube.get(tube_key, {})
-                name = existing.get("Nom du spectre") or f"{manip_name}_{start_index + i:02d}"
-                existing_tube = existing.get("Tube") or ""
-                # Forcer l'affichage du dernier tube comme "Contrôle" si le duplicat est actif,
-                # et inversement forcer "Tube N" si le duplicat n'est plus demandé.
-                if self._is_control_label(tube_label):
-                    tube_val = "Contrôle"
-                else:
-                    tube_val = tube_label if self._is_control_label(existing_tube) else (existing_tube or tube_label)
-                aligned_rows.append({"Nom du spectre": name, "Tube": tube_val})
+                aligned_rows: list[dict] = []
+                for i, tube_label in enumerate(tube_labels_default):
+                    tube_key = self._tube_merge_key_for_mapping(tube_label, n_tubes)
+                    existing = existing_by_tube.get(tube_key, {})
+                    name = existing.get("Nom du spectre") or f"{manip_name}_{start_index + i:02d}"
+                    existing_tube = existing.get("Tube") or ""
+                    # Forcer l'affichage du dernier tube comme "Contrôle" si demandé,
+                    # et inversement forcer "Tube N" si le contrôle n'est pas demandé.
+                    if self._is_control_label(tube_label):
+                        tube_val = "Contrôle"
+                    else:
+                        tube_val = tube_label if self._is_control_label(existing_tube) else (existing_tube or tube_label)
+                    aligned_rows.append({"Nom du spectre": name, "Tube": tube_val})
 
-            # Si le nombre de tubes change, le dernier "Contrôle" peut changer d'index et
-            # récupérer un ancien nom déjà utilisé (ex: ..._13 en Tube 13 ET en Contrôle).
-            # Dans ce cas, on renumérote automatiquement comme le bouton Reset.
-            names_seen: set[str] = set()
-            has_dup = False
-            for r in aligned_rows:
-                nm = str(r.get("Nom du spectre", "")).strip()
-                if not nm:
-                    continue
-                if nm in names_seen:
-                    has_dup = True
-                    break
-                names_seen.add(nm)
+                # Si le nombre de tubes change, le dernier "Contrôle" peut changer d'index et
+                # récupérer un ancien nom déjà utilisé (ex: ..._13 en Tube 13 ET en Contrôle).
+                # Dans ce cas, on renumérote automatiquement comme le bouton Reset.
+                names_seen: set[str] = set()
+                has_dup = False
+                for r in aligned_rows:
+                    nm = str(r.get("Nom du spectre", "")).strip()
+                    if not nm:
+                        continue
+                    if nm in names_seen:
+                        has_dup = True
+                        break
+                    names_seen.add(nm)
 
-            need_renumber = has_dup or (len(existing_by_tube) != len(desired_keys))
-            if need_renumber:
-                for i in range(len(aligned_rows)):
-                    aligned_rows[i]["Nom du spectre"] = f"{manip_name}_{start_index + i:02d}"
+                need_renumber = has_dup or (len(existing_by_tube) != len(desired_keys))
+                if need_renumber:
+                    for i in range(len(aligned_rows)):
+                        aligned_rows[i]["Nom du spectre"] = f"{manip_name}_{start_index + i:02d}"
 
-            mapping_rows = pd.DataFrame(aligned_rows, columns=default_cols)
-            if extra_rows:
-                mapping_rows = pd.concat(
-                    [mapping_rows, pd.DataFrame(extra_rows, columns=default_cols)],
-                    ignore_index=True,
-                )
+                mapping_rows = pd.DataFrame(aligned_rows, columns=default_cols)
+                if extra_rows:
+                    mapping_rows = pd.concat(
+                        [mapping_rows, pd.DataFrame(extra_rows, columns=default_cols)],
+                        ignore_index=True,
+                    )
 
-        # 4) DataFrame initial passé au TableEditorDialog
-        initial_df = pd.concat(
-            [df_header, blank_row, internal_header, mapping_rows],
-            ignore_index=True,
-        )
+            # 4) DataFrame initial passé au TableEditorDialog
+            initial_df = pd.concat(
+                [df_header, blank_row, internal_header, mapping_rows],
+                ignore_index=True,
+            )
+            return initial_df, reset_df
+
+        # Valeurs par défaut des options BRB / Contrôle
+        include_brb = self._map_include_brb
+        include_control = self._map_include_control
+        current_mapping = _extract_mapping_rows(self.df_map)
+        if current_mapping is not None and not current_mapping.empty:
+            tubes = current_mapping["Tube"].astype(str).str.strip()
+            include_brb = any(_is_brb_label(t) for t in tubes)
+            include_control = any(self._is_control_label(t) for t in tubes)
+
+        initial_df, reset_df = _build_initial_df(include_brb, include_control, self.df_map)
 
         # 5) Ouverture du dialogue d'édition
         dlg = TableEditorDialog(
@@ -1788,6 +1986,36 @@ class MetadataCreatorWidget(QWidget):
             reset_df=reset_df,
             reset_button_text="Reset (valeurs par défaut)",
         )
+        # Options : inclure Contrôle BRB / Contrôle (dernier tube)
+        opts_layout = QHBoxLayout()
+        chk_brb = QCheckBox('Inclure "Contrôle BRB"', dlg)
+        chk_ctrl = QCheckBox('Inclure "Contrôle" (dernier tube)', dlg)
+        chk_brb.setChecked(bool(include_brb))
+        chk_ctrl.setChecked(bool(include_control))
+        opts_layout.addWidget(chk_brb)
+        opts_layout.addWidget(chk_ctrl)
+        opts_layout.addStretch(1)
+        try:
+            dlg.layout().insertLayout(1, opts_layout)
+        except Exception:
+            pass
+
+        def _rebuild_mapping_table() -> None:
+            inc_brb = chk_brb.isChecked()
+            inc_ctrl = chk_ctrl.isChecked()
+            try:
+                current_df = dlg.to_dataframe()
+            except Exception:
+                current_df = self.df_map
+            new_df, new_reset = _build_initial_df(inc_brb, inc_ctrl, current_df)
+            dlg._reset_df = new_reset
+            try:
+                dlg._load_from_dataframe(new_df)
+            except Exception:
+                pass
+
+        chk_brb.toggled.connect(_rebuild_mapping_table)
+        chk_ctrl.toggled.connect(_rebuild_mapping_table)
         if dlg.exec() != QDialog.Accepted:
             return
 
@@ -1810,6 +2038,10 @@ class MetadataCreatorWidget(QWidget):
             label = str(df.at[idx, "Nom du spectre"]).strip()
             if label in header_values:
                 df.at[idx, "Tube"] = header_values[label]
+
+        # Mémoriser les options BRB / Contrôle
+        self._map_include_brb = bool(chk_brb.isChecked())
+        self._map_include_control = bool(chk_ctrl.isChecked())
 
         self.df_map = df
         self.map_dirty = False
@@ -2162,6 +2394,8 @@ class MetadataCreatorWidget(QWidget):
     def _sync_df_map_with_df_comp(
         self,
         duplicate_last_override: bool | None = None,
+        include_brb_override: bool | None = None,
+        include_control_override: bool | None = None,
         *,
         mark_dirty: bool = True,
     ) -> None:
@@ -2176,6 +2410,10 @@ class MetadataCreatorWidget(QWidget):
         Par défaut, elle marque la correspondance comme à revoir (pas de validation utilisateur).
         """
         default_cols = ["Nom du spectre", "Tube"]
+        include_brb = self._map_include_brb if include_brb_override is None else bool(include_brb_override)
+        include_control = (
+            self._map_include_control if include_control_override is None else bool(include_control_override)
+        )
 
         # Récupération des infos d'en-tête depuis l'UI
         try:
@@ -2231,6 +2469,8 @@ class MetadataCreatorWidget(QWidget):
         tube_labels_default = self._default_tube_labels_for_mapping(
             n_tubes,
             duplicate_last_override=duplicate_last_override,
+            include_brb_override=include_brb,
+            include_control_override=include_control,
         )
         start_index = int(self.spin_spec_start.value()) if hasattr(self, "spin_spec_start") else 0
 
@@ -2272,6 +2512,8 @@ class MetadataCreatorWidget(QWidget):
             for _, row in mapping_rows.iterrows():
                 tube_raw = _clean_text(row.get("Tube", ""))
                 name_raw = _clean_text(row.get("Nom du spectre", ""))
+                if (not include_brb) and ("brb" in self._norm_text_key(tube_raw)):
+                    continue
                 tube_key = self._tube_merge_key_for_mapping(tube_raw, n_tubes)
                 if not tube_key:
                     continue
@@ -2410,11 +2652,13 @@ class MetadataCreatorWidget(QWidget):
         n_tubes: int | None = None,
         *,
         duplicate_last_override: bool | None = None,
+        include_brb_override: bool | None = None,
+        include_control_override: bool | None = None,
     ) -> list[str]:
         """Liste de tubes par défaut pour la correspondance.
 
         Convention :
-        - 1er spectre : "Contrôle BRB"
+        - 1er spectre : "Contrôle BRB" (optionnel)
         - puis tubes expérimentaux :
             - si duplicat actif : Tube 1..Tube (N-1) + "Contrôle" (réplicat)
             - sinon             : Tube 1..Tube N
@@ -2425,13 +2669,17 @@ class MetadataCreatorWidget(QWidget):
             if duplicate_last_override is not None
             else self._infer_duplicate_last_for_mapping(n)
         )
+        include_brb = self._map_include_brb if include_brb_override is None else bool(include_brb_override)
+        include_control = (
+            self._map_include_control if include_control_override is None else bool(include_control_override)
+        )
         if n <= 1:
-            tubes = ["Contrôle" if duplicate_last else "Tube 1"]
-        elif duplicate_last:
+            tubes = ["Contrôle" if (duplicate_last and include_control) else "Tube 1"]
+        elif duplicate_last and include_control:
             tubes = [f"Tube {i}" for i in range(1, n)] + ["Contrôle"]
         else:
             tubes = [f"Tube {i}" for i in range(1, n + 1)]
-        return ["Contrôle BRB"] + tubes
+        return (["Contrôle BRB"] if include_brb else []) + tubes
     # ------------------------------------------------------------------
     # Calcul du tableau des concentrations à partir des volumes
     # ------------------------------------------------------------------
@@ -2729,7 +2977,7 @@ class MetadataCreatorWidget(QWidget):
         # 6) Nettoyage final
         # ------------------------------------------------------------------
         # Exclure explicitement les contrôles BRB des analyses
-        meta = meta[~meta["Tube"].isin(["Tube BRB"])].copy()
+        meta = meta[~meta["Tube"].isin(["Tube BRB", "Contrôle BRB"])].copy()
 
         # Nettoyage : ne pas exposer la clé interne de jointure si elle existe
         if "Tube_merge" in meta.columns:
@@ -2961,6 +3209,121 @@ class MetadataCreatorWidget(QWidget):
             sum_row=True,
             sum_target=self._sum_target_uL,
         )
+        # ---------------------------------------------------------
+        # Synchronisation Solution A + Solution B = constante
+        # ---------------------------------------------------------
+        # On impose :
+        #     Solution A + Solution B = constante (par tube)
+        # La constante est définie à l'ouverture du tableau.
+        # Si l'utilisateur modifie A → B s'ajuste, et inversement.
+        table = dlg.table
+
+        def _norm_name(txt: str) -> str:
+            return (
+                str(txt)
+                .strip()
+                .lower()
+                .replace("é", "e")
+                .replace("è", "e")
+                .replace("ê", "e")
+            )
+
+        def _reactif_col_index() -> int:
+            for j in range(table.columnCount()):
+                header = table.horizontalHeaderItem(j)
+                if header is None:
+                    continue
+                name = _norm_name(header.text())
+                if name in ("reactif", "reactifs"):
+                    return j
+            return 0
+
+        def _is_tube_col(col_idx: int) -> bool:
+            header = table.horizontalHeaderItem(col_idx)
+            if header is None:
+                return False
+            return header.text().strip().lower().startswith("tube")
+
+        def _find_rows_ab() -> tuple[int | None, int | None, int]:
+            col_reactif = _reactif_col_index()
+            row_a = None
+            row_b = None
+            sum_row = getattr(dlg, "_sum_row_idx", None)
+            for r in range(table.rowCount()):
+                if sum_row is not None and r == sum_row:
+                    continue
+                item = table.item(r, col_reactif)
+                if item is None:
+                    continue
+                name = _norm_name(item.text())
+                if name == "solution a":
+                    row_a = r
+                elif name == "solution b":
+                    row_b = r
+            return row_a, row_b, col_reactif
+
+        # Somme cible A+B pour chaque tube (initialisée à l'ouverture)
+        target_sum: dict[int, float] = {}
+        row_A, row_B, _ = _find_rows_ab()
+        if row_A is not None and row_B is not None:
+            for c in range(table.columnCount()):
+                if not _is_tube_col(c):
+                    continue
+                itemA = table.item(row_A, c)
+                itemB = table.item(row_B, c)
+                vA = dlg._parse_float(itemA.text() if itemA is not None else "") or 0.0
+                vB = dlg._parse_float(itemB.text() if itemB is not None else "") or 0.0
+                target_sum[c] = vA + vB
+
+        def sync_A_B(item: QTableWidgetItem) -> None:
+            if item is None:
+                return
+            r = item.row()
+            c = item.column()
+            if not _is_tube_col(c):
+                return
+            sum_row = getattr(dlg, "_sum_row_idx", None)
+            if sum_row is not None and r == sum_row:
+                return
+
+            row_A, row_B, _ = _find_rows_ab()
+            if row_A is None or row_B is None:
+                return
+            if r not in (row_A, row_B):
+                return
+
+            val = dlg._parse_float(item.text())
+            if val is None:
+                return
+
+            if c not in target_sum:
+                itemA = table.item(row_A, c)
+                itemB = table.item(row_B, c)
+                vA = dlg._parse_float(itemA.text() if itemA is not None else "") or 0.0
+                vB = dlg._parse_float(itemB.text() if itemB is not None else "") or 0.0
+                target_sum[c] = vA + vB
+
+            total = target_sum[c]
+            other_row = row_B if r == row_A else row_A
+            new_val = total - val
+
+            table.blockSignals(True)
+            try:
+                other_item = table.item(other_row, c)
+                if other_item is None:
+                    other_item = QTableWidgetItem("")
+                    table.setItem(other_row, c, other_item)
+                other_item.setText(dlg._format_number(new_val))
+            finally:
+                table.blockSignals(False)
+
+            # Met à jour la ligne "Total" après ajustement automatique
+            try:
+                dlg._refresh_sum_row()
+            except Exception:
+                pass
+
+        table.itemChanged.connect(sync_A_B)
         if dlg.exec() != QDialog.Accepted:
             return
 

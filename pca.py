@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QDialog,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
+from plotly_downloads import install_plotly_download_handler, set_plotly_filename, sanitize_filename
 
 
 class PCATab(QWidget):
@@ -209,6 +210,15 @@ class PCATab(QWidget):
         if self._scores_df is not None and not self._scores_df.empty:
             self._update_scores_plot()
 
+    def _get_manip_name(self) -> str | None:
+        main = self.window()
+        if main is not None:
+            metadata_creator = getattr(main, "metadata_creator", None)
+            if metadata_creator is not None and hasattr(metadata_creator, "edit_manip"):
+                name = metadata_creator.edit_manip.text().strip()
+                return name or None
+        return None
+
 
     def _init_plot_windows(self):
         """Crée les fenêtres flottantes (dialogues) pour afficher les graphiques PCA."""
@@ -217,6 +227,7 @@ class PCATab(QWidget):
         self.scores_dialog.setWindowTitle("Scores PCA (PC1 vs PC2)")
         scores_layout = QVBoxLayout(self.scores_dialog)
         self.scores_view = QWebEngineView(self.scores_dialog)
+        install_plotly_download_handler(self.scores_view)
         scores_layout.addWidget(self.scores_view)
         self.scores_dialog.resize(900, 500)
 
@@ -225,6 +236,7 @@ class PCATab(QWidget):
         self.loadings_dialog.setWindowTitle("Loadings PCA")
         load_layout = QVBoxLayout(self.loadings_dialog)
         self.loadings_view = QWebEngineView(self.loadings_dialog)
+        install_plotly_download_handler(self.loadings_view)
         load_layout.addWidget(self.loadings_view)
         self.loadings_dialog.resize(900, 500)
 
@@ -233,6 +245,7 @@ class PCATab(QWidget):
         self.recon_dialog.setWindowTitle("Spectre original vs reconstruit")
         recon_layout = QVBoxLayout(self.recon_dialog)
         self.recon_view = QWebEngineView(self.recon_dialog)
+        install_plotly_download_handler(self.recon_view)
         recon_layout.addWidget(self.recon_view)
         self.recon_dialog.resize(900, 500)
 
@@ -632,11 +645,15 @@ class PCATab(QWidget):
     def _update_scores_plot(self):
         """Affiche le nuage de points PC1 vs PC2 coloré par la variable choisie."""
         if self._scores_df is None or self._scores_df.empty:
+            self.scores_view._plotly_fig = None
+            set_plotly_filename(self.scores_view, None)
             self.scores_view.setHtml("<i>Aucun score PCA à afficher.</i>")
             return
 
         df = self._scores_df
         if "PC1" not in df.columns or "PC2" not in df.columns:
+            self.scores_view._plotly_fig = None
+            set_plotly_filename(self.scores_view, None)
             self.scores_view.setHtml("<i>PC1 et PC2 non disponibles.</i>")
             return
 
@@ -653,12 +670,7 @@ class PCATab(QWidget):
 
         # title = "Scores PCA – PC1 vs PC2"
         # Nom de la manip pour le titre
-        manip_name = None
-        main = self.window()
-        if main is not None:
-            metadata_creator = getattr(main, "metadata_creator", None)
-            if metadata_creator is not None and hasattr(metadata_creator, "edit_manip"):
-                manip_name = metadata_creator.edit_manip.text().strip()
+        manip_name = self._get_manip_name()
 
         base_title = manip_name if manip_name else "Scores PCA"
         title = f"{base_title} – PC1 vs PC2"
@@ -683,16 +695,28 @@ class PCATab(QWidget):
             height=450,
             legend_title_text=color_col if color_col else "Groupe",
         )
-        self.scores_view.setHtml(fig.to_html(include_plotlyjs="cdn"))
+        self.scores_view._plotly_fig = fig
+        if manip_name:
+            file_base = f"{manip_name}_PCA_scores"
+        else:
+            file_base = "PCA_scores"
+        set_plotly_filename(self.scores_view, file_base)
+        config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "PCA_scores"}}
+        self.scores_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))
 
     def _update_loadings_plot(self):
         """Affiche les loadings des composantes choisies en fonction du shift Raman."""
         if self._loadings_df is None or self._loadings_df.empty:
+            self.loadings_view._plotly_fig = None
+            set_plotly_filename(self.loadings_view, None)
             self.loadings_view.setHtml("<i>Aucun loading PCA à afficher.</i>")
             return
 
         df = self._loadings_df.copy()
+        manip_name = self._get_manip_name()
         if "Raman Shift" not in df.columns:
+            self.loadings_view._plotly_fig = None
+            set_plotly_filename(self.loadings_view, None)
             self.loadings_view.setHtml("<i>Colonne 'Raman Shift' manquante pour les loadings.</i>")
             return
 
@@ -709,6 +733,8 @@ class PCATab(QWidget):
             value_vars = ["PC1"] if "PC1" in available_pcs else available_pcs[:1]
 
         if not value_vars:
+            self.loadings_view._plotly_fig = None
+            set_plotly_filename(self.loadings_view, None)
             self.loadings_view.setHtml("<i>Aucune composante PCA disponible pour les loadings.</i>")
             return
 
@@ -728,18 +754,30 @@ class PCATab(QWidget):
             height=450,
             legend_title_text="Composante",
         )
-        self.loadings_view.setHtml(fig.to_html(include_plotlyjs="cdn"))
+        self.loadings_view._plotly_fig = fig
+        if manip_name:
+            file_base = f"{manip_name}_PCA_loadings"
+        else:
+            file_base = "PCA_loadings"
+        set_plotly_filename(self.loadings_view, file_base)
+        config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "PCA_loadings"}}
+        self.loadings_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))
 
     def _update_reconstruction_plot(self):
         """Affiche, pour un spectre choisi, le signal original (après normalisation) et sa reconstruction PCA."""
         if self._X_proc is None or self._pca is None or self._wavenumbers is None or self._spec_ids is None:
+            self.recon_view._plotly_fig = None
+            set_plotly_filename(self.recon_view, None)
             self.recon_view.setHtml("<i>Aucune donnée PCA disponible pour la reconstruction.</i>")
             return
 
         idx = self.cmb_spec.currentIndex() if hasattr(self, "cmb_spec") else -1
         if idx < 0 or idx >= self._X_proc.shape[0]:
+            self.recon_view._plotly_fig = None
+            set_plotly_filename(self.recon_view, None)
             self.recon_view.setHtml("<i>Sélectionnez un spectre pour la reconstruction.</i>")
             return
+        manip_name = self._get_manip_name()
 
         # Spectre original (dans l'espace X_proc)
         x_orig = self._X_proc[idx, :].reshape(1, -1)
@@ -781,4 +819,16 @@ class PCATab(QWidget):
             height=450,
             legend_title_text="Signal",
         )
-        self.recon_view.setHtml(fig.to_html(include_plotlyjs="cdn"))
+        self.recon_view._plotly_fig = fig
+        spec_label = self.cmb_spec.currentText().strip()
+        if manip_name and spec_label:
+            file_base = f"{manip_name}_PCA_reconstruction_{spec_label}"
+        elif manip_name:
+            file_base = f"{manip_name}_PCA_reconstruction"
+        elif spec_label:
+            file_base = f"PCA_reconstruction_{spec_label}"
+        else:
+            file_base = "PCA_reconstruction"
+        set_plotly_filename(self.recon_view, file_base)
+        config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "PCA_reconstruction"}}
+        self.recon_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))

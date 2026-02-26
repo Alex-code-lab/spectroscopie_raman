@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtWebEngineWidgets import QWebEngineView
 import plotly.graph_objects as go
 from data_processing import load_spectrum_file, build_combined_dataframe_from_ui
+from plotly_downloads import install_plotly_download_handler, sanitize_filename, set_plotly_filename
 
 class SpectraTab(QWidget):
     def __init__(self, file_picker, parent=None):
@@ -90,6 +91,7 @@ class SpectraTab(QWidget):
 
 
         self.plot_view = QWebEngineView(self)
+        install_plotly_download_handler(self.plot_view)
         layout.addWidget(self.plot_view, 1)
 
     def _reset_axes(self):
@@ -102,6 +104,15 @@ class SpectraTab(QWidget):
             self.spin_ymin.setValue(-1.0)
         if hasattr(self, "spin_ymax"):
             self.spin_ymax.setValue(-1.0)
+
+    def _get_manip_name(self) -> str | None:
+        main = self.window()
+        if main is not None:
+            metadata_creator = getattr(main, "metadata_creator", None)
+            if metadata_creator is not None and hasattr(metadata_creator, "edit_manip"):
+                name = metadata_creator.edit_manip.text().strip()
+                return name or None
+        return None
 
     def plot_selected_with_baseline(self):
         """
@@ -219,6 +230,10 @@ class SpectraTab(QWidget):
                         manip_name = metadata_creator.edit_manip.text().strip()
 
                 title = manip_name if manip_name else "Spectres Raman"
+                if manip_name:
+                    file_base = f"{manip_name}_Spectres_Raman"
+                else:
+                    file_base = "Spectres_Raman"
 
                 fig = go.Figure(traces)
                 fig.update_layout(
@@ -241,7 +256,10 @@ class SpectraTab(QWidget):
                     fig.update_yaxes(range=[ymin, ymax])
 
                 self._last_fig = fig  # Sauvegarde pour export PNG
-                self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn"))
+                self.plot_view._plotly_fig = fig
+                set_plotly_filename(self.plot_view, file_base)
+                config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "Spectres_Raman"}}
+                self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))
                 return
 
             except Exception as e:
@@ -322,7 +340,15 @@ class SpectraTab(QWidget):
             fig.update_yaxes(range=[ymin, ymax])
 
         self._last_fig = fig
-        self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn"))
+        self.plot_view._plotly_fig = fig
+        manip_name = self._get_manip_name()
+        if manip_name:
+            file_base = f"{manip_name}_Spectres_Raman"
+        else:
+            file_base = "Spectres_Raman"
+        set_plotly_filename(self.plot_view, file_base)
+        config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "Spectres_Raman"}}
+        self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))
 
     def _export_png(self):
         """Exporte le dernier graphique Plotly affiché vers un fichier PNG."""
@@ -335,10 +361,15 @@ class SpectraTab(QWidget):
             )
             return
 
+        manip_name = self._get_manip_name()
+        if manip_name:
+            base = sanitize_filename(f"{manip_name}_Spectres_Raman") or "Spectres_Raman"
+        else:
+            base = "Spectres_Raman"
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Exporter le graphique (PNG)",
-            "spectres_raman.png",
+            f"{base}.png",
             "Image PNG (*.png)"
         )
         if not path:

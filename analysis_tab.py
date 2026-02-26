@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 import itertools
 from typing import Optional, List
 
@@ -16,6 +15,7 @@ from PySide6.QtWidgets import (
     QComboBox, QDoubleSpinBox, QHeaderView, QLineEdit
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
+from plotly_downloads import install_plotly_download_handler, set_plotly_filename, sanitize_filename
 
 from data_processing import build_combined_dataframe_from_ui
 
@@ -136,6 +136,7 @@ class AnalysisTab(QWidget):
         # Graphique des ratios
         layout.addWidget(QLabel("<b>Graphique – Rapports d’intensité Raman selon [titrant]</b>"))
         self.plot_view = QWebEngineView(self)
+        install_plotly_download_handler(self.plot_view)
         layout.addWidget(self.plot_view, 1)
 
         # --- Fit sigmoïde (équivalence) ---
@@ -167,6 +168,15 @@ class AnalysisTab(QWidget):
     @staticmethod
     def _sigmoid(x, A, B, k, x_eq):
         return A + B / (1 + np.exp(-k * (x - x_eq)))
+
+    def _get_manip_name(self) -> str | None:
+        main = self.window()
+        if main is not None:
+            metadata_creator = getattr(main, "metadata_creator", None)
+            if metadata_creator is not None and hasattr(metadata_creator, "edit_manip"):
+                name = metadata_creator.edit_manip.text().strip()
+                return name or None
+        return None
 
     def _fit_sigmoid(self):
         if self._ratios_long is None or self._ratios_long.empty:
@@ -364,7 +374,16 @@ class AnalysisTab(QWidget):
         if self._base_x_range is not None:
             fig.update_xaxes(range=list(self._base_x_range), autorange=False)
 
-        self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn"))
+        # Conserver le nom de fichier attendu même après ajout des fits
+        manip_name = self._get_manip_name()
+        if manip_name:
+            file_base = f"{manip_name}_rapportintensite"
+        else:
+            file_base = "rapportintensite"
+        set_plotly_filename(self.plot_view, file_base)
+        self.plot_view._plotly_fig = fig
+        config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "rapportintensite"}}
+        self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))
 
     def _show_equivalence(self):
         if not getattr(self, "_sigmoid_results", None):
@@ -682,69 +701,64 @@ class AnalysisTab(QWidget):
         metadata_df = df[meta_cols].drop_duplicates(subset=["Spectrum name"], keep="first") if "Spectrum name" in df.columns else None
         merged = peak_intensities.merge(metadata_df, on="Spectrum name", how="left") if metadata_df is not None else peak_intensities.copy()
 
-        # Harmonisation de la colonne utilisée pour l'axe X (titrant)
-        # Objectif : disposer d'une colonne 'n(titrant) (mol)' quand c'est possible.
-        #
-        # Cas gérés :
-        # - anciens fichiers : 'C (EGTA) (M)' + 'V cuvette (mL)'
-        # - pipeline MetadataCreator : '[titrant] (M)' + 'V cuvette (µL)'
-        # - fallback : détection automatique d'une colonne de concentration en M
-        #   (ex: 'C (EGTA) (M)', 'C (PAN) (M)', 'C (Cu) (M)', etc.).
-
+        # Calcul strict de l'abscisse (règle métier) :
+        # n(titrant) = C_final(Solution B) * V_cuvette(L)
+        # où C_final(Solution B) est la concentration finale en cuvette issue du tableau des volumes.
         def _to_num(s: pd.Series) -> pd.Series:
             return pd.to_numeric(s.astype(str).str.replace(",", "."), errors="coerce")
 
-        def _pick_auto_titrant_column(df_: pd.DataFrame) -> str | None:
-            explicit = ["[titrant] (M)", "[titrant] (mM)", "C (EGTA) (M)"]
+        def _norm_col_name(c: str) -> str:
+            return (
+                str(c)
+                .strip()
+                .lower()
+                .replace("é", "e")
+                .replace("è", "e")
+                .replace("ê", "e")
+                .replace("μ", "µ")
+            )
 
-            def is_valid(col):
-                v = _to_num(df_[col])
-                return (
-                    v.notna().any()
-                    and v.nunique(dropna=True) > 2
-                    and float(v.var(skipna=True)) > 0.0
-                )
+        col_by_norm = {_norm_col_name(c): c for c in merged.columns}
 
-            for cand in explicit:
-                if cand in df_.columns and is_valid(cand):
-                    return cand
+        tit_col = None
+        for key in ("solution b", "[titrant] (m)"):
+            if key in col_by_norm:
+                tit_col = col_by_norm[key]
+                break
 
-            cands = [c for c in df_.columns if re.match(r"^C \(.+\) \(M\)$", str(c))]
-            scored = []
-            for c in cands:
-                v = _to_num(df_[c])
-                if v.notna().any() and v.nunique(dropna=True) > 2:
-                    scored.append((float(v.var(skipna=True)), c))
+        if tit_col is None:
+            QMessageBox.critical(
+                self,
+                "Données titrant manquantes",
+                "Impossible de calculer l'axe X : colonne 'Solution B' (ou '[titrant] (M)') introuvable.",
+            )
+            return
 
-            if scored:
-                return max(scored)[1]
+        if "v cuvette (µl)" in col_by_norm:
+            v_l = _to_num(merged[col_by_norm["v cuvette (µl)"]]) * 1e-6
+        elif "v cuvette (ul)" in col_by_norm:
+            v_l = _to_num(merged[col_by_norm["v cuvette (ul)"]]) * 1e-6
+        elif "v cuvette (ml)" in col_by_norm:
+            v_l = _to_num(merged[col_by_norm["v cuvette (ml)"]]) * 1e-3
+        else:
+            QMessageBox.critical(
+                self,
+                "Volume cuvette manquant",
+                "Impossible de calculer l'axe X : colonne 'V cuvette (µL)' (ou mL) introuvable.",
+            )
+            return
 
-            return None
+        c = _to_num(merged[tit_col])
+        merged["n(titrant) (mol)"] = c * v_l
+        merged["titrant_column"] = tit_col
 
-        if "n(titrant) (mol)" not in merged.columns:
-            tit_col = _pick_auto_titrant_column(merged)
-
-            if tit_col is None:
-                # Pas de colonne de concentration utilisable -> on ne peut pas tracer en fonction du titrant
-                # (les ratios peuvent exister mais pas d'axe X)
-                pass
-            else:
-                c = _to_num(merged[tit_col])
-
-                # Si on a un volume, on calcule n = C * V(L)
-                if "V cuvette (µL)" in merged.columns:
-                    v_ul = _to_num(merged["V cuvette (µL)"])
-                    merged["n(titrant) (mol)"] = c * v_ul * 1e-6
-                elif "V cuvette (mL)" in merged.columns:
-                    v_ml = _to_num(merged["V cuvette (mL)"])
-                    merged["n(titrant) (mol)"] = c * v_ml * 1e-3
-                else:
-                    # Pas de volume explicite : on utilise la concentration comme proxy d'axe X
-                    merged["n(titrant) (mol)"] = c
-
-                # Garder une trace de la colonne utilisée (utile pour debug / UI)
-                if "titrant_column" not in merged.columns:
-                    merged["titrant_column"] = tit_col
+        if merged["n(titrant) (mol)"].notna().sum() == 0:
+            QMessageBox.critical(
+                self,
+                "Calcul impossible",
+                "La quantité de titrant n'a pas pu être calculée (valeurs non numériques pour 'Solution B' ou volume).",
+            )
+            return
 
         # Mise en forme long pour les ratios
         ratio_cols = [c for c in merged.columns if c.startswith("ratio_I_")]
@@ -811,8 +825,8 @@ class AnalysisTab(QWidget):
                     bgcolor="rgba(255,255,255,0.8)",
                 ),
             )
-            # Formatage type scientifique pour l'axe X
-            fig.update_xaxes(tickformat=".0e")
+            # Formatage type scientifique pour l'axe X (évite les libellés doublons)
+            fig.update_xaxes(tickformat=".2e")
             # Verrouiller la plage X sur la courbe initiale pour éviter tout changement lors des fits
             x_vals = df_plot["n(titrant) (mol)"].to_numpy(dtype=float)
             if x_vals.size and np.isfinite(x_vals).any():
@@ -826,9 +840,19 @@ class AnalysisTab(QWidget):
             else:
                 self._base_x_range = None
             self._current_fig = fig
-            self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn"))
+            self.plot_view._plotly_fig = fig
+            manip_name = self._get_manip_name()
+            if manip_name:
+                file_base = f"{manip_name}_rapportintensite"
+            else:
+                file_base = "rapportintensite"
+            set_plotly_filename(self.plot_view, file_base)
+            config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "rapportintensite"}}
+            self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))
         else:
             # Effacer le graphique si pas de ratios
+            self.plot_view._plotly_fig = None
+            set_plotly_filename(self.plot_view, None)
             self.plot_view.setHtml("<i>Aucun ratio à afficher.</i>")
             self._base_x_range = None
 
