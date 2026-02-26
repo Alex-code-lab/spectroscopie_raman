@@ -11,6 +11,10 @@ _CONNECTED_PROFILE_IDS: set[int] = set()
 _LAST_DOWNLOAD_DIR: str | None = None
 _KNOWN_EXTS = {".png", ".pdf", ".svg"}
 _LAST_PLOTLY_FILENAME: str | None = None
+_LAST_PLOTLY_FIG = None  # Référence globale à la dernière figure Plotly affichée
+# Tracking par page : permet de retrouver le bon nom même si page.view() échoue
+_PAGE_FILENAMES: dict[int, str | None] = {}
+_PAGE_FIGS: dict[int, object] = {}
 
 
 def sanitize_filename(name: str) -> str:
@@ -20,8 +24,12 @@ def sanitize_filename(name: str) -> str:
     if not text:
         return ""
     text = text.replace(" ", "_")
-    text = re.sub(r"[<>:\"/\\\\|?*\\n\\r\\t]", "", text)
-    text = re.sub(r"(?i)\\.(png|pdf|svg)", "", text)
+    # Supprime les caractères interdits dans les noms de fichiers (Windows + Unix)
+    # Note : utiliser r'[...\n\r\t]' et non r"[...\\n\\r\\t]" — dans une classe de
+    # caractères regex, \\n serait interprété comme '\' OU 'n', supprimant la lettre n.
+    text = re.sub(r'[<>:"/\\|?*\n\r\t]', "", text)
+    # Supprime une extension connue résiduelle (ex: ".png" si elle n'a pas été retirée avant)
+    text = re.sub(r"(?i)\.(png|pdf|svg)", "", text)
     text = re.sub(r"_+", "_", text)
     return text.strip("._")
 
@@ -110,7 +118,7 @@ def install_plotly_download_handler(view: QWebEngineView) -> None:
 
 def set_plotly_filename(view: QWebEngineView | None, filename: str | None) -> None:
     """Enregistre un nom de base préféré pour les exports (sans extension)."""
-    global _LAST_PLOTLY_FILENAME
+    global _LAST_PLOTLY_FILENAME, _LAST_PLOTLY_FIG
     name = filename or None
     if name:
         name = sanitize_filename(_strip_known_ext(name)) or None
@@ -124,6 +132,19 @@ def set_plotly_filename(view: QWebEngineView | None, filename: str | None) -> No
             profile.setProperty("plotly_filename", name or "")
         except Exception:
             pass
+        # Mémoriser par page (id stable tant que la page vit) pour lookup fiable
+        try:
+            page_id = id(view.page())
+            _PAGE_FILENAMES[page_id] = name
+        except Exception:
+            pass
+        fig = getattr(view, "_plotly_fig", None)
+        if fig is not None:
+            _LAST_PLOTLY_FIG = fig
+            try:
+                _PAGE_FIGS[page_id] = fig
+            except Exception:
+                pass
     _LAST_PLOTLY_FILENAME = name
 
 
@@ -132,19 +153,31 @@ def _on_download_requested(download) -> None:
     if download is None:
         return
 
-    # Parent + vue + figure Plotly associée (si disponible)
-    parent = None
-    view = None
-    fig = None
+    # Récupérer la page en premier (pour lookup par page_id, plus fiable que page.view())
+    page = None
     try:
         page = _get_page_from_download(download)
+    except Exception:
+        pass
+    page_id = id(page) if page is not None else None
+
+    # Parent + vue (pour centrer le dialogue)
+    parent = None
+    view = None
+    try:
         view = page.view() if page is not None else None
         parent = view.window() if view is not None else None
-        fig = getattr(view, "_plotly_fig", None) if view is not None else None
     except Exception:
-        parent = None
-        view = None
-        fig = None
+        pass
+
+    # Figure : priorité vue directe → dict par page → global
+    fig = None
+    if view is not None:
+        fig = getattr(view, "_plotly_fig", None)
+    if fig is None and page_id is not None:
+        fig = _PAGE_FIGS.get(page_id)
+    if fig is None:
+        fig = _LAST_PLOTLY_FIG
 
     try:
         fname = download.downloadFileName()
@@ -153,17 +186,12 @@ def _on_download_requested(download) -> None:
     if not fname:
         fname = "newplot.png"
 
+    # Nom de fichier : priorité vue directe → dict par page → global
     base_name = None
     if view is not None:
         base_name = getattr(view, "_plotly_filename", None)
-    if not base_name:
-        try:
-            prof = _get_profile_from_download(download)
-            if prof is not None:
-                val = prof.property("plotly_filename")
-                base_name = val if isinstance(val, str) and val.strip() else None
-        except Exception:
-            base_name = None
+    if not base_name and page_id is not None:
+        base_name = _PAGE_FILENAMES.get(page_id)
     if not base_name:
         base_name = _LAST_PLOTLY_FILENAME
     if base_name:
@@ -176,14 +204,11 @@ def _on_download_requested(download) -> None:
     base_dir = _LAST_DOWNLOAD_DIR or _default_download_dir()
     default_ext = ".pdf" if fig is not None else ".png"
     suggested = os.path.join(base_dir, base_name + default_ext)
-    options = QFileDialog.Options()
-    options |= QFileDialog.DontUseNativeDialog
     path, selected_filter = QFileDialog.getSaveFileName(
         parent,
         "Enregistrer l'image",
         suggested,
         "PDF (*.pdf);;PNG (*.png);;SVG (*.svg);;Tous les fichiers (*.*)",
-        options=options,
     )
     if not path:
         try:

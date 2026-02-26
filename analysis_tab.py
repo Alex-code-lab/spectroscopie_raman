@@ -377,12 +377,12 @@ class AnalysisTab(QWidget):
         # Conserver le nom de fichier attendu même après ajout des fits
         manip_name = self._get_manip_name()
         if manip_name:
-            file_base = f"{manip_name}_rapportintensite"
+            file_base = f"{manip_name}_Rapport_Intensite"
         else:
-            file_base = "rapportintensite"
+            file_base = "Rapport_Intensite"
         set_plotly_filename(self.plot_view, file_base)
         self.plot_view._plotly_fig = fig
-        config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "rapportintensite"}}
+        config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "Rapport_Intensite"}}
         self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))
 
     def _show_equivalence(self):
@@ -843,11 +843,11 @@ class AnalysisTab(QWidget):
             self.plot_view._plotly_fig = fig
             manip_name = self._get_manip_name()
             if manip_name:
-                file_base = f"{manip_name}_rapportintensite"
+                file_base = f"{manip_name}_Rapport_Intensite"
             else:
-                file_base = "rapportintensite"
+                file_base = "Rapport_Intensite"
             set_plotly_filename(self.plot_view, file_base)
-            config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "rapportintensite"}}
+            config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "Rapport_Intensite"}}
             self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))
         else:
             # Effacer le graphique si pas de ratios

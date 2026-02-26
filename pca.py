@@ -697,11 +697,11 @@ class PCATab(QWidget):
         )
         self.scores_view._plotly_fig = fig
         if manip_name:
-            file_base = f"{manip_name}_PCA_scores"
+            file_base = f"{manip_name}_PCA_Scores"
         else:
-            file_base = "PCA_scores"
+            file_base = "PCA_Scores"
         set_plotly_filename(self.scores_view, file_base)
-        config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "PCA_scores"}}
+        config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "PCA_Scores"}}
         self.scores_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))
 
     def _update_loadings_plot(self):
@@ -756,11 +756,11 @@ class PCATab(QWidget):
         )
         self.loadings_view._plotly_fig = fig
         if manip_name:
-            file_base = f"{manip_name}_PCA_loadings"
+            file_base = f"{manip_name}_PCA_Loadings"
         else:
-            file_base = "PCA_loadings"
+            file_base = "PCA_Loadings"
         set_plotly_filename(self.loadings_view, file_base)
-        config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "PCA_loadings"}}
+        config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "PCA_Loadings"}}
         self.loadings_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))
 
     def _update_reconstruction_plot(self):
@@ -822,13 +822,13 @@ class PCATab(QWidget):
         self.recon_view._plotly_fig = fig
         spec_label = self.cmb_spec.currentText().strip()
         if manip_name and spec_label:
-            file_base = f"{manip_name}_PCA_reconstruction_{spec_label}"
+            file_base = f"{manip_name}_PCA_Reconstruction_{spec_label}"
         elif manip_name:
-            file_base = f"{manip_name}_PCA_reconstruction"
+            file_base = f"{manip_name}_PCA_Reconstruction"
         elif spec_label:
-            file_base = f"PCA_reconstruction_{spec_label}"
+            file_base = f"PCA_Reconstruction_{spec_label}"
         else:
-            file_base = "PCA_reconstruction"
+            file_base = "PCA_Reconstruction"
         set_plotly_filename(self.recon_view, file_base)
-        config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "PCA_reconstruction"}}
+        config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "PCA_Reconstruction"}}
         self.recon_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))

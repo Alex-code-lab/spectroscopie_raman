@@ -84,8 +84,8 @@ class SpectraTab(QWidget):
         self.btn_plot = QPushButton("Tracer avec baseline")
         self.btn_plot.clicked.connect(self.plot_selected_with_baseline)
         layout.addWidget(self.btn_plot)
-        self.btn_export_png = QPushButton("Exporter le graphique (PNG)")
-        self.btn_export_png.clicked.connect(self._export_png)
+        self.btn_export_png = QPushButton("Exporter le graphique…")
+        self.btn_export_png.clicked.connect(self._export_figure)
         layout.addWidget(self.btn_export_png)
 
 
@@ -231,9 +231,9 @@ class SpectraTab(QWidget):
 
                 title = manip_name if manip_name else "Spectres Raman"
                 if manip_name:
-                    file_base = f"{manip_name}_Spectres_Raman"
+                    file_base = f"{manip_name}_Spectres"
                 else:
-                    file_base = "Spectres_Raman"
+                    file_base = "Spectres"
 
                 fig = go.Figure(traces)
                 fig.update_layout(
@@ -258,7 +258,7 @@ class SpectraTab(QWidget):
                 self._last_fig = fig  # Sauvegarde pour export PNG
                 self.plot_view._plotly_fig = fig
                 set_plotly_filename(self.plot_view, file_base)
-                config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "Spectres_Raman"}}
+                config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "Spectres"}}
                 self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))
                 return
 
@@ -343,15 +343,15 @@ class SpectraTab(QWidget):
         self.plot_view._plotly_fig = fig
         manip_name = self._get_manip_name()
         if manip_name:
-            file_base = f"{manip_name}_Spectres_Raman"
+            file_base = f"{manip_name}_Spectres"
         else:
-            file_base = "Spectres_Raman"
+            file_base = "Spectres"
         set_plotly_filename(self.plot_view, file_base)
-        config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "Spectres_Raman"}}
+        config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "Spectres"}}
         self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))
 
-    def _export_png(self):
-        """Exporte le dernier graphique Plotly affiché vers un fichier PNG."""
+    def _export_figure(self):
+        """Exporte le dernier graphique Plotly affiché en PDF, SVG ou PNG."""
         if self._last_fig is None:
             QMessageBox.information(
                 self,
@@ -363,27 +363,44 @@ class SpectraTab(QWidget):
 
         manip_name = self._get_manip_name()
         if manip_name:
-            base = sanitize_filename(f"{manip_name}_Spectres_Raman") or "Spectres_Raman"
+            base = sanitize_filename(f"{manip_name}_Spectres") or "Spectres"
         else:
-            base = "Spectres_Raman"
-        path, _ = QFileDialog.getSaveFileName(
+            base = "Spectres"
+
+        path, selected_filter = QFileDialog.getSaveFileName(
             self,
-            "Exporter le graphique (PNG)",
-            f"{base}.png",
-            "Image PNG (*.png)"
+            "Exporter le graphique",
+            f"{base}.pdf",
+            "PDF (*.pdf);;SVG (*.svg);;PNG (*.png)",
         )
         if not path:
             return
 
+        # Déterminer le format selon le filtre choisi
+        if "PDF" in selected_filter:
+            fmt = "pdf"
+            if not path.lower().endswith(".pdf"):
+                path += ".pdf"
+        elif "SVG" in selected_filter:
+            fmt = "svg"
+            if not path.lower().endswith(".svg"):
+                path += ".svg"
+        else:
+            fmt = "png"
+            if not path.lower().endswith(".png"):
+                path += ".png"
+
         try:
-            # Export haute résolution (nécessite kaleido)
-            self._last_fig.write_image(path, format="png", scale=2)
+            if fmt == "png":
+                self._last_fig.write_image(path, format=fmt, scale=2)
+            else:
+                self._last_fig.write_image(path, format=fmt)
             QMessageBox.information(self, "Export réussi", f"Graphique exporté :\n{path}")
         except Exception as e:
             QMessageBox.critical(
                 self,
                 "Erreur d'export",
-                "Impossible d'exporter le graphique en PNG.\n"
+                "Impossible d'exporter le graphique.\n"
                 "Vérifiez que 'kaleido' est installé (pip install -U kaleido).\n\n"
                 f"Détail : {e}"
             )
