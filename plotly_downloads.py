@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import os
 import re
+import tempfile
 
 from PySide6.QtWidgets import QFileDialog, QMessageBox
-from PySide6.QtCore import QStandardPaths
+from PySide6.QtCore import QStandardPaths, QUrl
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 _CONNECTED_PROFILE_IDS: set[int] = set()
@@ -99,6 +100,31 @@ def _default_download_dir() -> str:
     if dl:
         return dl
     return os.path.expanduser("~")
+
+
+def load_plotly_html(view: QWebEngineView, html: str) -> None:
+    """Charge un HTML Plotly dans la vue via un fichier temporaire.
+
+    QWebEngineView.setHtml() est limité à ~2 Mo ; avec include_plotlyjs=True le
+    HTML fait ~3.5 Mo.  On écrit donc dans un fichier temporaire et on charge
+    avec setUrl(), qui n'a pas de limite de taille.
+    """
+    try:
+        fd, path = tempfile.mkstemp(suffix=".html", prefix="ramanalyze_")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(html)
+        # Supprimer l'ancien fichier temp de cette vue
+        old = getattr(view, "_temp_html_path", None)
+        if old and old != path:
+            try:
+                os.unlink(old)
+            except Exception:
+                pass
+        view._temp_html_path = path
+        view.setUrl(QUrl.fromLocalFile(path))
+    except Exception:
+        # Fallback : setHtml (échoue silencieusement si >2 Mo)
+        view.setHtml(html)
 
 
 def install_plotly_download_handler(view: QWebEngineView) -> None:

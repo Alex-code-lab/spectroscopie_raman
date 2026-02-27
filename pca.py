@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QDialog,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from plotly_downloads import install_plotly_download_handler, set_plotly_filename, sanitize_filename
+from plotly_downloads import install_plotly_download_handler, load_plotly_html, set_plotly_filename, sanitize_filename
 
 
 class PCATab(QWidget):
@@ -702,7 +702,7 @@ class PCATab(QWidget):
             file_base = "PCA_Scores"
         set_plotly_filename(self.scores_view, file_base)
         config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "PCA_Scores"}}
-        self.scores_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))
+        load_plotly_html(self.scores_view, fig.to_html(include_plotlyjs=True, config=config))
 
     def _update_loadings_plot(self):
         """Affiche les loadings des composantes choisies en fonction du shift Raman."""
@@ -761,7 +761,7 @@ class PCATab(QWidget):
             file_base = "PCA_Loadings"
         set_plotly_filename(self.loadings_view, file_base)
         config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "PCA_Loadings"}}
-        self.loadings_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))
+        load_plotly_html(self.loadings_view, fig.to_html(include_plotlyjs=True, config=config))
 
     def _update_reconstruction_plot(self):
         """Affiche, pour un spectre choisi, le signal original (après normalisation) et sa reconstruction PCA."""
@@ -831,4 +831,4 @@ class PCATab(QWidget):
             file_base = "PCA_Reconstruction"
         set_plotly_filename(self.recon_view, file_base)
         config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "PCA_Reconstruction"}}
-        self.recon_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))
+        load_plotly_html(self.recon_view, fig.to_html(include_plotlyjs=True, config=config))

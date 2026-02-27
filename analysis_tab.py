@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QComboBox, QDoubleSpinBox, QHeaderView, QLineEdit
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from plotly_downloads import install_plotly_download_handler, set_plotly_filename, sanitize_filename
+from plotly_downloads import install_plotly_download_handler, load_plotly_html, set_plotly_filename, sanitize_filename
 
 from data_processing import build_combined_dataframe_from_ui
 
@@ -383,7 +383,7 @@ class AnalysisTab(QWidget):
         set_plotly_filename(self.plot_view, file_base)
         self.plot_view._plotly_fig = fig
         config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "Rapport_Intensite"}}
-        self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))
+        load_plotly_html(self.plot_view, fig.to_html(include_plotlyjs=True, config=config))
 
     def _show_equivalence(self):
         if not getattr(self, "_sigmoid_results", None):
@@ -848,7 +848,7 @@ class AnalysisTab(QWidget):
                 file_base = "Rapport_Intensite"
             set_plotly_filename(self.plot_view, file_base)
             config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "Rapport_Intensite"}}
-            self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))
+            load_plotly_html(self.plot_view, fig.to_html(include_plotlyjs=True, config=config))
         else:
             # Effacer le graphique si pas de ratios
             self.plot_view._plotly_fig = None

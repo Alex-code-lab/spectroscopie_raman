@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtWebEngineWidgets import QWebEngineView
 import plotly.graph_objects as go
 from data_processing import load_spectrum_file, build_combined_dataframe_from_ui
-from plotly_downloads import install_plotly_download_handler, sanitize_filename, set_plotly_filename
+from plotly_downloads import install_plotly_download_handler, load_plotly_html, sanitize_filename, set_plotly_filename
 
 class SpectraTab(QWidget):
     def __init__(self, file_picker, parent=None):
@@ -259,7 +259,7 @@ class SpectraTab(QWidget):
                 self.plot_view._plotly_fig = fig
                 set_plotly_filename(self.plot_view, file_base)
                 config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "Spectres"}}
-                self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))
+                load_plotly_html(self.plot_view, fig.to_html(include_plotlyjs=True, config=config))
                 return
 
             except Exception as e:
@@ -348,7 +348,7 @@ class SpectraTab(QWidget):
             file_base = "Spectres"
         set_plotly_filename(self.plot_view, file_base)
         config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "Spectres"}}
-        self.plot_view.setHtml(fig.to_html(include_plotlyjs="cdn", config=config))
+        load_plotly_html(self.plot_view, fig.to_html(include_plotlyjs=True, config=config))
 
     def _export_figure(self):
         """Exporte le dernier graphique Plotly affiché en PDF, SVG ou PNG."""
