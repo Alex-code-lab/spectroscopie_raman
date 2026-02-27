@@ -817,13 +817,16 @@ class AnalysisTab(QWidget):
                 height=600,
                 legend_title_text="Ratio",
                 legend=dict(
-                    orientation="v",
-                    x=1.02,
-                    y=1,
+                    orientation="h",
+                    x=0.5,
+                    y=-0.2,
+                    xanchor="center",
+                    yanchor="top",
                     bordercolor="black",
                     borderwidth=1,
                     bgcolor="rgba(255,255,255,0.8)",
                 ),
+                margin=dict(b=120),
             )
             # Formatage type scientifique pour l'axe X (évite les libellés doublons)
             fig.update_xaxes(tickformat=".2e")

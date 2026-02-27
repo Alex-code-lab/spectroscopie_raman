@@ -1283,7 +1283,7 @@ class GaussianVolumesDialog(QDialog):
         self.chk_dropper.toggled.connect(_update_dropper_mode)
 
         self.chk_zero = QCheckBox("Inclure un tube à 0 µL de titrant", self); self.chk_zero.setChecked(True)
-        self.chk_dup = QCheckBox("Dupliquer le dernier volume pour contrôle", self); self.chk_dup.setChecked(True)
+        self.chk_dup = QCheckBox("Dupliquer le dernier volume pour contrôle", self); self.chk_dup.setChecked(False)
 
         form3.addRow("Marge (µL)", self.spin_margin)
         form3.addRow("Pas pipette (µL)", self.spin_step)
