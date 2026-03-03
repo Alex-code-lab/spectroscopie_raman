@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtWebEngineWidgets import QWebEngineView
 import plotly.graph_objects as go
 from data_processing import load_spectrum_file, build_combined_dataframe_from_ui
-from plotly_downloads import install_plotly_download_handler, load_plotly_html, sanitize_filename, set_plotly_filename
+from plotly_downloads import install_plotly_download_handler, load_plotly_html, sanitize_filename, save_fig_with_current_zoom, set_plotly_filename
 
 class SpectraTab(QWidget):
     def __init__(self, file_picker, parent=None):
@@ -390,17 +390,4 @@ class SpectraTab(QWidget):
             if not path.lower().endswith(".png"):
                 path += ".png"
 
-        try:
-            if fmt == "png":
-                self._last_fig.write_image(path, format=fmt, scale=2)
-            else:
-                self._last_fig.write_image(path, format=fmt)
-            QMessageBox.information(self, "Export réussi", f"Graphique exporté :\n{path}")
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Erreur d'export",
-                "Impossible d'exporter le graphique.\n"
-                "Vérifiez que 'kaleido' est installé (pip install -U kaleido).\n\n"
-                f"Détail : {e}"
-            )
+        save_fig_with_current_zoom(self.plot_view, self._last_fig, path, fmt, self, scale=2)

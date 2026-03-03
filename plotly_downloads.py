@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import json
 import os
 import re
 import tempfile
@@ -16,6 +18,34 @@ _LAST_PLOTLY_FIG = None  # Référence globale à la dernière figure Plotly aff
 # Tracking par page : permet de retrouver le bon nom même si page.view() échoue
 _PAGE_FILENAMES: dict[int, str | None] = {}
 _PAGE_FIGS: dict[int, object] = {}
+
+# Script injecté dans chaque HTML Plotly : écoute l'événement plotly_relayout
+# et mémorise les plages d'axes dans window._pr à chaque zoom/pan/reset.
+_RANGE_TRACKER_SCRIPT = """
+<script>
+(function(){
+  function attach(){
+    var gd=document.querySelector('.plotly-graph-div');
+    if(!gd){setTimeout(attach,150);return;}
+    gd.on('plotly_relayout',function(ev){
+      window._pr=window._pr||{};
+      if(ev['xaxis.range[0]']!==undefined)
+        window._pr.xrange=[ev['xaxis.range[0]'],ev['xaxis.range[1]']];
+      if(ev['xaxis.autorange']===true) delete window._pr.xrange;
+      if(ev['yaxis.range[0]']!==undefined)
+        window._pr.yrange=[ev['yaxis.range[0]'],ev['yaxis.range[1]']];
+      if(ev['yaxis.autorange']===true) delete window._pr.yrange;
+    });
+  }
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',attach);
+  } else { attach(); }
+})();
+</script>
+"""
+
+# JS de lecture : récupère les plages mémorisées par le tracker ci-dessus
+_JS_GET_RANGES = "(function(){var r=window._pr||{};return JSON.stringify(r);})()"
 
 
 def sanitize_filename(name: str) -> str:
@@ -102,6 +132,58 @@ def _default_download_dir() -> str:
     return os.path.expanduser("~")
 
 
+def save_fig_with_current_zoom(
+    view: "QWebEngineView | None",
+    fig,
+    path: str,
+    fmt: str,
+    parent=None,
+    scale: int = 3,
+) -> None:
+    """Sauvegarde fig en appliquant le zoom/pan affiché dans le navigateur.
+
+    Interroge le JS pour récupérer les plages d'axes actuelles, les applique à
+    une copie de la figure, puis exporte via Kaleido.
+    """
+
+    def _do_save(js_result):
+        global _LAST_DOWNLOAD_DIR
+        fig_copy = copy.deepcopy(fig)
+        if js_result:
+            try:
+                data = json.loads(js_result)
+                if "xrange" in data:
+                    fig_copy.update_xaxes(range=data["xrange"])
+                if "yrange" in data:
+                    fig_copy.update_yaxes(range=data["yrange"])
+            except Exception:
+                pass
+        try:
+            if fmt == "png":
+                fig_copy.write_image(path, format=fmt, scale=scale)
+            else:
+                fig_copy.write_image(path, format=fmt)
+            _LAST_DOWNLOAD_DIR = os.path.dirname(path)
+            QMessageBox.information(parent, "Export réussi", f"Image enregistrée :\n{path}")
+        except Exception as e:
+            QMessageBox.critical(
+                parent,
+                "Erreur d'export",
+                "Impossible d'exporter le graphique.\n"
+                "Vérifiez que 'kaleido' est installé (pip install -U kaleido).\n\n"
+                f"Détail : {e}",
+            )
+
+    if view is not None:
+        try:
+            view.page().runJavaScript(_JS_GET_RANGES, _do_save)
+            return
+        except Exception:
+            pass
+    # Fallback si pas de vue : sauvegarde sans zoom
+    _do_save(None)
+
+
 def load_plotly_html(view: QWebEngineView, html: str) -> None:
     """Charge un HTML Plotly dans la vue via un fichier temporaire.
 
@@ -110,6 +192,12 @@ def load_plotly_html(view: QWebEngineView, html: str) -> None:
     avec setUrl(), qui n'a pas de limite de taille.
     """
     try:
+        # Injecter le tracker de plages d'axes avant </body> (ou à la fin)
+        if "</body>" in html:
+            html = html.replace("</body>", _RANGE_TRACKER_SCRIPT + "</body>", 1)
+        else:
+            html = html + _RANGE_TRACKER_SCRIPT
+
         fd, path = tempfile.mkstemp(suffix=".html", prefix="ramanalyze_")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(html)
@@ -250,35 +338,14 @@ def _on_download_requested(download) -> None:
     if fmt not in {"pdf", "png", "svg"}:
         fmt = "png"
 
-    # Si on a accès à la figure, on exporte via Kaleido (meilleure qualité + PDF)
+    # Si on a accès à la figure, on exporte via Kaleido avec le zoom courant
     if fig is not None:
         try:
-            if fmt == "png":
-                fig.write_image(path, format=fmt, scale=3)
-            else:
-                fig.write_image(path, format=fmt)
-            _LAST_DOWNLOAD_DIR = os.path.dirname(path)
-            try:
-                download.cancel()
-            except Exception:
-                pass
-            QMessageBox.information(parent, "Snapshot", f"Image enregistrée :\n{path}")
-            return
-        except Exception as e:
-            if fmt != "png":
-                try:
-                    download.cancel()
-                except Exception:
-                    pass
-                QMessageBox.critical(
-                    parent,
-                    "Export PDF/SVG impossible",
-                    "L'export en PDF/SVG nécessite 'kaleido'.\n"
-                    "Installez-le avec : pip install -U kaleido\n\n"
-                    f"Détail : {e}",
-                )
-                return
-            # Pour PNG, on tentera un fallback via le téléchargement du navigateur.
+            download.cancel()
+        except Exception:
+            pass
+        save_fig_with_current_zoom(view, fig, path, fmt, parent, scale=3)
+        return
 
     # Fallback PNG via téléchargement intégré (qualité standard)
     if fmt != "png":
