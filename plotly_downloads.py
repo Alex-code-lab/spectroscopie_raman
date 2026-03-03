@@ -9,6 +9,7 @@ import tempfile
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 from PySide6.QtCore import QStandardPaths, QUrl
 from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtGui import QImage
 
 _CONNECTED_PROFILE_IDS: set[int] = set()
 _LAST_DOWNLOAD_DIR: str | None = None
@@ -18,6 +19,7 @@ _LAST_PLOTLY_FIG = None  # Référence globale à la dernière figure Plotly aff
 # Tracking par page : permet de retrouver le bon nom même si page.view() échoue
 _PAGE_FILENAMES: dict[int, str | None] = {}
 _PAGE_FIGS: dict[int, object] = {}
+_PAGE_VIEWS: dict[int, object] = {}  # page_id → QWebEngineView (pour runJavaScript fiable)
 
 # Script injecté dans chaque HTML Plotly : écoute l'événement plotly_relayout
 # et mémorise les plages d'axes dans window._pr à chaque zoom/pan/reset.
@@ -26,7 +28,7 @@ _RANGE_TRACKER_SCRIPT = """
 (function(){
   function attach(){
     var gd=document.querySelector('.plotly-graph-div');
-    if(!gd){setTimeout(attach,150);return;}
+    if(!gd||typeof gd.on!=='function'){setTimeout(attach,150);return;}
     gd.on('plotly_relayout',function(ev){
       window._pr=window._pr||{};
       if(ev['xaxis.range[0]']!==undefined)
@@ -44,8 +46,24 @@ _RANGE_TRACKER_SCRIPT = """
 </script>
 """
 
-# JS de lecture : récupère les plages mémorisées par le tracker ci-dessus
-_JS_GET_RANGES = "(function(){var r=window._pr||{};return JSON.stringify(r);})()"
+# JS de lecture : essaie window._pr (tracker), puis _fullLayout comme fallback
+_JS_GET_RANGES = """
+(function(){
+  try{
+    var r=window._pr||{};
+    if(!r.xrange||!r.yrange){
+      var gd=document.querySelector('.plotly-graph-div');
+      if(gd){
+        var fl=(gd._fullLayout)||{};
+        var xa=fl.xaxis||{},ya=fl.yaxis||{};
+        if(!r.xrange&&xa.range&&xa.range.length===2)r.xrange=[xa.range[0],xa.range[1]];
+        if(!r.yrange&&ya.range&&ya.range.length===2)r.yrange=[ya.range[0],ya.range[1]];
+      }
+    }
+    return JSON.stringify(r);
+  }catch(e){return '{}';}
+})()
+"""
 
 
 def sanitize_filename(name: str) -> str:
@@ -140,29 +158,41 @@ def save_fig_with_current_zoom(
     parent=None,
     scale: int = 3,
 ) -> None:
-    """Sauvegarde fig en appliquant le zoom/pan affiché dans le navigateur.
+    """Sauvegarde fig en respectant le zoom/pan courant affiché dans le navigateur.
 
-    Interroge le JS pour récupérer les plages d'axes actuelles, les applique à
-    une copie de la figure, puis exporte via Kaleido.
+    - PNG  : capture directe via view.grab() → pixel-perfect, zoom inclus.
+    - PDF/SVG : interroge le JS (tracker + _fullLayout) pour les plages d'axes,
+                les applique à une copie de la figure, puis exporte via Kaleido.
     """
+    global _LAST_DOWNLOAD_DIR
 
-    def _do_save(js_result):
+    # ── PNG : capture exacte du rendu (zoom inclus) ────────────────────────
+    if fmt == "png" and view is not None:
+        try:
+            pixmap = view.grab()
+            if pixmap.save(path, "PNG"):
+                _LAST_DOWNLOAD_DIR = os.path.dirname(path)
+                QMessageBox.information(parent, "Export réussi", f"Image enregistrée :\n{path}")
+            else:
+                QMessageBox.critical(parent, "Erreur d'export", f"Impossible d'écrire :\n{path}")
+        except Exception as e:
+            QMessageBox.critical(parent, "Erreur d'export", str(e))
+        return
+
+    # ── PDF / SVG : kaleido avec plages d'axes récupérées depuis le JS ─────
+    def _do_save_vector(js_result):
         global _LAST_DOWNLOAD_DIR
         fig_copy = copy.deepcopy(fig)
-        if js_result:
-            try:
-                data = json.loads(js_result)
-                if "xrange" in data:
-                    fig_copy.update_xaxes(range=data["xrange"])
-                if "yrange" in data:
-                    fig_copy.update_yaxes(range=data["yrange"])
-            except Exception:
-                pass
         try:
-            if fmt == "png":
-                fig_copy.write_image(path, format=fmt, scale=scale)
-            else:
-                fig_copy.write_image(path, format=fmt)
+            data = json.loads(js_result or "{}")
+            if "xrange" in data:
+                fig_copy.update_xaxes(range=data["xrange"])
+            if "yrange" in data:
+                fig_copy.update_yaxes(range=data["yrange"])
+        except Exception:
+            pass
+        try:
+            fig_copy.write_image(path, format=fmt)
             _LAST_DOWNLOAD_DIR = os.path.dirname(path)
             QMessageBox.information(parent, "Export réussi", f"Image enregistrée :\n{path}")
         except Exception as e:
@@ -176,12 +206,12 @@ def save_fig_with_current_zoom(
 
     if view is not None:
         try:
-            view.page().runJavaScript(_JS_GET_RANGES, _do_save)
+            view.page().runJavaScript(_JS_GET_RANGES, _do_save_vector)
             return
         except Exception:
             pass
-    # Fallback si pas de vue : sauvegarde sans zoom
-    _do_save(None)
+    # Fallback : kaleido sans zoom (si pas de vue disponible)
+    _do_save_vector(None)
 
 
 def load_plotly_html(view: QWebEngineView, html: str) -> None:
@@ -250,6 +280,7 @@ def set_plotly_filename(view: QWebEngineView | None, filename: str | None) -> No
         try:
             page_id = id(view.page())
             _PAGE_FILENAMES[page_id] = name
+            _PAGE_VIEWS[page_id] = view
         except Exception:
             pass
         fig = getattr(view, "_plotly_fig", None)
@@ -275,11 +306,16 @@ def _on_download_requested(download) -> None:
         pass
     page_id = id(page) if page is not None else None
 
-    # Parent + vue (pour centrer le dialogue)
+    # Parent + vue (pour centrer le dialogue et exécuter le JS)
     parent = None
     view = None
     try:
         view = page.view() if page is not None else None
+    except Exception:
+        pass
+    if view is None and page_id is not None:
+        view = _PAGE_VIEWS.get(page_id)
+    try:
         parent = view.window() if view is not None else None
     except Exception:
         pass
