@@ -254,6 +254,11 @@ Le guide ci‑dessous décrit l’ordre recommandé des étapes.
         self.analysis_tab = AnalysisTab(self)
         tabs.addTab(self.analysis_tab, "Analyse")
 
+        # Onglet Sélection de pics
+        from peak_selector import PeakSelectorTab
+        self.peak_selector_tab = PeakSelectorTab(self)
+        tabs.addTab(self.peak_selector_tab, "Sélection pics")
+
         # --- Label des sources en bas ---
         self.sources_label = QLabel("L'ensemble des sources sont à retrouver <a href='#'>ici</a>.")
         self.sources_label.setTextFormat(Qt.RichText)

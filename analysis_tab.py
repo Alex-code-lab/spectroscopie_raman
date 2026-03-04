@@ -33,6 +33,7 @@ class AnalysisTab(QWidget):
         super().__init__(parent)
         self._combined_df: Optional[pd.DataFrame] = None
         self._peaks: List[int] = []
+        self._pairs: List[tuple] = []  # paires pré-enregistrées (si preset fixe)
         self._peak_intensities: Optional[pd.DataFrame] = None
         self._ratios_long: Optional[pd.DataFrame] = None
         # Indique que l'analyse doit être (re)lancée (données ou paramètres modifiés)
@@ -58,7 +59,7 @@ class AnalysisTab(QWidget):
         opts.addWidget(QLabel("Jeu de pics :"))
         self.cmb_presets = QComboBox(self)
         self.cmb_presets.addItems([
-            "532 nm (1231,1327,1342,1358,1450)",
+            "532 nm — paires pré-enregistrées",
             "785 nm (412,444,471,547,1561)",
             "Personnalisé"
         ])
@@ -87,7 +88,7 @@ class AnalysisTab(QWidget):
         self.spin_tol.setDecimals(2)
         self.spin_tol.setRange(0.0, 50.0)
         self.spin_tol.setSingleStep(0.1)
-        self.spin_tol.setValue(2.0)
+        self.spin_tol.setValue(5.0)
         opts.addWidget(self.spin_tol)
         layout.addLayout(opts)
 
@@ -475,8 +476,17 @@ class AnalysisTab(QWidget):
         idx = 2 : mode personnalisé (défini par l'utilisateur)
         """
         if idx == 0:
-            # 532 nm – jeu de pics par défaut
-            self._peaks = [1231, 1327, 1342, 1358, 1450]
+            # 532 nm – paires pré-enregistrées
+            self._pairs = [
+                (1364, 1538),
+                (1364, 1409),
+                (1364, 1500),
+                (1361, 1631),
+                (1364, 1580),
+                (1234, 1256),
+            ]
+            # Extraire les pics uniques nécessaires pour ces paires
+            self._peaks = sorted({p for pair in self._pairs for p in pair})
             # Désactiver les champs personnalisés
             if hasattr(self, "spin_laser_nm"):
                 self.spin_laser_nm.setEnabled(False)
@@ -484,6 +494,7 @@ class AnalysisTab(QWidget):
                 self.edit_custom_waves.setEnabled(False)
         elif idx == 1:
             # 785 nm – jeu de pics par défaut
+            self._pairs = []
             self._peaks = [412, 444, 471, 547, 1561]
             # Désactiver les champs personnalisés
             if hasattr(self, "spin_laser_nm"):
@@ -493,6 +504,7 @@ class AnalysisTab(QWidget):
         else:
             # Mode personnalisé : on laisse _peaks vide ici,
             # il sera calculé dans _run_analysis à partir des λ fournies.
+            self._pairs = []
             self._peaks = []
             # Activer les champs personnalisés
             if hasattr(self, "spin_laser_nm"):
@@ -690,8 +702,9 @@ class AnalysisTab(QWidget):
 
         peak_intensities = pd.DataFrame(results)
 
-        # Calcul des ratios toutes paires (combinations)
-        for (a, b) in itertools.combinations(peaks, 2):
+        # Calcul des ratios : paires pré-enregistrées si disponibles, sinon toutes les combinaisons
+        pair_list = self._pairs if self._pairs else list(itertools.combinations(peaks, 2))
+        for (a, b) in pair_list:
             peak_intensities[f"ratio_I_{a}_I_{b}"] = peak_intensities[f"I_{a}"] / peak_intensities[f"I_{b}"]
 
         # Joindre aux métadonnées (si colonnes présentes)
