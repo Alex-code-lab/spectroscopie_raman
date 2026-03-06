@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QGroupBox,
     QAbstractItemView,
+    QInputDialog,
 )
 
 from PySide6.QtCore import Qt, QDate
@@ -114,13 +115,15 @@ class TableEditorDialog(QDialog):
         btns_edit = QHBoxLayout()
         self.btn_add_row = QPushButton("+ Ligne", self)
         self.btn_del_row = QPushButton("− Ligne", self)
-        self.btn_add_col = QPushButton("+ Colonne", self)
-        self.btn_del_col = QPushButton("− Colonne", self)
+        self.btn_add_col = QPushButton("Ajouter un tube", self)
+        self.btn_del_col = QPushButton("Retirer un tube", self)
+        self.btn_rename_col = QPushButton("Renommer colonne…", self)
         btns_edit.addWidget(self.btn_add_row)
         btns_edit.addWidget(self.btn_del_row)
         btns_edit.addSpacing(20)
         btns_edit.addWidget(self.btn_add_col)
         btns_edit.addWidget(self.btn_del_col)
+        btns_edit.addWidget(self.btn_rename_col)
 
         btns_edit.addSpacing(20)
         self.btn_reset = QPushButton(self._reset_button_text, self)
@@ -130,11 +133,27 @@ class TableEditorDialog(QDialog):
         btns_edit.addStretch(1)
         layout.addLayout(btns_edit)
 
+        # --- Option saisie manuelle (désactive la sync A↔B) ---
+        mode_row = QHBoxLayout()
+        self.chk_manual_mode = QCheckBox("Saisie manuelle (désactiver la synchronisation Solution A ↔ Solution B)", self)
+        self.chk_manual_mode.setToolTip(
+            "Coché : vous pouvez saisir librement les volumes de Solution A et Solution B "
+            "sans qu'ils se recalculent mutuellement.\n"
+            "Décoché (défaut) : modifier A ajuste B automatiquement pour conserver la somme constante."
+        )
+        mode_row.addWidget(self.chk_manual_mode)
+        mode_row.addStretch(1)
+        layout.addLayout(mode_row)
+
         self.btn_add_row.clicked.connect(self._add_row)
         self.btn_del_row.clicked.connect(self._del_row)
         self.btn_add_col.clicked.connect(self._add_col)
         self.btn_del_col.clicked.connect(self._del_col)
+        self.btn_rename_col.clicked.connect(self._rename_col)
         self.btn_reset.clicked.connect(self._reset_table)
+
+        # Double-clic sur un en-tête de colonne → renommer
+        self.table.horizontalHeader().sectionDoubleClicked.connect(self._rename_col)
 
         # --- Boutons OK / Annuler ---
         btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
@@ -324,18 +343,52 @@ class TableEditorDialog(QDialog):
             self._refresh_sum_row()
 
     def _add_col(self) -> None:
+        # Trouver les colonnes "Tube N" existantes et le dernier numéro
+        tube_indices = self._get_tube_column_indices()
+        if tube_indices:
+            last_tube_col = tube_indices[-1]
+            last_header = self.table.horizontalHeaderItem(last_tube_col)
+            last_name = last_header.text().strip() if last_header else ""
+            # Extraire le numéro du dernier tube (ex: "Tube 5" → 5)
+            import re as _re
+            m = _re.search(r"\d+$", last_name)
+            next_num = int(m.group()) + 1 if m else len(tube_indices) + 1
+            new_name = f"Tube {next_num}"
+        else:
+            last_tube_col = None
+            new_name = "Tube 1"
+
+        # Insérer la nouvelle colonne
         col_count = self.table.columnCount()
         self.table.insertColumn(col_count)
-        # Nom de colonne générique
-        new_name = f"Col{col_count+1}"
         self._columns.append(new_name)
         self.table.setHorizontalHeaderLabels(self._columns)
+
+        # Pré-remplir depuis le dernier tube (hors ligne de somme)
+        # Les signaux sont bloqués pour éviter que sync_A_B se déclenche
+        # au milieu de la copie avec un target_sum incomplet/erroné.
+        if last_tube_col is not None:
+            n_data_rows = self._sum_row_idx if (self._sum_row_enabled and self._sum_row_idx is not None) else self.table.rowCount()
+            self.table.blockSignals(True)
+            try:
+                for r in range(n_data_rows):
+                    src = self.table.item(r, last_tube_col)
+                    txt = src.text() if src is not None else ""
+                    self.table.setItem(r, col_count, QTableWidgetItem(txt))
+            finally:
+                self.table.blockSignals(False)
+
         if self._sum_row_enabled:
             self._ensure_sum_row_items()
             self._refresh_sum_row()
 
     def _del_col(self) -> None:
-        col = self.table.currentColumn()
+        # Retirer le dernier tube en priorité; sinon la colonne sélectionnée
+        tube_indices = self._get_tube_column_indices()
+        if tube_indices:
+            col = tube_indices[-1]
+        else:
+            col = self.table.currentColumn()
         if col < 0:
             return
         if 0 <= col < len(self._columns):
@@ -344,6 +397,25 @@ class TableEditorDialog(QDialog):
         self.table.setHorizontalHeaderLabels(self._columns)
         if self._sum_row_enabled:
             self._refresh_sum_row()
+
+    def _rename_col(self, col: int = -1) -> None:
+        """Renomme la colonne `col` (ou la colonne actuellement sélectionnée si col=-1)."""
+        if col < 0:
+            col = self.table.currentColumn()
+        if col < 0 or col >= self.table.columnCount():
+            QMessageBox.information(self, "Renommer", "Cliquez d'abord sur une colonne pour la sélectionner.")
+            return
+        header = self.table.horizontalHeaderItem(col)
+        current_name = header.text() if header is not None else ""
+        new_name, ok = QInputDialog.getText(
+            self, "Renommer la colonne", f"Nouveau nom pour « {current_name} » :", text=current_name
+        )
+        if not ok or not new_name.strip():
+            return
+        new_name = new_name.strip()
+        if 0 <= col < len(self._columns):
+            self._columns[col] = new_name
+        self.table.setHorizontalHeaderLabels(self._columns)
 
     def _reset_table(self) -> None:
         """Restaure le tableau par défaut (si fourni)."""
@@ -3277,6 +3349,9 @@ class MetadataCreatorWidget(QWidget):
 
         def sync_A_B(item: QTableWidgetItem) -> None:
             if item is None:
+                return
+            # Saisie manuelle activée → ne rien synchroniser
+            if dlg.chk_manual_mode.isChecked():
                 return
             r = item.row()
             c = item.column()

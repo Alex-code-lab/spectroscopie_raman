@@ -1186,6 +1186,81 @@ pdf.body(
     "une valeur rho pour chaque longueur d'onde."
 )
 
+pdf.h2("13.1.1.b - Pourquoi cette formule mesure-t-elle la correlation ?")
+pdf.body(
+    "La cle est dans les RANGS. Tout s'explique en regardant les deux cas extremes :"
+)
+
+# Cas 1 : corrélation parfaite
+pdf.set_font("Helvetica", "B", 9)
+pdf.set_text_color(*BLUE)
+pdf.set_x(MARGIN)
+pdf.cell(TW, 5, "  Cas 1 : correlation parfaite (l'intensite suit exactement n(titrant))",
+         new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+pdf.set_text_color(*DARK)
+pdf.math_box(
+    "    Tube  Rang_n   Rang_I   d = Rg_n - Rg_I   d^2\n"
+    "      1     1        1            0              0\n"
+    "      2     2        2            0              0\n"
+    "      3     3        3            0              0\n"
+    "      4     4        4            0              0\n"
+    "      5     5        5            0              0\n\n"
+    "    somme(d^2) = 0\n"
+    "    rho = 1 - (6 x 0) / (5 x 24) = 1 - 0 = 1.0  <- correlation parfaite",
+    "Les rangs sont identiques : chaque d_i = 0. "
+    "La somme est nulle, donc rho = 1. "
+    "L'intensite monte EXACTEMENT comme n(titrant)."
+)
+
+# Cas 2 : anti-corrélation parfaite
+pdf.set_font("Helvetica", "B", 9)
+pdf.set_text_color(*BLUE)
+pdf.set_x(MARGIN)
+pdf.cell(TW, 5, "  Cas 2 : anti-correlation parfaite (l'intensite fait exactement l'inverse)",
+         new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+pdf.set_text_color(*DARK)
+pdf.math_box(
+    "    Tube  Rang_n   Rang_I   d = Rg_n - Rg_I   d^2\n"
+    "      1     1        5           -4             16\n"
+    "      2     2        4           -2              4\n"
+    "      3     3        3            0              0\n"
+    "      4     4        2            2              4\n"
+    "      5     5        1            4             16\n\n"
+    "    somme(d^2) = 40\n"
+    "    rho = 1 - (6 x 40) / (5 x 24) = 1 - 240/120 = 1 - 2 = -1.0  <- anti-correlation parfaite",
+    "Les rangs sont exactement inverses. "
+    "La somme est maximale, d'ou rho = -1. "
+    "L'intensite DESCEND exactement quand n(titrant) monte."
+)
+
+# Cas 3 : aucune corrélation
+pdf.set_font("Helvetica", "B", 9)
+pdf.set_text_color(*BLUE)
+pdf.set_x(MARGIN)
+pdf.cell(TW, 5, "  Cas 3 : aucune correlation (rangs melanges aleatoirement)",
+         new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+pdf.set_text_color(*DARK)
+pdf.math_box(
+    "    Tube  Rang_n   Rang_I   d    d^2\n"
+    "      1     1        3     -2     4\n"
+    "      2     2        1      1     1\n"
+    "      3     3        5     -2     4\n"
+    "      4     4        2      2     4\n"
+    "      5     5        4      1     1\n\n"
+    "    somme(d^2) = 14\n"
+    "    rho = 1 - (6 x 14) / (5 x 24) = 1 - 84/120 = 1 - 0.70 = 0.30",
+    "Les rangs n'ont aucun lien. Les d se compensent partiellement "
+    "et rho tend vers 0. Plus le melange est 'parfaitement aleatoire', "
+    "plus rho se rapproche de 0."
+)
+pdf.info_box(
+    "RESUME : rho mesure a quel point les classements (rangs) de deux variables "
+    "se ressemblent. Rangs identiques -> rho = +1. "
+    "Rangs inverses -> rho = -1. "
+    "Rangs sans lien -> rho = 0. "
+    "Pas besoin de relation lineaire : seul l'ORDRE compte."
+)
+
 pdf.h2("13.1.2 - Interpretation des valeurs de rho")
 pdf.body("Les valeurs de rho vont toujours de -1 a +1 :")
 corr_table = [
@@ -1232,6 +1307,100 @@ pdf.body(
     "Astuce : si vous preferez une paire rouge plutot que bleue, "
     "il suffit d'inverser le rapport (utiliser I_B/I_A au lieu de I_A/I_B). "
     "Cela change le signe de rho sans changer |rho|."
+)
+
+pdf.add_page()
+pdf.h2("13.1.4 - Application concrete : comment rho est calcule sur un spectre Raman")
+pdf.body(
+    "Voici pas-a-pas comment le logiciel calcule rho pour UN wavenumber particulier. "
+    "Ce calcul est repete pour chaque wavenumber du spectre (typiquement 1000 a 3000 points)."
+)
+pdf.info_box(
+    "Contexte : vous avez mesure N tubes, chacun avec une concentration differente de titrant. "
+    "Pour chaque tube, vous avez un spectre Raman complet. "
+    "Le logiciel veut savoir : 'a 1364 cm^-1, l'intensite augmente-t-elle quand on ajoute du titrant ?'"
+)
+
+pdf.body("Etape 0 : les donnees de depart (exemple avec 6 tubes)")
+# Table header
+col_widths = [28, 38, 38, 20, 20, 28, 16]
+headers = ["Spectre", "n(titrant) (mol)", "I a 1364 cm-1", "Rang n", "Rang I", "d = Rg_n - Rg_I", "d^2"]
+pdf.set_font("Helvetica", "B", 8)
+pdf.set_fill_color(220, 230, 245)
+pdf.set_x(MARGIN)
+for i, (h, w) in enumerate(zip(headers, col_widths)):
+    pdf.cell(w, 6, h, border=1, fill=True, align="C")
+pdf.ln()
+rows_example = [
+    ("Tube 1", "0.00e-9",  "120", "1", "4", "1-4 = -3", "9"),
+    ("Tube 2", "0.50e-9",   "85", "2", "2", "2-2 =  0", "0"),
+    ("Tube 3", "1.00e-9",   "60", "3", "1", "3-1 =  2", "4"),
+    ("Tube 4", "2.00e-9",  "140", "4", "5", "4-5 = -1", "1"),
+    ("Tube 5", "4.00e-9",  "190", "5", "6", "5-6 = -1", "1"),
+    ("Tube 6", "8.00e-9",  "110", "6", "3", "6-3 =  3", "9"),
+]
+pdf.set_font("Courier", "", 8)
+for i, row in enumerate(rows_example):
+    fill = (i % 2 == 0)
+    pdf.set_fill_color(245, 248, 255)
+    pdf.set_x(MARGIN)
+    for val, w in zip(row, col_widths):
+        pdf.cell(w, 5.5, val, border=1, fill=fill, align="C")
+    pdf.ln()
+
+pdf.ln(2)
+pdf.set_font("Helvetica", "", 9)
+pdf.set_text_color(*DARK)
+pdf.body(
+    "Note : les rangs sont attribues de 1 (valeur la plus petite) a N (valeur la plus grande), "
+    "independamment pour n et pour I."
+)
+pdf.body("Etape 1 : calculer la somme des d^2.")
+pdf.math_box(
+    "    somme(d^2) = 9 + 0 + 4 + 1 + 1 + 9 = 24\n"
+    "    N = 6 (nombre de spectres)"
+)
+pdf.body("Etape 2 : appliquer la formule de Spearman.")
+pdf.math_box(
+    "    rho = 1 - (6 x somme(d^2)) / (N x (N^2 - 1))\n\n"
+    "        = 1 - (6 x 24) / (6 x (36 - 1))\n"
+    "        = 1 - 144 / 210\n"
+    "        = 1 - 0.686\n"
+    "        = 0.314",
+    "rho = 0.31 : correlation FAIBLE a ce wavenumber. L'intensite a 1364 cm^-1 "
+    "ne suit pas bien n(titrant) dans cet exemple."
+)
+pdf.body(
+    "Si l'on refait le meme calcul a un autre wavenumber, par exemple 1409 cm^-1, "
+    "et que les intensites suivent parfaitement l'ordre croissant de n(titrant), "
+    "on obtiendrait rho = 1.0 (correlation parfaite)."
+)
+pdf.ln(2)
+
+pdf.h2("13.1.5 - Pourquoi la courbe brute (rho point-a-point) est-elle si bruitee ?")
+pdf.body(
+    "Le logiciel calcule rho pour CHAQUE colonne de pixels du spectre, soit un calcul "
+    "independant par wavenumber. Cela pose un probleme pratique :"
+)
+pdf.bullet(
+    "Les spectres Raman sont continus : le wavenumber 1363 cm^-1 et 1365 cm^-1 portent "
+    "une information quasiment identique. Leurs rho individuels devraient donc etre proches."
+)
+pdf.bullet(
+    "Mais chaque mesure de rho est basee sur seulement N spectres (souvent 8 a 15). "
+    "Avec si peu de points, la variabilite statistique est grande : un seul spectre 'anormal' "
+    "peut faire passer rho de 0.9 a 0.4 pour un seul wavenumber."
+)
+pdf.bullet(
+    "Resultat : la courbe rho brute 'tremble' vite d'un wavenumber au suivant, "
+    "rendant difficile l'identification des vrais pics (maxima stables) "
+    "par rapport au bruit statistique."
+)
+pdf.info_box(
+    "Solution : on calcule |rho| puis on lisse par une moyenne glissante (fenetre de quelques cm^-1). "
+    "Les vrais pics Raman (larges de 5 a 30 cm^-1) ressortent comme des bosses stables, "
+    "tandis que les fluctuations aleatoires point-a-point sont moyennees. "
+    "C'est la 'Courbe 2 : |rho| lisse' visible dans l'onglet 'Selection pics'."
 )
 
 pdf.add_page()
@@ -1440,6 +1609,94 @@ pdf.info_box(
     "suggerent des regions candidates. L'onglet 'Selection pics' confirme et classe "
     "les paires par force de correlation brute. Les deux outils convergent en general "
     "vers les memes pics - si ce n'est pas le cas, investiguer pourquoi."
+)
+
+pdf.add_page()
+pdf.h2("13.5 - Comment sont calculees les meilleures paires de pics ?")
+pdf.body(
+    "Une fois le spectre de correlation calcule, le logiciel identifie les meilleures paires "
+    "de pics en deux etapes enchainees."
+)
+
+pdf.h2("13.5.1 - Etape 1 : identifier les pics candidats (wavenumbers individuels)")
+pdf.body(
+    "Le logiciel calcule le score combine pour chaque wavenumber j :"
+)
+pdf.math_box(
+    "    Score(j) = |rho(I_j, n)| lisse  x  dynamique normalisee(j)",
+    "Ce score est eleve uniquement si le wavenumber est A LA FOIS "
+    "bien correle avec n(titrant) ET visible dans le spectre (amplitude suffisante)."
+)
+pdf.body(
+    "Les MAXIMA LOCAUX de ce score deviennent les 'pics candidats'. "
+    "Par exemple : 1234, 1364, 1409, 1500, 1538, 1580, 1631 cm^-1."
+)
+pdf.body(
+    "Un parametre 'Nb de candidats' controle combien de maxima sont retenus. "
+    "Trop peu -> on rate de bonnes paires. Trop -> on teste des combinaisons peu pertinentes."
+)
+
+pdf.h2("13.5.2 - Etape 2 : tester toutes les paires de candidats")
+pdf.body(
+    "Pour CHAQUE combinaison (pic A, pic B) parmi les candidats, le logiciel :"
+)
+pdf.bullet("Calcule le rapport I_A / I_B pour chaque spectre (un seul nombre par tube)")
+pdf.bullet("Calcule rho(I_A/I_B, n(titrant)) sur tous les spectres")
+pdf.bullet("Retient |rho| comme score de la paire")
+pdf.body("Toutes les paires sont ensuite triees par |rho| decroissant.")
+
+pdf.h2("13.5.3 - Pourquoi un rapport I_A/I_B plutot qu'un pic seul ?")
+pdf.body("Exemple concret avec 4 tubes :")
+# Table
+col_widths_p = [22, 30, 28, 28, 38]
+headers_p = ["Tube", "n(titrant)", "I(1364)", "I(1538)", "I1364 / I1538"]
+pdf.set_font("Helvetica", "B", 8)
+pdf.set_fill_color(220, 230, 245)
+pdf.set_x(MARGIN + 10)
+for h, w in zip(headers_p, col_widths_p):
+    pdf.cell(w, 6, h, border=1, fill=True, align="C")
+pdf.ln()
+rows_p = [
+    ("Tube 1", "0 mol",    "200", "800", "0.25"),
+    ("Tube 2", "20e-9 mol","300", "600", "0.50"),
+    ("Tube 3", "40e-9 mol","400", "400", "1.00"),
+    ("Tube 4", "60e-9 mol","500", "200", "2.50"),
+]
+pdf.set_font("Courier", "", 8)
+for i, row in enumerate(rows_p):
+    fill = (i % 2 == 0)
+    pdf.set_fill_color(245, 248, 255)
+    pdf.set_x(MARGIN + 10)
+    for val, w in zip(row, col_widths_p):
+        pdf.cell(w, 5.5, val, border=1, fill=fill, align="C")
+    pdf.ln()
+
+pdf.ln(2)
+pdf.set_font("Helvetica", "", 9)
+pdf.set_text_color(*DARK)
+pdf.body(
+    "Dans cet exemple :"
+)
+pdf.bullet(
+    "rho(I_1364, n) est bon, mais peut etre perturbe si le laser fluctue : "
+    "si la puissance monte de 10%, I_1364 monte aussi... sans lien avec la chimie."
+)
+pdf.bullet(
+    "rho(I_1364/I_1538, n) est ENCORE MEILLEUR : si le laser monte de 10%, "
+    "I_1364 et I_1538 montent tous les deux de 10%, et le ratio reste constant. "
+    "Seule la variation CHIMIQUE (reaction) modifie le rapport. "
+    "Le rapport divise le bruit laser commun."
+)
+pdf.info_box(
+    "Resume du pipeline complet :\n\n"
+    "Spectres bruts\n"
+    "  -> rho(I_j, n) pour chaque wavenumber j\n"
+    "  -> Spectre de correlation (courbe brute, section 13.2)\n"
+    "  -> |rho| lisse x dynamique = Score combine\n"
+    "  -> Maxima du score = pics candidats\n"
+    "  -> Pour chaque paire (A, B) de candidats : rho(I_A/I_B, n)\n"
+    "  -> Tri par |rho| decroissant\n"
+    "  -> Tableau 'Paires candidates' (onglet Selection pics)"
 )
 
 pdf.separator()
