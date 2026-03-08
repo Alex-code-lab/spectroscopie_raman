@@ -34,7 +34,6 @@ class MainWindow(QMainWindow):
         # Fixer la largeur de la fenêtre pour éviter qu'elle ne s'agrandisse en fonction du contenu,
         # tout en permettant à l'utilisateur de modifier la hauteur.
         self.setMinimumSize(1200, 600)
-        self.setMaximumWidth(1200)
 
         # --- Status bar ---
         self.setStatusBar(QStatusBar(self))
@@ -245,19 +244,14 @@ Le guide ci‑dessous décrit l’ordre recommandé des étapes.
         self.spectra_tab = SpectraTab(self.file_picker, self)
         tabs.addTab(self.spectra_tab, "Spectres")
 
-        # Onglet PCA
-        from pca import PCATab
-        self.pca_tab = PCATab(self)
-        tabs.addTab(self.pca_tab, "PCA")
-
         # Onglet Analyse
         self.analysis_tab = AnalysisTab(self)
         tabs.addTab(self.analysis_tab, "Analyse")
 
-        # Onglet Sélection de pics
+        # Onglet Exploration (PCA + sélection de pics fusionnés)
         from peak_selector import PeakSelectorTab
         self.peak_selector_tab = PeakSelectorTab(self)
-        tabs.addTab(self.peak_selector_tab, "Sélection pics")
+        tabs.addTab(self.peak_selector_tab, "Exploration")
 
         # --- Label des sources en bas ---
         self.sources_label = QLabel("L'ensemble des sources sont à retrouver <a href='#'>ici</a>.")

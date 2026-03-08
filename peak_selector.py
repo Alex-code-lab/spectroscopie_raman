@@ -288,6 +288,16 @@ class PeakSelectorTab(QWidget):
         super().__init__(parent)
         self._combined_df: pd.DataFrame | None = None
         self._result: dict | None = None
+        # PCA libre — données stockées après _run_analysis
+        self._X_proc: np.ndarray | None = None
+        self._wavenumbers_proc: np.ndarray | None = None
+        self._r_v: np.ndarray | None = None
+        self._ids_v: np.ndarray | None = None
+        self._meta_v: pd.DataFrame | None = None
+        self._pca_libre_pca: PCA | None = None
+        self._pca_libre_scores: np.ndarray | None = None
+        self._pca_libre_loadings: np.ndarray | None = None
+        self._pca_libre_ev_ratio: np.ndarray | None = None
         self._setup_ui()
 
     # ── UI ────────────────────────────────────────────────────────────────────
@@ -331,7 +341,18 @@ class PeakSelectorTab(QWidget):
         self.spin_n_pca = QSpinBox()
         self.spin_n_pca.setRange(2, 10)
         self.spin_n_pca.setValue(5)
-        ctrl.addRow("Composantes PCA :", self.spin_n_pca)
+        ctrl.addRow("Composantes PCA corrélée :", self.spin_n_pca)
+
+        self.spin_n_comp_libre = QSpinBox()
+        self.spin_n_comp_libre.setRange(2, 15)
+        self.spin_n_comp_libre.setValue(5)
+        ctrl.addRow("Composantes PCA libre :", self.spin_n_comp_libre)
+
+        self.cmb_color = QComboBox()
+        self.cmb_color.setEnabled(False)
+        self.cmb_color.setToolTip("Colonne utilisée pour colorier les points dans PCA — Scores")
+        self.cmb_color.currentIndexChanged.connect(self._on_color_changed)
+        ctrl.addRow("Couleur des scores :", self.cmb_color)
 
         # Plage Raman (filtre les zones bruyantes / artéfacts de bord de détecteur)
         wn_row = QHBoxLayout()
@@ -416,6 +437,34 @@ class PeakSelectorTab(QWidget):
         self.result_tabs.addTab(pairs_tab,        "Paires candidates")
         self.result_tabs.addTab(self.view_ratio,  "Meilleur rapport")
         self.result_tabs.addTab(self.view_pca,    "PCA & corrélation")
+
+        # ── PCA libre : Scores ─────────────────────────────────────────────────
+        self.view_pca_scores = QWebEngineView()
+        install_plotly_download_handler(self.view_pca_scores)
+        self.result_tabs.addTab(self.view_pca_scores, "PCA — Scores")
+
+        # ── PCA libre : Loadings ───────────────────────────────────────────────
+        self.view_pca_loadings = QWebEngineView()
+        install_plotly_download_handler(self.view_pca_loadings)
+        self.result_tabs.addTab(self.view_pca_loadings, "PCA — Loadings")
+
+        # ── PCA libre : Reconstruction ─────────────────────────────────────────
+        recon_tab = QWidget()
+        recon_layout = QVBoxLayout(recon_tab)
+        recon_layout.setContentsMargins(4, 4, 4, 4)
+        recon_ctrl_row = QHBoxLayout()
+        recon_ctrl_row.addWidget(QLabel("Spectre à reconstruire :"))
+        self.cmb_spec_recon = QComboBox()
+        self.cmb_spec_recon.setEnabled(False)
+        self.cmb_spec_recon.setMinimumWidth(280)
+        self.cmb_spec_recon.currentIndexChanged.connect(self._on_spec_recon_changed)
+        recon_ctrl_row.addWidget(self.cmb_spec_recon)
+        recon_ctrl_row.addStretch()
+        recon_layout.addLayout(recon_ctrl_row)
+        self.view_pca_recon = QWebEngineView()
+        install_plotly_download_handler(self.view_pca_recon)
+        recon_layout.addWidget(self.view_pca_recon)
+        self.result_tabs.addTab(recon_tab, "PCA — Reconstruction")
 
         layout.addWidget(self.result_tabs, 1)
 
@@ -527,6 +576,13 @@ class PeakSelectorTab(QWidget):
         # Normalisation
         X_proc = normalize_matrix(X_v, self.cmb_norm.currentIndex())
 
+        # Stocker pour PCA libre (accédé par _run_pca_libre)
+        self._X_proc = X_proc
+        self._wavenumbers_proc = wavenumbers
+        self._r_v = r_v
+        self._ids_v = ids_v
+        self._meta_v = meta_v
+
         self.lbl_status.setText("Calcul de la corrélation par wavenumber…")
 
         # Corrélation de Spearman
@@ -570,6 +626,8 @@ class PeakSelectorTab(QWidget):
         }
 
         self._plot_all()
+        self._populate_pca_libre_combos()
+        self._run_pca_libre()
 
         best = pairs[0] if pairs else None
         summary = (
@@ -972,6 +1030,225 @@ class PeakSelectorTab(QWidget):
             lines.append("\t".join(cells))
 
         QApplication.clipboard().setText("\n".join(lines))
+
+    # ── PCA libre ─────────────────────────────────────────────────────────────
+
+    def _populate_pca_libre_combos(self):
+        """Peuple cmb_color et cmb_spec_recon après une analyse."""
+        meta_v = self._meta_v
+        # cmb_color : toutes les colonnes méta disponibles
+        old_color = self.cmb_color.currentText()
+        self.cmb_color.blockSignals(True)
+        self.cmb_color.clear()
+        skip = {"Raman Shift", "Intensity", "Intensity_corrected", "Dark Subtracted #1"}
+        candidates = []
+        if meta_v is not None:
+            for col in meta_v.columns:
+                if col not in skip:
+                    candidates.append(col)
+        if not candidates:
+            candidates = ["(aucune)"]
+        self.cmb_color.addItems(candidates)
+        idx = self.cmb_color.findText(old_color)
+        if idx >= 0:
+            self.cmb_color.setCurrentIndex(idx)
+        self.cmb_color.blockSignals(False)
+        self.cmb_color.setEnabled(True)
+
+        # cmb_spec_recon
+        self.cmb_spec_recon.blockSignals(True)
+        self.cmb_spec_recon.clear()
+        if self._ids_v is not None:
+            self.cmb_spec_recon.addItems([str(s) for s in self._ids_v])
+        self.cmb_spec_recon.setEnabled(True)
+        self.cmb_spec_recon.blockSignals(False)
+
+    def _run_pca_libre(self):
+        """Lance la PCA libre et peuple les 3 sous-onglets Scores/Loadings/Reconstruction."""
+        if self._X_proc is None:
+            return
+        X = self._X_proc
+        wn = self._wavenumbers_proc
+        ids = self._ids_v
+        meta = self._meta_v
+
+        n_comp = min(self.spin_n_comp_libre.value(), X.shape[0] - 1, X.shape[1])
+        pca = PCA(n_components=n_comp)
+        scores = pca.fit_transform(X)
+        loadings = pca.components_
+        ev_ratio = pca.explained_variance_ratio_
+
+        self._pca_libre_pca = pca
+        self._pca_libre_scores = scores
+        self._pca_libre_loadings = loadings
+        self._pca_libre_ev_ratio = ev_ratio
+
+        self._plot_pca_scores(scores, ev_ratio, ids, meta)
+        self._plot_pca_loadings(loadings, wn, ev_ratio)
+        self._plot_pca_recon(pca, X, wn, ids, spec_idx=0)
+
+    def _on_color_changed(self, _idx):
+        """Re-trace les scores avec la nouvelle couleur."""
+        if self._pca_libre_scores is None or self._meta_v is None:
+            return
+        self._plot_pca_scores(
+            self._pca_libre_scores, self._pca_libre_ev_ratio, self._ids_v, self._meta_v
+        )
+
+    def _on_spec_recon_changed(self, idx):
+        """Re-trace la reconstruction pour le spectre sélectionné."""
+        if self._pca_libre_pca is None or self._X_proc is None:
+            return
+        self._plot_pca_recon(
+            self._pca_libre_pca, self._X_proc, self._wavenumbers_proc, self._ids_v,
+            spec_idx=idx,
+        )
+
+    def _plot_pca_scores(self, scores, ev_ratio, ids, meta):
+        """Scatter PC1 vs PC2 colorié par la colonne choisie dans cmb_color."""
+        color_col = self.cmb_color.currentText()
+        pc1 = scores[:, 0]
+        pc2 = scores[:, 1]
+        n_comp = scores.shape[1]
+        pc_labels = [f"PC{k+1} ({ev_ratio[k]*100:.1f}%)" for k in range(n_comp)]
+
+        color_vals = None
+        color_title = color_col
+        if meta is not None and color_col in meta.columns:
+            raw = meta[color_col]
+            num = pd.to_numeric(raw, errors="coerce")
+            if num.notna().any():
+                color_vals = num.fillna(0).to_numpy(dtype=float)
+            else:
+                color_vals = raw.fillna("").astype(str).tolist()
+
+        fig = go.Figure()
+        id_texts = [str(s) for s in ids] if ids is not None else [str(i) for i in range(len(pc1))]
+
+        if color_vals is None or (isinstance(color_vals, list) and isinstance(color_vals[0], str)):
+            # Catégoriel ou pas de couleur
+            unique_cats = list(dict.fromkeys(color_vals)) if color_vals is not None else []
+            palette = [
+                "#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6",
+                "#1abc9c", "#e67e22", "#34495e", "#e91e63", "#00bcd4",
+            ]
+            cat_color_map = {c: palette[i % len(palette)] for i, c in enumerate(unique_cats)}
+            if color_vals is not None:
+                for cat in unique_cats:
+                    mask = [v == cat for v in color_vals]
+                    fig.add_trace(go.Scatter(
+                        x=pc1[mask], y=pc2[mask],
+                        mode="markers",
+                        name=str(cat),
+                        marker=dict(size=10, color=cat_color_map[cat]),
+                        text=[t for t, m in zip(id_texts, mask) if m],
+                        hovertemplate="%{text}<br>PC1=%{x:.3f}<br>PC2=%{y:.3f}<extra></extra>",
+                    ))
+            else:
+                fig.add_trace(go.Scatter(
+                    x=pc1, y=pc2, mode="markers",
+                    marker=dict(size=10),
+                    text=id_texts,
+                    hovertemplate="%{text}<br>PC1=%{x:.3f}<br>PC2=%{y:.3f}<extra></extra>",
+                ))
+        else:
+            fig.add_trace(go.Scatter(
+                x=pc1, y=pc2, mode="markers",
+                marker=dict(
+                    size=10, color=color_vals, colorscale="Viridis", showscale=True,
+                    colorbar=dict(title=color_title),
+                ),
+                text=id_texts,
+                hovertemplate=(
+                    "%{text}<br>PC1=%{x:.3f}<br>PC2=%{y:.3f}<br>"
+                    + color_title + "=%{marker.color:.3e}<extra></extra>"
+                ),
+            ))
+
+        fig.update_layout(
+            title="PCA libre — Scores PC1 vs PC2",
+            xaxis_title=pc_labels[0],
+            yaxis_title=pc_labels[1],
+            width=1200, height=560,
+        )
+
+        manip = self._get_manip_name()
+        fb = sanitize_filename(f"{manip}_PCA_Scores") if manip else "PCA_Scores"
+        set_plotly_filename(self.view_pca_scores, fb)
+        self.view_pca_scores._plotly_fig = fig
+        load_plotly_html(self.view_pca_scores, fig.to_html(include_plotlyjs=True))
+
+    def _plot_pca_loadings(self, loadings, wn, ev_ratio):
+        """Courbes des loadings pour toutes les composantes (les premières visibles)."""
+        n_comp = loadings.shape[0]
+        palette = [
+            "#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6",
+            "#1abc9c", "#e67e22", "#34495e", "#e91e63", "#00bcd4",
+            "#8bc34a", "#ff5722", "#607d8b", "#795548", "#ffeb3b",
+        ]
+        fig = go.Figure()
+        for k in range(n_comp):
+            fig.add_trace(go.Scatter(
+                x=wn, y=loadings[k],
+                mode="lines",
+                name=f"PC{k+1} ({ev_ratio[k]*100:.1f}%)",
+                line=dict(color=palette[k % len(palette)], width=1.5),
+                visible=True if k < 3 else "legendonly",
+            ))
+        fig.add_hline(y=0, line_color="gray", line_width=0.5)
+        fig.update_layout(
+            title="PCA libre — Loadings (PC1-3 visibles, autres dans la légende)",
+            xaxis_title="Raman Shift (cm⁻¹)",
+            yaxis_title="Loading",
+            width=1200, height=560,
+            legend=dict(title="Composante"),
+        )
+        manip = self._get_manip_name()
+        fb = sanitize_filename(f"{manip}_PCA_Loadings") if manip else "PCA_Loadings"
+        set_plotly_filename(self.view_pca_loadings, fb)
+        self.view_pca_loadings._plotly_fig = fig
+        load_plotly_html(self.view_pca_loadings, fig.to_html(include_plotlyjs=True))
+
+    def _plot_pca_recon(self, pca, X, wn, ids, spec_idx=0):
+        """Spectre original vs reconstruit (résidu en option) pour le spectre sélectionné."""
+        if X is None or len(X) == 0:
+            return
+        spec_idx = max(0, min(spec_idx, X.shape[0] - 1))
+        X_recon = pca.inverse_transform(pca.transform(X))
+        orig  = X[spec_idx]
+        recon = X_recon[spec_idx]
+        spec_name = str(ids[spec_idx]) if ids is not None else f"Spectre {spec_idx}"
+        n_comp = pca.n_components_
+        cum_var = float(np.sum(pca.explained_variance_ratio_)) * 100
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=wn, y=orig, mode="lines",
+            name="Original",
+            line=dict(color="#2c3e50", width=1.5),
+        ))
+        fig.add_trace(go.Scatter(
+            x=wn, y=recon, mode="lines",
+            name=f"Reconstruit ({n_comp} PC, {cum_var:.1f}% var.)",
+            line=dict(color="#e74c3c", width=1.5, dash="dash"),
+        ))
+        fig.add_trace(go.Scatter(
+            x=wn, y=orig - recon, mode="lines",
+            name="Résidu",
+            line=dict(color="#95a5a6", width=1),
+            visible="legendonly",
+        ))
+        fig.update_layout(
+            title=f"PCA libre — Reconstruction : {spec_name}",
+            xaxis_title="Raman Shift (cm⁻¹)",
+            yaxis_title="Intensité (normalisée)",
+            width=1200, height=560,
+        )
+        manip = self._get_manip_name()
+        fb = sanitize_filename(f"{manip}_PCA_Reconstruction") if manip else "PCA_Reconstruction"
+        set_plotly_filename(self.view_pca_recon, fb)
+        self.view_pca_recon._plotly_fig = fig
+        load_plotly_html(self.view_pca_recon, fig.to_html(include_plotlyjs=True))
 
     # ── Utilitaires ───────────────────────────────────────────────────────────
 

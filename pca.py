@@ -134,7 +134,7 @@ class PCATab(QWidget):
         self.cmb_loadings_mode = QComboBox(self)
         self.cmb_loadings_mode.addItem("PC1 & PC2")
         self.cmb_loadings_mode.currentIndexChanged.connect(self._update_loadings_plot)
-        load_ctrl.addWidget(self.cmb_loadings_mode)
+        load_ctrl.addWidget(self.cmb_loadings_mode) 
         layout.addLayout(load_ctrl)
 
         # ---- Choix du spectre pour la reconstruction ----
