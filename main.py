@@ -61,28 +61,28 @@ class MainWindow(QMainWindow):
 <style>
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-    color: #2b2b2b;
+    color: #d4d4d4;
     max-width: 860px;
   }
   h2 { color: #46ba48; margin-top: 6px; margin-bottom: 8px; }
-  h3 { color: #46ba48; margin-top: 22px; margin-bottom: 6px; border-bottom: 1px solid #ddd; padding-bottom: 3px; }
-  h4 { color: #3a7ca5; margin-top: 16px; margin-bottom: 4px; }
+  h3 { color: #46ba48; margin-top: 22px; margin-bottom: 6px; border-bottom: 1px solid #444; padding-bottom: 3px; }
+  h4 { color: #6fa8d6; margin-top: 16px; margin-bottom: 4px; }
   p  { line-height: 1.6; margin-bottom: 8px; }
   ul, ol { margin-left: 20px; }
   li { margin-bottom: 5px; line-height: 1.5; }
-  .key    { font-weight: 700; color: #c4293d; }
-  .accent { font-weight: 600; color: #2f6fad; }
-  .warn   { font-weight: 600; color: #b00020; }
-  .ok     { font-weight: 600; color: #1e7f43; }
+  .key    { font-weight: 700; color: #e06c75; }
+  .accent { font-weight: 600; color: #6fa8d6; }
+  .warn   { font-weight: 600; color: #e06c75; }
+  .ok     { font-weight: 600; color: #46ba48; }
   .mono   { font-family: Menlo, Consolas, "Courier New", monospace; font-size: 0.92em;
-            background: #f3f3f3; padding: 1px 4px; border-radius: 3px; }
-  .note   { border-left: 4px solid #2f6fad; background: #f0f5ff;
+            background: #2a2a2a; color: #abb2bf; padding: 1px 4px; border-radius: 3px; }
+  .note   { border-left: 4px solid #6fa8d6; background: #1e2a36;
             padding: 8px 12px; margin: 12px 0; border-radius: 0 4px 4px 0; }
-  .warn-box { border-left: 4px solid #e07b00; background: #fff8f0;
+  .warn-box { border-left: 4px solid #e07b00; background: #2a1f10;
               padding: 8px 12px; margin: 12px 0; border-radius: 0 4px 4px 0; }
   table { border-collapse: collapse; margin: 8px 0; }
-  td, th { border: 1px solid #ccc; padding: 5px 10px; font-size: 0.93em; }
-  th { background: #f0f0f0; font-weight: 600; }
+  td, th { border: 1px solid #444; padding: 5px 10px; font-size: 0.93em; }
+  th { background: #2a2a2a; color: #d4d4d4; font-weight: 600; }
 </style>
 
 <h2>Ramanalyze — Guide d’utilisation</h2>

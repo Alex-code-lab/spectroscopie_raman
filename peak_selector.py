@@ -360,12 +360,12 @@ class PeakSelectorTab(QWidget):
         wn_row = QHBoxLayout()
         self.spin_wn_min = QDoubleSpinBox()
         self.spin_wn_min.setRange(0, 9999)
-        self.spin_wn_min.setValue(200)
+        self.spin_wn_min.setValue(1000)
         self.spin_wn_min.setSuffix(" cm⁻¹")
         self.spin_wn_min.setDecimals(0)
         self.spin_wn_max = QDoubleSpinBox()
         self.spin_wn_max.setRange(0, 9999)
-        self.spin_wn_max.setValue(3500)
+        self.spin_wn_max.setValue(1700)
         self.spin_wn_max.setSuffix(" cm⁻¹")
         self.spin_wn_max.setDecimals(0)
         wn_row.addWidget(QLabel("de"))
@@ -482,13 +482,6 @@ class PeakSelectorTab(QWidget):
 
         self._combined_df = combined
         n_specs = combined["file"].nunique() if "file" in combined.columns else "?"
-
-        # Auto-remplir la plage Raman depuis les données réelles
-        if "Raman Shift" in combined.columns:
-            wn_min_data = float(combined["Raman Shift"].min())
-            wn_max_data = float(combined["Raman Shift"].max())
-            self.spin_wn_min.setValue(max(wn_min_data, 200.0))
-            self.spin_wn_max.setValue(wn_max_data)
 
         self.lbl_status.setText(
             f"Données chargées : {n_specs} spectre(s). Paramétrez puis lancez l'analyse."

@@ -71,7 +71,7 @@ class AnalysisTab(QWidget):
         # Paramètres pour mode personnalisé
         opts.addWidget(QLabel("Laser (nm) :"))
         self.spin_laser_nm = QDoubleSpinBox(self)
-        self.spin_laser_nm.setRange(200.0, 2000.0)
+        self.spin_laser_nm.setRange(.0, 2000.0)
         self.spin_laser_nm.setDecimals(2)
         self.spin_laser_nm.setSingleStep(1.0)
         self.spin_laser_nm.setValue(532.0)
