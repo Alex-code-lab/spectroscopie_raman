@@ -57,162 +57,223 @@ class MainWindow(QMainWindow):
         container = QWidget()
         container_layout = QVBoxLayout(container)
 
-        doc_html = (
-            """
+        doc_html = """
 <style>
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     color: #2b2b2b;
+    max-width: 860px;
   }
-
-  h2 {
-    color: #46ba48;
-    margin-bottom: 6px;
-  }
-
-  h3 {
-    color: #46ba48 ;
-    margin-top: 18px;
-    margin-bottom: 6px;
-  }
-
-  h4 {
-    color: #3a7ca5;
-    margin-top: 14px;
-    margin-bottom: 4px;
-  }
-
-  p {
-    line-height: 1.55;
-    margin-bottom: 10px;
-  }
-
-  ul, ol {
-    margin-left: 18px;
-  }
-
-  li {
-    margin-bottom: 6px;
-  }
-
-  .key {
-    font-weight: 600;
-    color: #c4293d;
-  }
-
-  .accent {
-    font-weight: 600;
-    color: #2f6fad;
-  }
-
-  .warn {
-    font-weight: 600;
-    color: #b00020;
-  }
-
-  .ok {
-    font-weight: 600;
-    color: #1e7f43;
-  }
-
-  .note {
-    border-left: 3px solid #2f6fad;
-    padding-left: 10px;
-    margin: 10px 0;
-    color: #ffffff;
-  }
-
-  .mono {
-    font-family: Menlo, Consolas, monospace;
-    font-size: 0.95em;
-  }
+  h2 { color: #46ba48; margin-top: 6px; margin-bottom: 8px; }
+  h3 { color: #46ba48; margin-top: 22px; margin-bottom: 6px; border-bottom: 1px solid #ddd; padding-bottom: 3px; }
+  h4 { color: #3a7ca5; margin-top: 16px; margin-bottom: 4px; }
+  p  { line-height: 1.6; margin-bottom: 8px; }
+  ul, ol { margin-left: 20px; }
+  li { margin-bottom: 5px; line-height: 1.5; }
+  .key    { font-weight: 700; color: #c4293d; }
+  .accent { font-weight: 600; color: #2f6fad; }
+  .warn   { font-weight: 600; color: #b00020; }
+  .ok     { font-weight: 600; color: #1e7f43; }
+  .mono   { font-family: Menlo, Consolas, "Courier New", monospace; font-size: 0.92em;
+            background: #f3f3f3; padding: 1px 4px; border-radius: 3px; }
+  .note   { border-left: 4px solid #2f6fad; background: #f0f5ff;
+            padding: 8px 12px; margin: 12px 0; border-radius: 0 4px 4px 0; }
+  .warn-box { border-left: 4px solid #e07b00; background: #fff8f0;
+              padding: 8px 12px; margin: 12px 0; border-radius: 0 4px 4px 0; }
+  table { border-collapse: collapse; margin: 8px 0; }
+  td, th { border: 1px solid #ccc; padding: 5px 10px; font-size: 0.93em; }
+  th { background: #f0f0f0; font-weight: 600; }
 </style>
 
-<h2>Guide d’utilisation pas à pas</h2>
+<h2>Ramanalyze — Guide d’utilisation</h2>
 
 <p>
-Bienvenue dans <span class="key">Ramanalyze</span>.<br>
-Cette application permet d’analyser des spectres Raman (<span class="mono">.txt</span>) en les liant à des
-<span class="accent">métadonnées expérimentales</span>.  
-Le guide ci‑dessous décrit l’ordre recommandé des étapes.
+  Bienvenue dans <span class="key">Ramanalyze</span>, application d’analyse
+  de spectres Raman et SERS.<br>
+  Elle relie vos fichiers spectres <span class="mono">.txt</span> à des
+  <span class="accent">métadonnées expérimentales</span> (volumes, concentrations,
+  correspondance tubes), et offre des outils d’analyse quantitative et d’exploration
+  multivariée (PCA).
 </p>
 
-<h3>Parcours rapide — 5 étapes</h3>
+<h3>Parcours recommandé — 5 étapes</h3>
 <ol>
-  <li><span class="key">Fichiers</span> : sélectionnez les fichiers de résultats Raman (<span class="mono">.txt</span>) puis cliquez sur <b>Ajouter la sélection</b>.</li>
-  <li><span class="key">Métadonnées</span> : complétez les informations générales, le tableau des volumes et la correspondance spectres ↔ tubes.</li>
-  <li><span class="key">Spectres</span> : vérifiez la qualité des spectres (baseline, axes, export PNG si besoin).</li>
-  <li><span class="key">PCA</span> : explorez regroupements et variances pour identifier les pics et paramètres importants.</li>
-  <li><span class="key">Analyse</span> : choisissez les pics, lancez l’analyse, puis ajustez la sigmoïde pour obtenir le point d’équivalence.</li>
+  <li>
+    <span class="key">Fichiers</span> — Sélectionnez vos fichiers
+    <span class="mono">.txt</span> et cliquez <b>Ajouter la sélection</b>.
+  </li>
+  <li>
+    <span class="key">Métadonnées</span> — Remplissez le tableau des volumes
+    et la correspondance spectres ↔ tubes. Enregistrez en <span class="mono">.xlsx</span>.
+  </li>
+  <li>
+    <span class="key">Spectres</span> — Vérifiez la qualité visuelle des spectres
+    (correction de baseline, légendes).
+  </li>
+  <li>
+    <span class="key">Analyse</span> — Choisissez vos pics, lancez l’analyse
+    des intensités et ratios, exportez en Excel.
+  </li>
+  <li>
+    <span class="key">Exploration</span> — Explorez la PCA pour comprendre
+    quelles bandes Raman discriminent le mieux vos échantillons.
+  </li>
 </ol>
 
-<h3>Guidage visuel</h3>
+<div class="note">
+  <b>Guidage visuel :</b>
+  les boutons <span class="warn">rouges</span> signalent une action requise ;
+  les <span class="ok">verts</span> indiquent une étape validée.<br>
+  Après toute modification des fichiers ou des métadonnées, rechargez le
+  <b>fichier combiné</b> dans les onglets Analyse et Exploration.
+</div>
+
+<h3>1 — Onglet Fichiers</h3>
 <ul>
-  <li><span class="warn">Rouge</span> : action requise</li>
-  <li><span class="ok">Vert</span> : étape prête</li>
-  <li>Après toute modification des fichiers ou métadonnées, rechargez le <b>fichier combiné</b> dans <b>Analyse</b> ou <b>PCA</b>.</li>
+  <li>Double-cliquez sur un dossier pour le parcourir.</li>
+  <li>Sélectionnez un ou plusieurs fichiers <span class="mono">.txt</span>
+      (résultats Raman bruts).</li>
+  <li>Cliquez <b>Ajouter la sélection</b> — les fichiers apparaissent dans
+      la liste de droite.</li>
+  <li>Utilisez <b>Retirer</b> ou <b>Vider la liste</b> si nécessaire.</li>
 </ul>
 
-<h3>Détails par onglet</h3>
+<h3>2 — Onglet Métadonnées</h3>
 
-<h4>1) Onglet Fichiers</h4>
+<h4>Tableau des volumes</h4>
+<p>
+  Chaque ligne est un réactif, chaque colonne est un tube (Tube 1, Tube 2…).
+  Les valeurs sont en µL. Le bouton <b>Générer volumes (gaussien)</b> remplit
+  automatiquement les colonnes A et B avec des volumes centrés autour de
+  l’équivalence chimique.
+</p>
+
+<table>
+  <tr><th>Solution</th><th>Rôle</th></tr>
+  <tr><td><b>Solution A</b></td><td>Tampon (volume variable, complémentaire à B)</td></tr>
+  <tr><td><b>Solution B</b></td><td>Titrant (<span class="accent">paramètre variable</span>)</td></tr>
+  <tr><td><b>Solution C</b></td><td>Indicateur</td></tr>
+  <tr><td><b>Solution D</b></td><td>PEG</td></tr>
+  <tr><td><b>Solution E</b></td><td>Nanoparticules</td></tr>
+  <tr><td><b>Solution F</b></td><td>Crosslinker</td></tr>
+</table>
+
+<h4>Correspondance spectres ↔ tubes</h4>
+<p>
+  Associez chaque fichier spectre à un tube. Cette correspondance est utilisée
+  pour relier les concentrations calculées à chaque spectre lors de l’assemblage.
+  Le label <span class="mono">Contrôle</span> est automatiquement mappé au
+  dernier tube (réplicat).
+</p>
+
+<h4>Concentrations en cuvette</h4>
+<p>
+  Le bouton <b>Voir concentrations</b> affiche le tableau des concentrations
+  finales dans chaque tube, calculées à partir des volumes et des concentrations
+  stock (lecture seule).
+</p>
+
+<h4>Assemblage et sauvegarde</h4>
 <ul>
-  <li>Navigation par double‑clic dans les dossiers.</li>
-  <li>Sélection de fichiers <span class="mono">.txt</span> de résultats Raman.</li>
-  <li><b>Ajouter la sélection</b> pour constituer le jeu d’analyse.</li>
+  <li>Cliquez <b>Assembler</b> pour charger les spectres, corriger la baseline
+      et fusionner avec les métadonnées.</li>
+  <li>Vérifiez le message de succès (nombre de lignes / colonnes).</li>
+  <li>Cliquez <b>Enregistrer</b> pour sauvegarder le fichier combiné
+      (CSV ou Excel).</li>
 </ul>
 
-<h4>2) Onglet Métadonnées</h4>
+<h3>3 — Onglet Spectres</h3>
 <ul>
-  <li>Informations générales de l’expérience (<b>nom requis</b>).</li>
-  <li>Tableau des volumes (solutions, unités, µL), entièrement personnalisable.</li>
-  <li>Chargement / sauvegarde de modèles de métadonnées.</li>
-  <li>Concentrations en cuvette calculées automatiquement (lecture seule).</li>
-  <li>Vérification de la correspondance spectres ↔ tubes.</li>
+  <li>Affiche les spectres corrigés du fichier combiné.</li>
+  <li>La légende utilise <span class="mono">Sample description</span>
+      si disponible.</li>
+  <li>Cliquez <b>Tracer avec baseline</b> pour générer la figure Plotly
+      interactive (zoom, pan, export PNG).</li>
 </ul>
 
-<h4>Glossaire des solutions</h4>
+<h3>4 — Onglet Analyse</h3>
 <ul>
-  <li><b>Solution A</b> : Tampon</li>
-  <li><b>Solution B</b> : Titrant (<span class="accent">paramètre variable</span>)</li>
-  <li><b>Solution C</b> : Indicateur</li>
-  <li><b>Solution D</b> : PEG</li>
-  <li><b>Solution E</b> : Nanoparticules</li>
-  <li><b>Solution F</b> : Crosslinker</li>
+  <li>Choisissez un jeu de pics prédéfini :
+    <ul>
+      <li><b>532 nm</b> : 1231, 1327, 1342, 1358, 1450 cm⁻¹</li>
+      <li><b>785 nm</b> : 412, 444, 471, 547, 1561 cm⁻¹</li>
+    </ul>
+  </li>
+  <li>Réglez la <b>tolérance</b> (fenêtre de recherche autour de chaque pic,
+      défaut 2 cm⁻¹).</li>
+  <li>Cliquez <b>Analyser les pics</b> pour calculer :
+    <ul>
+      <li>l’intensité maximale dans chaque fenêtre, par spectre ;</li>
+      <li>tous les ratios entre paires de pics ;</li>
+      <li>un graphique interactif des ratios en fonction des métadonnées.</li>
+    </ul>
+  </li>
+  <li>Exportez en Excel (feuilles <span class="mono">intensites</span>
+      et <span class="mono">ratios</span>).</li>
 </ul>
 
-<h4>3) Onglet Spectres</h4>
+<h3>5 — Onglet Exploration (PCA)</h3>
+
+<h4>Sous-onglets disponibles</h4>
+<table>
+  <tr><th>Sous-onglet</th><th>Ce qu’il montre</th></tr>
+  <tr><td>Spectres normalisés</td><td>Spectres après normalisation par la norme vectorielle</td></tr>
+  <tr><td>Spectres superposés</td><td>Superposition brute des spectres</td></tr>
+  <tr><td>PCA corrélée</td><td>PCA sur les intensités aux pics sélectionnés</td></tr>
+  <tr><td>PCA — Scores</td><td>Position de chaque spectre dans l’espace PCA libre (colorié par variable)</td></tr>
+  <tr><td>PCA — Loadings</td><td>Poids de chaque nombre d’onde pour chaque composante</td></tr>
+  <tr><td>PCA — Reconstruction</td><td>Reconstruction d’un spectre à partir de N composantes</td></tr>
+  <tr><td>Scatter matrix</td><td>Corrélations visuelles entre tous les pics</td></tr>
+</table>
+
+<h4>Comprendre la PCA en bref</h4>
+<p>
+  Chaque spectre est un vecteur de ~1 000 intensités (une par nombre d’onde).
+  La PCA cherche les <b>directions</b> dans cet espace à 1 000 dimensions
+  qui capturent le plus de variabilité entre spectres.
+</p>
 <ul>
-  <li>Tracé avec correction de baseline.</li>
-  <li>Option d’inclusion / exclusion du contrôle BRB.</li>
-  <li>Axes configurables et export PNG.</li>
+  <li>
+    <b>PC1</b> = direction qui explique <i>le plus</i> de variance.
+    Pas forcément la plus chimiquement intéressante : elle peut capturer
+    une variation de ligne de base ou de puissance laser.
+  </li>
+  <li>
+    <b>PC2</b> = perpendiculaire à PC1, 2<sup>e</sup> source de variabilité.
+    C’est souvent là que l’effet chimique (concentration) apparaît.
+  </li>
+  <li>
+    <b>Loading</b> = le "spectre fantôme" d’une composante. Tracé en fonction
+    du Raman Shift, il indique quelles bandes Raman portent cette composante.
+    Interprétez-le comme un spectre normal.
+  </li>
+  <li>
+    <b>Score</b> d’un spectre = sa coordonnée sur un axe PCA.
+    Score positif élevé = le spectre ressemble fortement au pattern du loading.
+  </li>
+  <li>
+    <b>Reconstruction</b> avec N=1 : visualise ce que PC1 a capturé seule.
+    Ajoutez des composantes progressivement pour voir ce que chacune apporte.
+  </li>
 </ul>
 
-<h4>4) Onglet Analyse (pics & équivalence)</h4>
-<ul>
-  <li>Sélection de presets (532 / 785 nm) ou mode personnalisé.</li>
-  <li>Calcul automatique des intensités et ratios (export Excel).</li>
-  <li>Ajustement <span class="accent">sigmoïdal</span> pour déterminer l’équivalence.</li>
-  <li>Affichage du point d’inflexion et de son incertitude.</li>
-</ul>
-
-<h4>5) Onglet PCA</h4>
-<ul>
-  <li>Rechargement du fichier combiné.</li>
-  <li>Choix du domaine Raman, de la normalisation et du nombre de composantes.</li>
-  <li>Visualisation des scores, loadings et reconstructions.</li>
-</ul>
+<div class="warn-box">
+  <b>Conseil :</b> Si les points du graphe Scores PC1 vs PC2 colorés par
+  concentration ne se séparent pas selon PC1, regardez PC2 et PC3 — l’effet
+  chimique n’est pas toujours dans la première composante.
+</div>
 
 <h3>Si un résultat semble incohérent</h3>
-<div class="note">
-  <ul>
-    <li>Vérifiez la correspondance spectres ↔ tubes et les unités.</li>
-    <li>Relancez l’analyse après toute modification.</li>
-    <li>Assurez‑vous que les ratios ne sont pas quasi constants avant un fit sigmoïde.</li>
-  </ul>
-</div>
-            """
-        )
+<ul>
+  <li>Vérifiez la correspondance spectres ↔ tubes (les bons spectres sont-ils
+      assignés aux bons tubes ?).</li>
+  <li>Vérifiez les unités des concentrations stock dans le tableau des volumes.</li>
+  <li>Rechargez le fichier combiné dans l’onglet concerné après toute
+      modification des métadonnées.</li>
+  <li>En PCA, vérifiez que la correction de baseline est satisfaisante :
+      une mauvaise baseline peut dominer PC1 et masquer l’effet chimique.</li>
+</ul>
+"""
 
         text_label = QLabel(doc_html, container)
         text_label.setWordWrap(True)
