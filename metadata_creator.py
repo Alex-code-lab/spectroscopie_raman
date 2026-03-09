@@ -883,6 +883,7 @@ class MetadataCreatorWidget(QWidget):
         self.df_map: pd.DataFrame | None = None # tableau de correspondance spectres ↔ tubes
         # Indique que la correspondance spectres↔tubes doit être revue (champs d'en-tête ou volumes modifiés)
         self.map_dirty: bool = False
+        self._protocol_states: dict = {}   # état des cases du protocole de paillasse
         # Options d'affichage pour la correspondance spectres ↔ tubes
         self._map_include_brb: bool = True
         self._map_include_control: bool = True
@@ -990,14 +991,16 @@ class MetadataCreatorWidget(QWidget):
         self.btn_show_conc = QPushButton("Concentration dans les cuvettes (info)", self)
 
         # Boutons enregistrer / charger sur une seconde ligne
-        self.btn_save_meta = QPushButton("Enregistrer les métadonnées…", self)
-        self.btn_load_meta = QPushButton("Charger des métadonnées…", self)
+        self.btn_save_meta     = QPushButton("Enregistrer les métadonnées…", self)
+        self.btn_load_meta     = QPushButton("Charger des métadonnées…", self)
+        self.btn_export_proto  = QPushButton("Feuille de protocole…", self)
 
         self.btn_edit_comp.clicked.connect(self._on_edit_comp_clicked)
         self.btn_edit_map.clicked.connect(self._on_edit_map_clicked)
         self.btn_show_conc.clicked.connect(self._on_show_conc_clicked)
         self.btn_save_meta.clicked.connect(self._on_save_metadata_clicked)
         self.btn_load_meta.clicked.connect(self._on_load_metadata_clicked)
+        self.btn_export_proto.clicked.connect(self._on_export_protocol_clicked)
 
         # Première ligne
         btns.addWidget(self.btn_edit_comp)
@@ -1010,6 +1013,7 @@ class MetadataCreatorWidget(QWidget):
         btns2 = QHBoxLayout()
         btns2.addWidget(self.btn_save_meta)
         btns2.addWidget(self.btn_load_meta)
+        btns2.addWidget(self.btn_export_proto)
         layout.addLayout(btns2)
 
         # Couleurs des boutons selon l'état (rouge si non défini, vert si prêt)
@@ -2030,38 +2034,69 @@ class MetadataCreatorWidget(QWidget):
         col_ns = df["Nom du spectre"].astype(str).str.strip()
         col_tube = df["Tube"].astype(str)
 
-        def _value_for(label: str) -> str:
-            mask = col_ns == label
-            if mask.any():
-                return col_tube[mask].iloc[0].strip()
+        def _value_for(*labels: str) -> str:
+            """Cherche la valeur pour n'importe laquelle des variantes de label."""
+            for label in labels:
+                mask = col_ns == label
+                if mask.any():
+                    return col_tube[mask].iloc[0].strip()
             return ""
 
         # Nom de la manip
-        name_val = _value_for("Nom de la manip :")
+        name_val = _value_for("Nom de la manip :", "Nom de la manip")
         if name_val and hasattr(self, "edit_manip"):
             self.edit_manip.setText(name_val)
 
         # Date
-        date_val = _value_for("Date :")
+        date_val = _value_for("Date :", "Date")
         if date_val and hasattr(self, "edit_date"):
             qd = QDate.fromString(date_val, "dd/MM/yyyy")
             if qd.isValid():
                 self.edit_date.setDate(qd)
 
         # Lieu
-        loc_val = _value_for("Lieu :")
+        loc_val = _value_for("Lieu :", "Lieu")
         if loc_val and hasattr(self, "edit_location"):
             self.edit_location.setText(loc_val)
 
         # Coordinateur
-        coord_val = _value_for("Coordinateur :")
+        coord_val = _value_for("Coordinateur :", "Coordinateur")
         if coord_val and hasattr(self, "edit_coordinator"):
             self.edit_coordinator.setText(coord_val)
 
         # Opérateur
-        oper_val = _value_for("Opérateur :")
+        oper_val = _value_for("Opérateur :", "Opérateur")
         if oper_val and hasattr(self, "edit_operator"):
             self.edit_operator.setText(oper_val)
+
+    # ------------------------------------------------------------------
+    # Export feuille de protocole
+    # ------------------------------------------------------------------
+    def _on_export_protocol_clicked(self) -> None:
+        """Ouvre le dialogue de suivi interactif du protocole de paillasse."""
+        if self.df_comp is None or self.df_comp.empty:
+            QMessageBox.warning(
+                self,
+                "Tableau des volumes manquant",
+                "Veuillez d'abord définir le tableau des volumes avant d'ouvrir le protocole.",
+            )
+            return
+
+        meta = {
+            "nom_manip":    self.edit_manip.text().strip()                   if hasattr(self, "edit_manip")       else "",
+            "date":         self.edit_date.date().toString("dd/MM/yyyy")     if hasattr(self, "edit_date")        else "",
+            "lieu":         self.edit_location.text().strip()                if hasattr(self, "edit_location")    else "",
+            "coordinateur": self.edit_coordinator.text().strip()             if hasattr(self, "edit_coordinator") else "",
+            "operateur":    self.edit_operator.text().strip()                if hasattr(self, "edit_operator")    else "",
+        }
+
+        from protocol_dialog import ProtocolDialog
+        dlg = ProtocolDialog(self.df_comp, meta,
+                             initial_states=self._protocol_states,
+                             df_map=self.df_map, parent=self)
+        dlg.exec()
+        # Mémoriser l'état des cases pour la prochaine ouverture / sauvegarde
+        self._protocol_states = dlg.get_states()
 
     # ------------------------------------------------------------------
     # Sauvegarde / chargement des métadonnées complètes
@@ -2089,6 +2124,15 @@ class MetadataCreatorWidget(QWidget):
             with pd.ExcelWriter(path) as writer:
                 self.df_comp.to_excel(writer, sheet_name="Volumes", index=False)
                 self.df_map.to_excel(writer, sheet_name="Correspondance", index=False)
+                # État du protocole de paillasse
+                if self._protocol_states:
+                    rows = []
+                    for key, checked in self._protocol_states.items():
+                        if key[0] == "verif":
+                            rows.append({"type": "verif", "r_idx": key[1], "t_idx": -1, "checked": int(checked)})
+                        else:
+                            rows.append({"type": key[0], "r_idx": key[1], "t_idx": key[2], "checked": int(checked)})
+                    pd.DataFrame(rows).to_excel(writer, sheet_name="EtatProtocole", index=False)
         except Exception as e:
             QMessageBox.critical(
                 self,
@@ -2134,6 +2178,19 @@ class MetadataCreatorWidget(QWidget):
                     "La feuille 'Correspondance' est absente du fichier Excel chargé.\n"
                     "Le tableau de correspondance n'a pas pu être restauré.",
                 )
+            # État du protocole de paillasse
+            self._protocol_states = {}
+            if "EtatProtocole" in xls.sheet_names:
+                df_proto = pd.read_excel(xls, sheet_name="EtatProtocole")
+                for _, r in df_proto.iterrows():
+                    t   = str(r.get("type", ""))
+                    ri  = int(r.get("r_idx", 0))
+                    ti  = int(r.get("t_idx", -1))
+                    chk = bool(r.get("checked", 0))
+                    if t == "verif":
+                        self._protocol_states[("verif", ri)] = chk
+                    elif t in ("coord", "oper"):
+                        self._protocol_states[(t, ri, ti)] = chk
             self._refresh_button_states()
         except Exception as e:
             QMessageBox.critical(

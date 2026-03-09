@@ -73,6 +73,7 @@
 % ---------------------------------------------------------------------------
 % Encadrés
 % ---------------------------------------------------------------------------
+\usepackage{pifont}          % \ding{51} = ✓, \ding{114} = ☐
 \usepackage{tcolorbox}
 \tcbuselibrary{skins, breakable}
 
@@ -322,6 +323,84 @@ expérimental. Il peut être rempli manuellement ou généré automatiquement.
 \begin{remarque}
 Le dernier chemin d'enregistrement est mémorisé pour accélérer les
 sauvegardes suivantes.
+\end{remarque}
+
+\subsubsection{Feuille de protocole de paillasse}
+\label{subsec:protocole}
+
+Le bouton \textbf{Feuille de protocole\,\ldots} (onglet \textit{Métadonnées})
+ouvre un dialogue interactif destiné à \textbf{tracer les opérations de pipetage}
+sur la paillasse. Il affiche le tableau \texttt{df\_comp} sous forme d'une grille
+où chaque ligne est un réactif et chaque colonne un tube expérimental.
+
+\paragraph{Structure du tableau.}
+Pour chaque tube, trois sous-colonnes sont disponibles :
+
+\begin{itemize}
+  \item \textbf{Volume (µL)} — lecture seule ; rappelle la quantité à pipeter.
+  \item \textbf{Coordinateur \ding{114}} — case validée par le coordinateur.
+  \item \textbf{Opérateur \ding{114}} — case validée par l'opérateur.
+\end{itemize}
+
+Une colonne \textbf{Vérification solution} permet en outre de confirmer
+l'identité du flacon avant tout pipetage.
+
+\paragraph{Mode guidé.}
+En mode guidé, seule la cellule de l'étape courante est active ;
+toutes les autres sont grisées et désactivées.
+La séquence automatique suit l'ordre :
+
+\begin{enumerate}
+  \item Vérification de la solution du réactif courant.
+  \item Tube~1 : confirmation du volume + case Coordinateur + case Opérateur.
+  \item Tube~2, Tube~3, \ldots jusqu'au dernier tube.
+  \item Passage au réactif suivant (Vérif → Tube~1 → Tube~2 → \ldots).
+\end{enumerate}
+
+Un libellé de statut vert indique l'étape en cours :
+\texttt{→ Vérifier la solution : Solution~A} ou \texttt{→ Solution~A · Tube~1}.
+
+\paragraph{Workflow coordinateur / opérateur.}
+Le coordinateur coche sa case en premier (tube préparé), puis l'opérateur
+valide après vérification indépendante.
+Les boutons \textbf{Tout cocher — Coord.} et \textbf{Tout cocher — Opér.}
+permettent de valider toutes les cases d'un rôle en un clic ;
+\textbf{Tout décocher} remet tout à zéro.
+
+\paragraph{Export : fichier unifié (4 feuilles).}
+Le bouton \textbf{Exporter Excel\,\ldots} génère un fichier \texttt{.xlsx}
+contenant les quatre feuilles suivantes :
+
+\begin{itemize}
+  \item \texttt{Protocole} — feuille visuelle mise en forme (en-têtes colorés,
+        texte pivoté, symboles \ding{51}/\ding{114}).
+  \item \texttt{Volumes} — données brutes de \texttt{df\_comp}.
+  \item \texttt{Correspondance} — données brutes de \texttt{df\_map}.
+  \item \texttt{EtatProtocole} — état de chaque case
+        (\texttt{type}, \texttt{r\_idx}, \texttt{t\_idx}, \texttt{checked}).
+\end{itemize}
+
+\paragraph{Persistance et rechargement.}
+\begin{itemize}
+  \item Fermeture du dialogue : l'état des cases est conservé en mémoire.
+  \item \textbf{Enregistrer les métadonnées\,\ldots} : la feuille
+        \texttt{EtatProtocole} est incluse automatiquement dans le fichier
+        sauvegardé.
+  \item \textbf{Charger des métadonnées\,\ldots} : si le fichier contient
+        une feuille \texttt{EtatProtocole}, toutes les cases reprennent
+        exactement l'état sauvegardé.
+\end{itemize}
+
+\begin{remarque}
+Récapitulatif du flux de travail en paillasse :
+\begin{enumerate}
+  \item Ouvrir \textbf{Feuille de protocole\,\ldots}.
+  \item Suivre le mode guidé : Vérif → Coord → Opér, tube par tube.
+  \item Cliquer \textbf{Exporter Excel\,\ldots} pour archiver.
+  \item Recharger le fichier à tout moment via
+        \textbf{Charger des métadonnées\,\ldots} pour reprendre où vous en
+        étiez.
+\end{enumerate}
 \end{remarque}
 
 \subsection{Onglet Spectres}

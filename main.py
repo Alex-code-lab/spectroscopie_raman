@@ -99,12 +99,13 @@ class MainWindow(QMainWindow):
 <h3>Parcours recommandé — 5 étapes</h3>
 <ol>
   <li>
-    <span class="key">Fichiers</span> — Sélectionnez vos fichiers
-    <span class="mono">.txt</span> et cliquez <b>Ajouter la sélection</b>.
+    <span class="key">Métadonnées</span> — Remplissez le tableau des volumes,
+    la correspondance spectres ↔ tubes et utilisez la feuille de protocole.
+    Enregistrez en <span class="mono">.xlsx</span>.
   </li>
   <li>
-    <span class="key">Métadonnées</span> — Remplissez le tableau des volumes
-    et la correspondance spectres ↔ tubes. Enregistrez en <span class="mono">.xlsx</span>.
+    <span class="key">Fichiers Raman</span> — Sélectionnez vos fichiers
+    <span class="mono">.txt</span> et cliquez <b>Ajouter la sélection</b>.
   </li>
   <li>
     <span class="key">Spectres</span> — Vérifiez la qualité visuelle des spectres
@@ -128,17 +129,7 @@ class MainWindow(QMainWindow):
   <b>fichier combiné</b> dans les onglets Analyse et Exploration.
 </div>
 
-<h3>1 — Onglet Fichiers</h3>
-<ul>
-  <li>Double-cliquez sur un dossier pour le parcourir.</li>
-  <li>Sélectionnez un ou plusieurs fichiers <span class="mono">.txt</span>
-      (résultats Raman bruts).</li>
-  <li>Cliquez <b>Ajouter la sélection</b> — les fichiers apparaissent dans
-      la liste de droite.</li>
-  <li>Utilisez <b>Retirer</b> ou <b>Vider la liste</b> si nécessaire.</li>
-</ul>
-
-<h3>2 — Onglet Métadonnées</h3>
+<h3>1 — Onglet Métadonnées</h3>
 
 <h4>Tableau des volumes</h4>
 <p>
@@ -166,6 +157,70 @@ class MainWindow(QMainWindow):
   dernier tube (réplicat).
 </p>
 
+<h4>Feuille de protocole de paillasse</h4>
+<p>
+  Le bouton <span class="key">Feuille de protocole…</span> ouvre un dialogue
+  interactif de <span class="accent">suivi du pipetage</span> sur la paillasse.
+  Il affiche le tableau <span class="mono">df_comp</span> sous forme d'une grille
+  où chaque réactif est une ligne et chaque tube une colonne.
+</p>
+<p>Pour chaque tube, trois sous-colonnes sont proposées :</p>
+<ul>
+  <li><b>Volume (µL)</b> — lecture seule, rappelle la quantité à pipeter.</li>
+  <li><b>Coordinateur ☐</b> — case à cocher validée par le coordinateur.</li>
+  <li><b>Opérateur ☐</b> — case à cocher validée par l'opérateur.</li>
+</ul>
+<p>
+  Une colonne <b>Vérification solution</b> supplémentaire permet de confirmer
+  l'identité du flacon avant de commencer le pipetage d'un réactif.
+</p>
+
+<h4>Mode guidé (étape par étape)</h4>
+<p>
+  En mode guidé, <b>seule la cellule de l'étape courante est active</b> ;
+  toutes les autres sont grisées et désactivées.
+  La séquence automatique est la suivante :
+</p>
+<ol>
+  <li>Vérification de la solution (colonne « Vérif ») pour le 1<sup>er</sup> réactif.</li>
+  <li>Tube 1 — Volume confirmé + case Coordinateur + case Opérateur.</li>
+  <li>Tube 2 — idem, puis Tube 3… jusqu'au dernier tube.</li>
+  <li>Passage au réactif suivant : Vérif → Tube 1 → Tube 2 → …</li>
+</ol>
+<p>
+  Un libellé de statut vert indique l'étape en cours :
+  <span class="mono">→ Vérifier la solution : Solution A</span> ou
+  <span class="mono">→ Solution A · Tube 1</span>.
+</p>
+
+<div class="note">
+  <b>Workflow coordinateur / opérateur :</b>
+  le coordinateur coche sa case en premier pour indiquer qu'il a préparé
+  le tube, puis l'opérateur valide après vérification indépendante.
+  Les boutons <b>Tout cocher — Coord.</b> et <b>Tout cocher — Opér.</b>
+  permettent de valider toutes les cases d'un rôle en un clic.
+  <b>Tout décocher</b> remet tout à zéro.
+</div>
+
+<h4>Export et rechargement du fichier unifié</h4>
+<p>
+  Le bouton <b>Exporter Excel…</b> génère un fichier <span class="mono">.xlsx</span>
+  contenant <b>4 feuilles</b> :
+</p>
+<ul>
+  <li><span class="mono">Protocole</span> — feuille visuelle mise en forme
+      (en-têtes colorés, texte pivoté, symboles ✓/☐).</li>
+  <li><span class="mono">Volumes</span> — données brutes de <span class="mono">df_comp</span>.</li>
+  <li><span class="mono">Correspondance</span> — données brutes de <span class="mono">df_map</span>.</li>
+  <li><span class="mono">EtatProtocole</span> — état de chaque case (type, r_idx, t_idx, checked).</li>
+</ul>
+<p>
+  Ce fichier unifié peut être rechargé via <b>Charger des métadonnées…</b> :
+  toutes les cases reprennent exactement l'état sauvegardé.
+  L'état est également préservé en mémoire lorsque vous fermez le dialogue,
+  et inclus automatiquement dans <b>Enregistrer les métadonnées…</b>.
+</p>
+
 <h4>Concentrations en cuvette</h4>
 <p>
   Le bouton <b>Voir concentrations</b> affiche le tableau des concentrations
@@ -180,6 +235,16 @@ class MainWindow(QMainWindow):
   <li>Vérifiez le message de succès (nombre de lignes / colonnes).</li>
   <li>Cliquez <b>Enregistrer</b> pour sauvegarder le fichier combiné
       (CSV ou Excel).</li>
+</ul>
+
+<h3>2 — Onglet Fichiers Raman</h3>
+<ul>
+  <li>Double-cliquez sur un dossier pour le parcourir.</li>
+  <li>Sélectionnez un ou plusieurs fichiers <span class="mono">.txt</span>
+      (résultats Raman bruts).</li>
+  <li>Cliquez <b>Ajouter la sélection</b> — les fichiers apparaissent dans
+      la liste de droite.</li>
+  <li>Utilisez <b>Retirer</b> ou <b>Vider la liste</b> si nécessaire.</li>
 </ul>
 
 <h3>3 — Onglet Spectres</h3>
@@ -287,19 +352,19 @@ class MainWindow(QMainWindow):
         tabs.insertTab(0, self.presentation_tab, "Présentation")
         tabs.setCurrentIndex(0)
 
-        # Onglet Fichiers
-        self.file_tab = QWidget(self)
-        file_layout = QVBoxLayout(self.file_tab)
-        self.file_picker = FilePickerWidget(self.file_tab)
-        file_layout.addWidget(self.file_picker)
-        tabs.addTab(self.file_tab, "Fichiers")
-
         # Onglet Métadonnées (création directe des tableaux dans l'application)
         self.metadata_tab = QWidget(self)
         metadata_layout = QVBoxLayout(self.metadata_tab)
         self.metadata_creator = MetadataCreatorWidget(self.metadata_tab)
         metadata_layout.addWidget(self.metadata_creator)
         tabs.addTab(self.metadata_tab, "Métadonnées")
+
+        # Onglet Fichiers Raman
+        self.file_tab = QWidget(self)
+        file_layout = QVBoxLayout(self.file_tab)
+        self.file_picker = FilePickerWidget(self.file_tab)
+        file_layout.addWidget(self.file_picker)
+        tabs.addTab(self.file_tab, "Fichiers Raman")
 
         # Onglet Spectres
         self.spectra_tab = SpectraTab(self.file_picker, self.metadata_creator, self)
