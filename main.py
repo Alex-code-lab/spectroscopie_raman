@@ -241,16 +241,16 @@ Le guide ci‑dessous décrit l’ordre recommandé des étapes.
         tabs.addTab(self.metadata_tab, "Métadonnées")
 
         # Onglet Spectres
-        self.spectra_tab = SpectraTab(self.file_picker, self)
+        self.spectra_tab = SpectraTab(self.file_picker, self.metadata_creator, self)
         tabs.addTab(self.spectra_tab, "Spectres")
 
         # Onglet Analyse
-        self.analysis_tab = AnalysisTab(self)
+        self.analysis_tab = AnalysisTab(self.file_picker, self.metadata_creator, self)
         tabs.addTab(self.analysis_tab, "Analyse")
 
         # Onglet Exploration (PCA + sélection de pics fusionnés)
         from peak_selector import PeakSelectorTab
-        self.peak_selector_tab = PeakSelectorTab(self)
+        self.peak_selector_tab = PeakSelectorTab(self.file_picker, self.metadata_creator, self)
         tabs.addTab(self.peak_selector_tab, "Exploration")
 
         # --- Label des sources en bas ---

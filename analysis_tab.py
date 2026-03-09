@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from plotly_downloads import install_plotly_download_handler, load_plotly_html, set_plotly_filename, sanitize_filename
 
-from data_processing import build_combined_dataframe_from_ui
+from data_processing import build_combined_dataframe_from_ui, load_combined_df
 
 class AnalysisTab(QWidget):
     """
@@ -29,8 +29,10 @@ class AnalysisTab(QWidget):
     et des tableaux créés dans `MetadataCreatorWidget` (onglet Métadonnées).
     """
 
-    def __init__(self, parent=None):
+    def __init__(self, file_picker, metadata_creator, parent=None):
         super().__init__(parent)
+        self._file_picker = file_picker
+        self._metadata_creator = metadata_creator
         self._combined_df: Optional[pd.DataFrame] = None
         self._peaks: List[int] = []
         self._pairs: List[tuple] = []  # paires pré-enregistrées (si preset fixe)
@@ -171,12 +173,9 @@ class AnalysisTab(QWidget):
         return A + B / (1 + np.exp(-k * (x - x_eq)))
 
     def _get_manip_name(self) -> str | None:
-        main = self.window()
-        if main is not None:
-            metadata_creator = getattr(main, "metadata_creator", None)
-            if metadata_creator is not None and hasattr(metadata_creator, "edit_manip"):
-                name = metadata_creator.edit_manip.text().strip()
-                return name or None
+        md = self._metadata_creator
+        if md is not None and hasattr(md, "edit_manip"):
+            return md.edit_manip.text().strip() or None
         return None
 
     def _fit_sigmoid(self):
@@ -513,88 +512,18 @@ class AnalysisTab(QWidget):
                 self.edit_custom_waves.setEnabled(True)
 
     def _reload_combined(self):
-        """Reconstruit le DataFrame combiné à partir des métadonnées créées dans l'onglet Métadonnées
-        et des fichiers .txt sélectionnés dans l'onglet Fichiers.
-        """
-        # Utiliser la fenêtre principale (MainWindow), pas le parent immédiat (TabWidget)
-        main = self.window()
-        if main is None:
-            QMessageBox.critical(self, "Erreur", "Fenêtre principale introuvable.")
-            return
-
-        # Récupérer le créateur de métadonnées
-        metadata_creator = getattr(main, "metadata_creator", None)
-        if metadata_creator is None or not hasattr(metadata_creator, "build_merged_metadata"):
-            self._combined_df = None
-            self._analysis_dirty = True
-            self._refresh_button_states()
-            self.lbl_status.setText("Fichier combiné : non chargé ✗ — définissez d'abord les métadonnées dans l'onglet Métadonnées")
-            QMessageBox.warning(
-                self,
-                "Métadonnées manquantes",
-                "L'onglet Métadonnées n'est pas correctement initialisé ou ne fournit pas encore les tableaux.\n"
-                "Créez d'abord les tableaux de compositions et de correspondance dans l'onglet Métadonnées.",
-            )
-            return
-
-        # Récupérer les fichiers .txt depuis l'onglet Fichiers
-        file_picker = getattr(main, "file_picker", None)
-        txt_files = file_picker.get_selected_files() if (file_picker is not None and hasattr(file_picker, "get_selected_files")) else []
-        if not txt_files:
-            self._combined_df = None
-            self._analysis_dirty = True
-            self._refresh_button_states()
-            self.lbl_status.setText("Fichier combiné : non chargé ✗ — sélectionnez d'abord des fichiers .txt")
-            QMessageBox.warning(
-                self,
-                "Fichiers manquants",
-                "Aucun fichier .txt sélectionné. Allez dans l'onglet Fichiers et ajoutez des spectres.",
-            )
-            return
-
-        # Construire le DataFrame de métadonnées fusionnées (correspondance ↔ composition)
-        try:
-            merged_meta = metadata_creator.build_merged_metadata()
-        except Exception as e:
-            self._combined_df = None
-            self._analysis_dirty = True
-            self._refresh_button_states()
-            self.lbl_status.setText("Fichier combiné : non chargé ✗ — erreur lors de la fusion des métadonnées")
-            QMessageBox.critical(
-                self,
-                "Erreur métadonnées",
-                f"Impossible de construire les métadonnées fusionnées (correspondance ↔ composition) :\n{e}",
-            )
-            return
-
-        # Construire le DataFrame combiné (spectres + métadonnées)
-        try:
-            combined = build_combined_dataframe_from_ui(
-                txt_files,
-                metadata_creator,
-                poly_order=5,
-                exclude_brb=True,
-                apply_baseline=True,
-            )
-        except Exception as e:
-            self._combined_df = None
-            self._analysis_dirty = True
-            self._refresh_button_states()
-            self.lbl_status.setText("Fichier combiné : non chargé ✗ — erreur lors de l'assemblage")
-            QMessageBox.critical(
-                self,
-                "Échec assemblage",
-                f"Impossible d'assembler les données spectres + métadonnées :\n{e}",
-            )
-            return
-
-        self._combined_df = combined
-        self.lbl_status.setText("Fichier combiné : chargé ✓")
-        # Nouvelles données => analyse doit être relancée
+        """Reconstruit le DataFrame combiné à partir des métadonnées et fichiers .txt."""
+        combined = load_combined_df(self, self._file_picker, self._metadata_creator)
         self._analysis_dirty = True
         self._peak_intensities = None
         self._ratios_long = None
         self.btn_export.setEnabled(False)
+        if combined is None:
+            self._combined_df = None
+            self.lbl_status.setText("Fichier combiné : non chargé ✗")
+        else:
+            self._combined_df = combined
+            self.lbl_status.setText("Fichier combiné : chargé ✓")
         self._refresh_button_states()
     def _set_preview(self, df: pd.DataFrame, n: int = 20):  # n conservé pour compat, ignoré ici
         # Afficher TOUT le DataFrame avec défilement et tri

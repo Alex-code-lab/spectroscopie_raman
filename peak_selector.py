@@ -44,7 +44,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
-from data_processing import build_combined_dataframe_from_ui
+from data_processing import build_combined_dataframe_from_ui, load_combined_df
 from plotly_downloads import (
     install_plotly_download_handler,
     load_plotly_html,
@@ -284,8 +284,10 @@ def pca_with_r_correlation(
 class PeakSelectorTab(QWidget):
     """Onglet de sélection automatique des pics de titration Raman/SERS."""
 
-    def __init__(self, parent=None):
+    def __init__(self, file_picker, metadata_creator, parent=None):
         super().__init__(parent)
+        self._file_picker = file_picker
+        self._metadata_creator = metadata_creator
         self._combined_df: pd.DataFrame | None = None
         self._result: dict | None = None
         # PCA libre — données stockées après _run_analysis
@@ -471,39 +473,11 @@ class PeakSelectorTab(QWidget):
     # ── Chargement des données ────────────────────────────────────────────────
 
     def _reload_data(self):
-        main = self.window()
-        if not hasattr(main, "metadata_creator") or not hasattr(main, "file_picker"):
-            QMessageBox.warning(self, "Erreur", "Onglets Fichiers et Métadonnées requis.")
-            return
-
-        txt_files = (
-            main.file_picker.get_selected_files()
-            if hasattr(main.file_picker, "get_selected_files")
-            else []
-        )
-        if not txt_files:
-            QMessageBox.warning(self, "Pas de fichiers",
-                                "Sélectionnez des fichiers .txt dans l'onglet Fichiers.")
-            return
-
-        try:
-            main.metadata_creator.build_merged_metadata()
-        except Exception as e:
-            QMessageBox.critical(self, "Erreur métadonnées",
-                                 f"Erreur lors de la fusion des métadonnées :\n{e}")
-            return
-
-        try:
-            combined = build_combined_dataframe_from_ui(
-                txt_files,
-                main.metadata_creator,
-                poly_order=5,
-                exclude_brb=True,
-                apply_baseline=True,
-            )
-        except Exception as e:
-            QMessageBox.critical(self, "Erreur chargement",
-                                 f"Impossible de charger les spectres :\n{e}")
+        combined = load_combined_df(self, self._file_picker, self._metadata_creator)
+        if combined is None:
+            self._combined_df = None
+            self.lbl_status.setText("Données non chargées.")
+            self.btn_run.setEnabled(False)
             return
 
         self._combined_df = combined
@@ -1253,10 +1227,7 @@ class PeakSelectorTab(QWidget):
     # ── Utilitaires ───────────────────────────────────────────────────────────
 
     def _get_manip_name(self) -> str | None:
-        main = self.window()
-        if main is not None:
-            md = getattr(main, "metadata_creator", None)
-            if md is not None and hasattr(md, "edit_manip"):
-                name = md.edit_manip.text().strip()
-                return name or None
+        md = self._metadata_creator
+        if md is not None and hasattr(md, "edit_manip"):
+            return md.edit_manip.text().strip() or None
         return None

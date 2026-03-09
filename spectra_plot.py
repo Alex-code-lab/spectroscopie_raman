@@ -17,9 +17,10 @@ from data_processing import load_spectrum_file, build_combined_dataframe_from_ui
 from plotly_downloads import install_plotly_download_handler, load_plotly_html, sanitize_filename, save_fig_with_current_zoom, set_plotly_filename
 
 class SpectraTab(QWidget):
-    def __init__(self, file_picker, parent=None):
+    def __init__(self, file_picker, metadata_creator, parent=None):
         super().__init__(parent)
         self.file_picker = file_picker
+        self._metadata_creator = metadata_creator
 
         # Dernière figure Plotly affichée (pour export PNG)
         self._last_fig = None
@@ -106,12 +107,9 @@ class SpectraTab(QWidget):
             self.spin_ymax.setValue(-1.0)
 
     def _get_manip_name(self) -> str | None:
-        main = self.window()
-        if main is not None:
-            metadata_creator = getattr(main, "metadata_creator", None)
-            if metadata_creator is not None and hasattr(metadata_creator, "edit_manip"):
-                name = metadata_creator.edit_manip.text().strip()
-                return name or None
+        md = self._metadata_creator
+        if md is not None and hasattr(md, "edit_manip"):
+            return md.edit_manip.text().strip() or None
         return None
 
     def plot_selected_with_baseline(self):
@@ -125,8 +123,7 @@ class SpectraTab(QWidget):
 
         try:
             # 1) On tente de construire un fichier combiné à partir des métadonnées créées dans l'onglet Métadonnées
-            main = self.window()
-            metadata_creator = getattr(main, 'metadata_creator', None) if main is not None else None
+            metadata_creator = self._metadata_creator
             combined_df = None
             if metadata_creator is not None and hasattr(metadata_creator, 'build_merged_metadata'):
                 # Récupérer les fichiers .txt à partir du FilePicker associé à cet onglet
@@ -222,12 +219,7 @@ class SpectraTab(QWidget):
                     return
 
                 # Récupérer le nom de la manip pour le titre
-                manip_name = None
-                main = self.window()
-                if main is not None:
-                    metadata_creator = getattr(main, "metadata_creator", None)
-                    if metadata_creator is not None and hasattr(metadata_creator, "edit_manip"):
-                        manip_name = metadata_creator.edit_manip.text().strip()
+                manip_name = self._get_manip_name() or ""
 
                 title = manip_name if manip_name else "Spectres Raman"
                 if manip_name:

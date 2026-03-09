@@ -96,6 +96,27 @@ def load_spectrum_file(path: str, poly_order: int = 5, apply_baseline: bool = Tr
         x = x[order]
         y = y[order]
 
+        # Validation : plage physiquement raisonnable (cm⁻¹)
+        if x.min() < -200 or x.max() > 10000:
+            print(
+                f"[load_spectrum_file] Valeurs de Raman Shift suspectes pour {path} "
+                f"(min={x.min():.1f}, max={x.max():.1f} cm⁻¹)"
+            )
+
+        # Déduplication : si plusieurs points ont le même shift, on conserve la moyenne
+        unique_x, inverse = np.unique(x, return_inverse=True)
+        if len(unique_x) < len(x):
+            n_dup = len(x) - len(unique_x)
+            print(
+                f"[load_spectrum_file] {n_dup} doublon(s) de Raman Shift détecté(s) "
+                f"dans {path} — moyennage appliqué."
+            )
+            y_dedup = np.zeros(len(unique_x))
+            np.add.at(y_dedup, inverse, y)
+            counts = np.bincount(inverse)
+            y = y_dedup / counts
+            x = unique_x
+
         # Baseline correction (optionnelle)
         if apply_baseline:
             try:
@@ -190,3 +211,58 @@ def build_combined_dataframe_from_ui(
         exclude_brb=exclude_brb,
         apply_baseline=apply_baseline,
     )
+
+
+def load_combined_df(parent, file_picker, metadata_creator, **kwargs) -> "pd.DataFrame | None":
+    """Charge le DataFrame combiné en gérant toutes les erreurs via QMessageBox.
+
+    Retourne le DataFrame, ou None si une erreur s'est produite
+    (le message d'erreur a déjà été affiché à l'utilisateur).
+
+    kwargs sont transmis à build_combined_dataframe_from_ui
+    (poly_order, exclude_brb, apply_baseline).
+    """
+    from PySide6.QtWidgets import QMessageBox
+
+    if metadata_creator is None or not hasattr(metadata_creator, "build_merged_metadata"):
+        QMessageBox.warning(
+            parent,
+            "Métadonnées manquantes",
+            "L'onglet Métadonnées n'est pas correctement initialisé.\n"
+            "Créez d'abord les tableaux de compositions et de correspondance.",
+        )
+        return None
+
+    txt_files = []
+    if file_picker is not None and hasattr(file_picker, "get_selected_files"):
+        txt_files = file_picker.get_selected_files()
+    if not txt_files:
+        QMessageBox.warning(
+            parent,
+            "Fichiers manquants",
+            "Aucun fichier .txt sélectionné.\n"
+            "Allez dans l'onglet Fichiers et ajoutez des spectres.",
+        )
+        return None
+
+    try:
+        metadata_creator.build_merged_metadata()
+    except Exception as e:
+        QMessageBox.critical(
+            parent,
+            "Erreur métadonnées",
+            f"Impossible de construire les métadonnées fusionnées :\n{e}",
+        )
+        return None
+
+    opts = dict(poly_order=5, exclude_brb=True, apply_baseline=True)
+    opts.update(kwargs)
+    try:
+        return build_combined_dataframe_from_ui(txt_files, metadata_creator, **opts)
+    except Exception as e:
+        QMessageBox.critical(
+            parent,
+            "Échec assemblage",
+            f"Impossible d'assembler les données spectres + métadonnées :\n{e}",
+        )
+        return None
