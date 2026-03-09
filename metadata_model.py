@@ -220,6 +220,16 @@ def compute_concentration_table(df_comp: pd.DataFrame) -> pd.DataFrame:
     vol = df[tube_cols].apply(lambda col: pd.to_numeric(col, errors="coerce"))
     vol = vol.fillna(0.0)
 
+    # Si la colonne "Pas (µL)" est présente, les lignes avec pas > 0 stockent
+    # des n_gouttes : on les reconvertit en µL pour le calcul des concentrations.
+    if "Pas (µL)" in df.columns:
+        pas_series = pd.to_numeric(df["Pas (µL)"], errors="coerce").fillna(0.0)
+        for i in df.index:
+            pas = pas_series.loc[i]
+            if pas > 0:
+                for c in tube_cols:
+                    vol.at[i, c] = vol.at[i, c] * pas
+
     total_ul = vol.sum(axis=0).replace(0, pd.NA)
 
     out_rows: list[dict] = []

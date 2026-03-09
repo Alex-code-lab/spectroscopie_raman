@@ -269,6 +269,13 @@ class TableEditorDialog(QDialog):
             self._ensure_sum_row_items()
             self._set_sum_row_label()
             tube_cols = self._get_tube_column_indices()
+            # Indice de la colonne "Pas (µL)" pour les lignes compte-goutte
+            pas_col_idx: int | None = None
+            for j in range(self.table.columnCount()):
+                hdr = self.table.horizontalHeaderItem(j)
+                if hdr is not None and hdr.text().strip() == "Pas (µL)":
+                    pas_col_idx = j
+                    break
             # Nettoie les fonds
             for j in range(self.table.columnCount()):
                 item = self.table.item(self._sum_row_idx, j)
@@ -281,6 +288,12 @@ class TableEditorDialog(QDialog):
                     val = self._parse_float(item.text() if item is not None else "")
                     if val is None:
                         continue
+                    # Si ligne compte-goutte, multiplier les n_gouttes par le pas
+                    if pas_col_idx is not None:
+                        pas_item = self.table.item(r, pas_col_idx)
+                        pas = self._parse_float(pas_item.text() if pas_item is not None else "") or 0.0
+                        if pas > 0:
+                            val = val * pas
                     total += val
                 item = self.table.item(self._sum_row_idx, j)
                 if item is None:
@@ -697,6 +710,7 @@ class GaussianVolumesDialog(QDialog):
             "pipette_step_uL": float(self.spin_step.value()),
             "include_zero": bool(self.chk_zero.isChecked()),
             "duplicate_last": bool(self.chk_dup.isChecked()),
+            "compte_goutte": bool(self.chk_dropper.isChecked()),
         }
 
     def fixed_solution_stocks(self) -> dict[str, tuple[float, str]]:
@@ -1559,6 +1573,7 @@ class MetadataCreatorWidget(QWidget):
         params = dlg.params()
         fixed_stock = dlg.fixed_solution_stocks()
         self._sum_target_uL = float(params.get("Vtot_uL", DEFAULT_VTOT_UL))
+        compte_goutte = bool(params.pop("compte_goutte", False))
 
         try:
             df_gen, meta = mm.sers_gaussian_volumes(**params)
@@ -1701,6 +1716,27 @@ class MetadataCreatorWidget(QWidget):
         if "Echantillon" in df["Réactif"].values:
             ridx_samp = int(df.index[df["Réactif"] == "Echantillon"][0])
             df.at[ridx_samp, last_col] = 0.0
+
+        # ── Mode compte-goutte : convertir les volumes B, C, F en nombre de gouttes ──
+        # La colonne "Pas (µL)" mémorise le pas pour que compute_concentration_table
+        # puisse retrouver les µL réels (vol_µL = n_gouttes × pas).
+        pas = params.get("pipette_step_uL", 1.0)
+        if "Pas (µL)" not in df.columns:
+            df["Pas (µL)"] = 0.0
+        if compte_goutte and pas > 0:
+            for reactif_name in ("Solution B", "Solution C", "Solution F"):
+                mask = df["Réactif"].astype(str).str.strip().str.lower() == reactif_name.strip().lower()
+                if not mask.any():
+                    continue
+                ridx = int(df.index[mask][0])
+                df.at[ridx, "Pas (µL)"] = pas
+                for c in tube_cols:
+                    vol_uL = df.at[ridx, c]
+                    try:
+                        n = float(vol_uL) / pas
+                        df.at[ridx, c] = round(n)
+                    except (ValueError, TypeError, ZeroDivisionError):
+                        pass
 
         self.df_comp = df
 

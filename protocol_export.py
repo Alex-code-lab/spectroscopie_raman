@@ -228,12 +228,22 @@ def export_protocol_excel(df_comp, meta: dict, path: str,
         _s(ws, dr, COL_VERIF, _box(("verif", r_idx)),
            fill=_VERIF_CELL, font=_CHECK_FONT, align=_CTR, border=_THIN_BORDER)
 
+        # Mode compte-goutte : pas > 0 → valeurs stockées en n_gouttes
+        try:
+            pas = float(row.get("Pas (µL)", 0) or 0)
+        except (ValueError, TypeError):
+            pas = 0.0
+
         # Volumes + cases à cocher par tube
         for t_idx, tube_name in enumerate(tube_cols):
             base = COL_FIRST_TUBE + t_idx * 3
             raw_vol = row.get(tube_name, "")
             try:
-                vol_val = float(raw_vol)
+                v = float(raw_vol)
+                if pas > 0:
+                    vol_val = f"{int(round(v))} gouttes"
+                else:
+                    vol_val = int(v) if v == int(v) else v
             except (ValueError, TypeError):
                 vol_val = str(raw_vol) if raw_vol not in (None, "") else ""
 

@@ -245,14 +245,26 @@ class ProtocolDialog(QDialog):
             cb.stateChanged.connect(self._refresh_highlights)
             tbl.setCellWidget(tr, 3, w)
 
+            # Mode compte-goutte : pas > 0 → valeurs stockées en n_gouttes
+            try:
+                pas = float(row.get("Pas (µL)", 0) or 0)
+            except (ValueError, TypeError):
+                pas = 0.0
+
             # Tubes
             for t_idx, tube_name in enumerate(self._tubes):
                 base = _FIXED_COLS + t_idx * _SUBCOLS
                 raw_vol = row.get(tube_name, "")
                 try:
                     v = float(raw_vol)
-                    vol_str = str(int(v)) if v == int(v) else str(v)
-                except: vol_str = str(raw_vol) if raw_vol not in (None, "") else ""
+                    if pas > 0:
+                        # Afficher le nombre de gouttes
+                        n = int(round(v))
+                        vol_str = f"{n} gouttes"
+                    else:
+                        vol_str = str(int(v)) if v == int(v) else str(v)
+                except (ValueError, TypeError):
+                    vol_str = str(raw_vol) if raw_vol not in (None, "") else ""
 
                 tbl.setItem(tr, base, _item(vol_str, bg=_C_VOL))
 
