@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QAbstractItemView,
     QInputDialog,
+    QMenu,
 )
 
 from PySide6.QtCore import Qt, QDate
@@ -88,6 +89,7 @@ class TableEditorDialog(QDialog):
         self._sum_target = float(sum_target) if sum_target is not None else None
         self._sum_row_idx: int | None = None
         self._sum_updating = False
+        self._active_tube_col: int | None = None
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(title))
@@ -118,13 +120,17 @@ class TableEditorDialog(QDialog):
         self.btn_add_row = QPushButton("+ Ligne", self)
         self.btn_del_row = QPushButton("− Ligne", self)
         self.btn_add_col = QPushButton("Ajouter un tube", self)
-        self.btn_del_col = QPushButton("Retirer un tube", self)
+        self.btn_del_col = QPushButton("Supprimer le tube sélectionné", self)
+        self.btn_dup_col = QPushButton("Dupliquer le tube sélectionné", self)
         self.btn_rename_col = QPushButton("Renommer colonne…", self)
+        self.btn_del_col.setToolTip("Cliquez d'abord sur l'en-tête du tube (ligne de titres) pour le sélectionner, puis cliquez ce bouton.")
+        self.btn_dup_col.setToolTip("Cliquez d'abord sur l'en-tête du tube (ligne de titres) pour le sélectionner, puis cliquez ce bouton.")
         btns_edit.addWidget(self.btn_add_row)
         btns_edit.addWidget(self.btn_del_row)
         btns_edit.addSpacing(20)
         btns_edit.addWidget(self.btn_add_col)
         btns_edit.addWidget(self.btn_del_col)
+        btns_edit.addWidget(self.btn_dup_col)
         btns_edit.addWidget(self.btn_rename_col)
 
         btns_edit.addSpacing(20)
@@ -151,11 +157,17 @@ class TableEditorDialog(QDialog):
         self.btn_del_row.clicked.connect(self._del_row)
         self.btn_add_col.clicked.connect(self._add_col)
         self.btn_del_col.clicked.connect(self._del_col)
+        self.btn_dup_col.clicked.connect(self._duplicate_col)
         self.btn_rename_col.clicked.connect(self._rename_col)
         self.btn_reset.clicked.connect(self._reset_table)
 
-        # Double-clic sur un en-tête de colonne → renommer
+        # Clic simple sur un en-tête → sélectionner la colonne
+        self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
+        # Double-clic sur un en-tête → renommer
         self.table.horizontalHeader().sectionDoubleClicked.connect(self._rename_col)
+        # Clic droit sur un en-tête → menu contextuel
+        self.table.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.horizontalHeader().customContextMenuRequested.connect(self._on_header_context_menu)
 
         # --- Boutons OK / Annuler ---
         btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
@@ -311,6 +323,31 @@ class TableEditorDialog(QDialog):
         """Ajuste automatiquement la largeur des colonnes au contenu."""
         self.table.resizeColumnsToContents()
 
+    def _on_header_clicked(self, col: int) -> None:
+        """Sélectionne visuellement la colonne cliquée et la mémorise."""
+        self._active_tube_col = col
+        self.table.selectColumn(col)
+
+    def _on_header_context_menu(self, pos) -> None:
+        """Menu contextuel sur un en-tête de colonne Tube : dupliquer / supprimer."""
+        col = self.table.horizontalHeader().logicalIndexAt(pos)
+        if col < 0:
+            return
+        header = self.table.horizontalHeaderItem(col)
+        col_name = header.text().strip() if header is not None else ""
+        if not col_name.lower().startswith("tube "):
+            return
+        self._active_tube_col = col
+        self.table.selectColumn(col)
+        menu = QMenu(self)
+        act_dup = menu.addAction(f"Dupliquer « {col_name} »")
+        act_del = menu.addAction(f"Supprimer « {col_name} »")
+        action = menu.exec(self.table.horizontalHeader().mapToGlobal(pos))
+        if action == act_dup:
+            self._duplicate_col()
+        elif action == act_del:
+            self._del_col()
+
     def _on_item_changed(self, item: QTableWidgetItem) -> None:
         self._auto_resize_columns()
         if not self._sum_row_enabled or self._sum_row_idx is None:
@@ -388,20 +425,76 @@ class TableEditorDialog(QDialog):
             self._ensure_sum_row_items()
             self._refresh_sum_row()
 
+    def _resolve_tube_col(self, action_label: str) -> int | None:
+        """Retourne l'indice de la colonne Tube active, ou None avec un message d'erreur."""
+        col = self._active_tube_col
+        if col is None or col < 0 or col >= self.table.columnCount():
+            QMessageBox.information(
+                self, action_label,
+                "Cliquez d'abord sur l'en-tête d'un tube (la ligne de titres) pour le sélectionner."
+            )
+            return None
+        header = self.table.horizontalHeaderItem(col)
+        col_name = header.text().strip() if header is not None else ""
+        if not col_name.lower().startswith("tube "):
+            QMessageBox.information(
+                self, action_label,
+                f"La colonne « {col_name} » n'est pas une colonne Tube.\n"
+                "Cliquez sur l'en-tête d'un tube pour le sélectionner."
+            )
+            return None
+        return col
+
     def _del_col(self) -> None:
-        # Retirer le dernier tube en priorité; sinon la colonne sélectionnée
-        tube_indices = self._get_tube_column_indices()
-        if tube_indices:
-            col = tube_indices[-1]
-        else:
-            col = self.table.currentColumn()
-        if col < 0:
+        col = self._resolve_tube_col("Supprimer un tube")
+        if col is None:
             return
         if 0 <= col < len(self._columns):
             self._columns.pop(col)
         self.table.removeColumn(col)
         self.table.setHorizontalHeaderLabels(self._columns)
+        self._active_tube_col = None
         if self._sum_row_enabled:
+            self._refresh_sum_row()
+
+    def _duplicate_col(self) -> None:
+        """Duplique le tube de la colonne actuellement sélectionnée."""
+        col = self._resolve_tube_col("Dupliquer un tube")
+        if col is None:
+            return
+
+        # Numéro du nouveau tube = max existant + 1
+        tube_indices = self._get_tube_column_indices()
+        last_header = self.table.horizontalHeaderItem(tube_indices[-1])
+        last_name = last_header.text().strip() if last_header else ""
+        import re as _re
+        m = _re.search(r"\d+$", last_name)
+        next_num = int(m.group()) + 1 if m else len(tube_indices) + 1
+        new_name = f"Tube {next_num}"
+
+        # Insérer juste après la colonne sélectionnée
+        new_col = col + 1
+        self.table.insertColumn(new_col)
+        self._columns.insert(new_col, new_name)
+        self.table.setHorizontalHeaderLabels(self._columns)
+
+        # Copier les valeurs (hors ligne de somme)
+        n_data_rows = (
+            self._sum_row_idx
+            if (self._sum_row_enabled and self._sum_row_idx is not None)
+            else self.table.rowCount()
+        )
+        self.table.blockSignals(True)
+        try:
+            for r in range(n_data_rows):
+                src = self.table.item(r, col)
+                txt = src.text() if src is not None else ""
+                self.table.setItem(r, new_col, QTableWidgetItem(txt))
+        finally:
+            self.table.blockSignals(False)
+
+        if self._sum_row_enabled:
+            self._ensure_sum_row_items()
             self._refresh_sum_row()
 
     def _rename_col(self, col: int = -1) -> None:
@@ -603,53 +696,9 @@ class GaussianVolumesDialog(QDialog):
         form2.addRow("Solution E", _row(self.spin_VE, self.spin_conc_E, self.combo_unit_E))
         form2.addRow("Solution F", _row(self.spin_VF, self.spin_conc_F, self.combo_unit_F))
 
-        # ---------------------------------------------------------
-        # Quantités fixes pour solutions C/D/E/F
-        # ---------------------------------------------------------
-        # On impose n = C × V constant (unités relatives).
-        # Si l'utilisateur modifie C → V est recalculé.
-        # Si l'utilisateur modifie V → C est recalculé.
-
-        self._fixed_n = {
-            "C": self.spin_conc_C.value() * self.spin_VC.value(),
-            "D": self.spin_conc_D.value() * self.spin_VD.value(),
-            "E": self.spin_conc_E.value() * self.spin_VE.value(),
-            "F": self.spin_conc_F.value() * self.spin_VF.value(),
-        }
-
-        self._updating_fixed = False
-
-        def _bind_fixed(letter, spinC, spinV):
-
-            def update_from_C(val):
-                if self._updating_fixed:
-                    return
-                self._updating_fixed = True
-                try:
-                    n = self._fixed_n[letter]
-                    if val > 0:
-                        spinV.setValue(n / val)
-                finally:
-                    self._updating_fixed = False
-
-            def update_from_V(val):
-                if self._updating_fixed:
-                    return
-                self._updating_fixed = True
-                try:
-                    n = self._fixed_n[letter]
-                    if val > 0:
-                        spinC.setValue(n / val)
-                finally:
-                    self._updating_fixed = False
-
-            spinC.valueChanged.connect(update_from_C)
-            spinV.valueChanged.connect(update_from_V)
-
-        _bind_fixed("C", self.spin_conc_C, self.spin_VC)
-        _bind_fixed("D", self.spin_conc_D, self.spin_VD)
-        _bind_fixed("E", self.spin_conc_E, self.spin_VE)
-        _bind_fixed("F", self.spin_conc_F, self.spin_VF)
+        # Tous les champs V et C sont indépendants — aucune liaison automatique.
+        # La case compte-goutte sert uniquement de preset pour pré-remplir les valeurs.
+        self._updating_fixed = False  # conservé pour _apply_params
 
         layout.addWidget(box2)
 
@@ -659,20 +708,13 @@ class GaussianVolumesDialog(QDialog):
         self.spin_margin = QDoubleSpinBox(self); self.spin_margin.setDecimals(1); self.spin_margin.setRange(0.0, 1e9); self.spin_margin.setValue(20.0)
         self.spin_step = QDoubleSpinBox(self); self.spin_step.setDecimals(3); self.spin_step.setRange(0.001, 1e6); self.spin_step.setValue(1.0)
 
-        # Synchronisation automatique si mode compte‑goutte activé
+        # Cocher compte-goutte : applique un preset de valeurs, tout reste modifiable ensuite
         def _update_dropper_mode(state):
             if state:
-                # Valeurs par défaut compte‑goutte (modifiable ensuite)
                 self.spin_margin.setValue(0.0)
                 self.spin_step.setValue(40.0)
-
-                # Volumes typiques compte‑goutte pour solutions fixes
                 self.spin_VC.setValue(40.0)
                 self.spin_VF.setValue(40.0)
-
-            # Ne jamais bloquer les widgets : l'utilisateur peut modifier
-            self.spin_margin.setEnabled(True)
-            self.spin_step.setEnabled(True)
 
         self.chk_dropper.toggled.connect(_update_dropper_mode)
 
@@ -690,10 +732,84 @@ class GaussianVolumesDialog(QDialog):
         self.btn_moles.clicked.connect(self._on_edit_moles_clicked)
         layout.addWidget(self.btn_moles)
 
+        self.btn_reset_defaults = QPushButton("Valeurs par défaut", self)
+        self.btn_reset_defaults.setToolTip("Remet tous les paramètres aux valeurs d'usine.")
+        self.btn_reset_defaults.clicked.connect(self._reset_to_defaults)
+        layout.addWidget(self.btn_reset_defaults)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    # Valeurs par défaut de référence (pour le bouton "Réinitialiser")
+    _DEFAULTS = {
+        "n_tubes": 11, "C0_nM": 1000.0, "V_echant_uL": 1000.0,
+        "C_titrant_uM": 5.0, "Vtot_uL": DEFAULT_VTOT_UL,
+        "margin_uL": 20.0, "pipette_step_uL": 1.0,
+        "include_zero": True, "duplicate_last": False, "compte_goutte": False,
+        "_V_C": 30.0, "_V_D": 750.0, "_V_E": 750.0, "_V_F": 60.0,
+    }
+    _DEFAULTS_FIXED_STOCK = {
+        "Solution C": (2.0, "µM"), "Solution D": (0.5, "% en masse"),
+        "Solution E": (1.0, "mM"), "Solution F": (1.0, "mM"),
+    }
+
+    def _apply_params(self, params: dict, fixed_stock: dict | None = None) -> None:
+        """Remplit les widgets avec les paramètres fournis.
+
+        Le signal toggled de chk_dropper est temporairement déconnecté pour éviter
+        que cocher la case écrase les volumes sauvegardés.
+        """
+        # Déconnecter le preset compte-goutte le temps du chargement
+        try:
+            self.chk_dropper.toggled.disconnect()
+        except RuntimeError:
+            pass
+
+        self.spin_n.setValue(int(params.get("n_tubes", self.spin_n.value())))
+        self.spin_C0.setValue(float(params.get("C0_nM", self.spin_C0.value())))
+        self.spin_Vech.setValue(float(params.get("V_echant_uL", self.spin_Vech.value())))
+        self.spin_Ctit.setValue(float(params.get("C_titrant_uM", self.spin_Ctit.value())))
+        self.spin_Vtot.setValue(float(params.get("Vtot_uL", self.spin_Vtot.value())))
+        self.spin_margin.setValue(float(params.get("margin_uL", self.spin_margin.value())))
+        self.spin_step.setValue(float(params.get("pipette_step_uL", self.spin_step.value())))
+        self.chk_zero.setChecked(bool(params.get("include_zero", self.chk_zero.isChecked())))
+        self.chk_dup.setChecked(bool(params.get("duplicate_last", self.chk_dup.isChecked())))
+        self.chk_dropper.setChecked(bool(params.get("compte_goutte", self.chk_dropper.isChecked())))
+        if "_V_C" in params:
+            self.spin_VC.setValue(float(params["_V_C"]))
+        if "_V_D" in params:
+            self.spin_VD.setValue(float(params["_V_D"]))
+        if "_V_E" in params:
+            self.spin_VE.setValue(float(params["_V_E"]))
+        if "_V_F" in params:
+            self.spin_VF.setValue(float(params["_V_F"]))
+        if fixed_stock is not None:
+            for letter, spin_conc, combo in [
+                ("Solution C", self.spin_conc_C, self.combo_unit_C),
+                ("Solution D", self.spin_conc_D, self.combo_unit_D),
+                ("Solution E", self.spin_conc_E, self.combo_unit_E),
+                ("Solution F", self.spin_conc_F, self.combo_unit_F),
+            ]:
+                if letter in fixed_stock:
+                    c_val, u_val = fixed_stock[letter]
+                    spin_conc.setValue(float(c_val))
+                    combo.setCurrentText(str(u_val))
+
+        # Reconnecter le preset compte-goutte
+        def _update_dropper_mode(state):
+            if state:
+                self.spin_margin.setValue(0.0)
+                self.spin_step.setValue(40.0)
+                self.spin_VC.setValue(40.0)
+                self.spin_VF.setValue(40.0)
+
+        self.chk_dropper.toggled.connect(_update_dropper_mode)
+
+    def _reset_to_defaults(self) -> None:
+        """Remet tous les paramètres aux valeurs d'usine."""
+        self._apply_params(self._DEFAULTS, self._DEFAULTS_FIXED_STOCK)
 
     def params(self) -> dict:
         return {
@@ -901,6 +1017,9 @@ class MetadataCreatorWidget(QWidget):
         # Options d'affichage pour la correspondance spectres ↔ tubes
         self._map_include_brb: bool = True
         self._map_include_control: bool = True
+        # Derniers paramètres utilisés dans le dialogue gaussien (mémorisés entre ouvertures)
+        self._last_gaussian_params: dict | None = None
+        self._last_gaussian_fixed_stock: dict | None = None
         # Cible de contrôle pour la somme des volumes (µL) dans le tableau
         self._sum_target_uL: float = DEFAULT_VTOT_UL
 
@@ -1567,11 +1686,21 @@ class MetadataCreatorWidget(QWidget):
         """Ouvre le dialogue de génération des volumes selon une distribution gaussienne."""
 
         dlg = GaussianVolumesDialog(self)
+        # Restaurer les derniers paramètres utilisés si disponibles
+        if self._last_gaussian_params is not None:
+            dlg._apply_params(self._last_gaussian_params, self._last_gaussian_fixed_stock)
         if dlg.exec() != QDialog.Accepted:
             return
 
         params = dlg.params()
         fixed_stock = dlg.fixed_solution_stocks()
+        # Mémoriser les paramètres pour la prochaine ouverture
+        self._last_gaussian_params = dict(params)
+        self._last_gaussian_params["_V_C"] = dlg.spin_VC.value()
+        self._last_gaussian_params["_V_D"] = dlg.spin_VD.value()
+        self._last_gaussian_params["_V_E"] = dlg.spin_VE.value()
+        self._last_gaussian_params["_V_F"] = dlg.spin_VF.value()
+        self._last_gaussian_fixed_stock = dict(fixed_stock)
         self._sum_target_uL = float(params.get("Vtot_uL", DEFAULT_VTOT_UL))
         compte_goutte = bool(params.pop("compte_goutte", False))
 
@@ -2385,18 +2514,30 @@ class MetadataCreatorWidget(QWidget):
                     row_b = r
             return row_a, row_b, col_reactif
 
-        # Somme cible A+B pour chaque tube (initialisée à l'ouverture)
+        def _get_pas_B(row_b: int) -> float:
+            """Retourne le pas (µL/goutte) de Solution B (0 si pas de mode goutte)."""
+            for j in range(table.columnCount()):
+                hdr = table.horizontalHeaderItem(j)
+                if hdr is not None and hdr.text().strip() == "Pas (µL)":
+                    pas_item = table.item(row_b, j)
+                    return dlg._parse_float(pas_item.text() if pas_item is not None else "") or 0.0
+            return 0.0
+
+        # Somme cible A+B (en µL) pour chaque tube — initialisée à l'ouverture
         target_sum: dict[int, float] = {}
         row_A, row_B, _ = _find_rows_ab()
         if row_A is not None and row_B is not None:
+            pas_B_init = _get_pas_B(row_B)
             for c in range(table.columnCount()):
                 if not _is_tube_col(c):
                     continue
                 itemA = table.item(row_A, c)
                 itemB = table.item(row_B, c)
                 vA = dlg._parse_float(itemA.text() if itemA is not None else "") or 0.0
-                vB = dlg._parse_float(itemB.text() if itemB is not None else "") or 0.0
-                target_sum[c] = vA + vB
+                vB_raw = dlg._parse_float(itemB.text() if itemB is not None else "") or 0.0
+                # En mode goutte, vB_raw = nombre de gouttes → convertir en µL
+                vB_uL = vB_raw * pas_B_init if pas_B_init > 0 else vB_raw
+                target_sum[c] = vA + vB_uL
 
         def sync_A_B(item: QTableWidgetItem) -> None:
             if item is None:
@@ -2422,16 +2563,33 @@ class MetadataCreatorWidget(QWidget):
             if val is None:
                 return
 
+            pas_B = _get_pas_B(row_B)
+
             if c not in target_sum:
                 itemA = table.item(row_A, c)
                 itemB = table.item(row_B, c)
                 vA = dlg._parse_float(itemA.text() if itemA is not None else "") or 0.0
-                vB = dlg._parse_float(itemB.text() if itemB is not None else "") or 0.0
-                target_sum[c] = vA + vB
+                vB_raw = dlg._parse_float(itemB.text() if itemB is not None else "") or 0.0
+                vB_uL = vB_raw * pas_B if pas_B > 0 else vB_raw
+                target_sum[c] = vA + vB_uL
 
-            total = target_sum[c]
-            other_row = row_B if r == row_A else row_A
-            new_val = total - val
+            total = target_sum[c]  # toujours en µL
+
+            if r == row_B:
+                # L'utilisateur a modifié Solution B
+                # val = nombre de gouttes (si compte-goutte) ou µL sinon
+                val_uL = val * pas_B if pas_B > 0 else val
+                new_val_A = total - val_uL   # Solution A en µL
+                other_row, new_val = row_A, new_val_A
+            else:
+                # L'utilisateur a modifié Solution A (toujours en µL)
+                remaining_uL = total - val
+                if pas_B > 0:
+                    # Convertir µL restants en nombre de gouttes (arrondi)
+                    new_val_B = round(remaining_uL / pas_B)
+                else:
+                    new_val_B = remaining_uL
+                other_row, new_val = row_B, new_val_B
 
             table.blockSignals(True)
             try:
