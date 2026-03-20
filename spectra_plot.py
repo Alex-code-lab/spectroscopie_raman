@@ -1,5 +1,7 @@
 import os
+import math
 import pandas as pd
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -10,6 +12,13 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QCheckBox,
+    QDialog,
+    QGroupBox,
+    QRadioButton,
+    QButtonGroup,
+    QSpinBox,
+    QDialogButtonBox,
+    QComboBox,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 import plotly.graph_objects as go
@@ -342,44 +351,185 @@ class SpectraTab(QWidget):
         config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "Spectres"}}
         load_plotly_html(self.plot_view, fig.to_html(include_plotlyjs=True, config=config))
 
-    def _export_figure(self):
-        """Exporte le dernier graphique Plotly affiché en PDF, SVG ou PNG."""
+    # Presets de taille partagés avec l'onglet Analyse
+    _EXPORT_PRESETS: dict[str, tuple[int, int]] = {
+        "A4 paysage  (297×210 mm, 150 dpi)": (1748, 1240),
+        "A4 portrait (210×297 mm, 150 dpi)": (1240, 1748),
+        "A3 paysage  (420×297 mm, 150 dpi)": (2480, 1748),
+        "A3 portrait (297×420 mm, 150 dpi)": (1748, 2480),
+        "Écran large  (1920×1080)":           (1920, 1080),
+        "Carré HD    (1400×1400)":            (1400, 1400),
+        "Personnalisé…":                      (0, 0),
+    }
+
+    def _export_figure(self) -> None:
+        """Exporte le graphique des spectres via JS (PNG/SVG) ou printToPdf (PDF)."""
         if self._last_fig is None:
-            QMessageBox.information(
-                self,
-                "Aucun graphique",
-                "Aucun graphique n'est disponible à l'export.\n"
-                "Tracez d'abord les spectres."
-            )
+            QMessageBox.information(self, "Aucun graphique",
+                                    "Tracez d'abord les spectres.")
             return
 
+        # ── Dialog de configuration ──────────────────────────────────────────
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Exporter le graphique")
+        dlg_layout = QVBoxLayout(dlg)
+
+        grp_fmt = QGroupBox("Format de fichier")
+        fmt_layout = QHBoxLayout(grp_fmt)
+        btn_grp_fmt = QButtonGroup(dlg)
+        rb_png = QRadioButton("PNG (haute résolution ×2)")
+        rb_svg = QRadioButton("SVG (vectoriel)")
+        rb_pdf = QRadioButton("PDF")
+        rb_png.setChecked(True)
+        for rb in (rb_png, rb_svg, rb_pdf):
+            btn_grp_fmt.addButton(rb)
+            fmt_layout.addWidget(rb)
+        dlg_layout.addWidget(grp_fmt)
+
+        grp_size = QGroupBox("Taille de sortie  (PNG / SVG)")
+        size_layout = QVBoxLayout(grp_size)
+        cmb_preset = QComboBox()
+        for label in self._EXPORT_PRESETS:
+            cmb_preset.addItem(label)
+        size_layout.addWidget(cmb_preset)
+
+        custom_row = QHBoxLayout()
+        lbl_w = QLabel("Largeur (px) :")
+        spin_w = QSpinBox(); spin_w.setRange(400, 8000); spin_w.setValue(1748); spin_w.setSingleStep(10)
+        lbl_h = QLabel("Hauteur (px) :")
+        spin_h = QSpinBox(); spin_h.setRange(400, 8000); spin_h.setValue(1240); spin_h.setSingleStep(10)
+        for widget in (lbl_w, spin_w, lbl_h, spin_h):
+            custom_row.addWidget(widget)
+        size_layout.addLayout(custom_row)
+        dlg_layout.addWidget(grp_size)
+
+        def _on_preset_changed(idx: int) -> None:
+            label = cmb_preset.itemText(idx)
+            pw, ph = self._EXPORT_PRESETS[label]
+            is_custom = (pw == 0)
+            for widget in (lbl_w, spin_w, lbl_h, spin_h):
+                widget.setEnabled(is_custom)
+            if not is_custom:
+                spin_w.setValue(pw)
+                spin_h.setValue(ph)
+
+        def _on_fmt_changed() -> None:
+            grp_size.setEnabled(not rb_pdf.isChecked())
+
+        cmb_preset.currentIndexChanged.connect(_on_preset_changed)
+        rb_pdf.toggled.connect(_on_fmt_changed)
+        _on_preset_changed(0)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        dlg_layout.addWidget(buttons)
+
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        export_w = spin_w.value()
+        export_h = spin_h.value()
+        if rb_png.isChecked():
+            fmt, ext = "png", ".png"
+        elif rb_svg.isChecked():
+            fmt, ext = "svg", ".svg"
+        else:
+            fmt, ext = "pdf", ".pdf"
+
+        # ── Choix du fichier ─────────────────────────────────────────────────
         manip_name = self._get_manip_name()
-        if manip_name:
-            base = sanitize_filename(f"{manip_name}_Spectres") or "Spectres"
-        else:
-            base = "Spectres"
-
-        path, selected_filter = QFileDialog.getSaveFileName(
-            self,
-            "Exporter le graphique",
-            f"{base}.pdf",
-            "PDF (*.pdf);;SVG (*.svg);;PNG (*.png)",
-        )
-        if not path:
+        base = sanitize_filename(f"{manip_name}_Spectres") if manip_name else "Spectres"
+        filter_str = {"png": "PNG (*.png)", "svg": "SVG (*.svg)", "pdf": "PDF (*.pdf)"}[fmt]
+        fname, _ = QFileDialog.getSaveFileName(self, "Exporter le graphique", base, filter_str)
+        if not fname:
             return
+        if not fname.lower().endswith(ext):
+            fname += ext
 
-        # Déterminer le format selon le filtre choisi
-        if "PDF" in selected_filter:
-            fmt = "pdf"
-            if not path.lower().endswith(".pdf"):
-                path += ".pdf"
-        elif "SVG" in selected_filter:
-            fmt = "svg"
-            if not path.lower().endswith(".svg"):
-                path += ".svg"
+        # ── Export ───────────────────────────────────────────────────────────
+        if fmt == "pdf":
+            self._export_figure_pdf(fname)
         else:
-            fmt = "png"
-            if not path.lower().endswith(".png"):
-                path += ".png"
+            self._export_figure_js(fname, fmt, export_w, export_h)
 
-        save_fig_with_current_zoom(self.plot_view, self._last_fig, path, fmt, self, scale=2)
+    def _export_figure_pdf(self, fname: str) -> None:
+        try:
+            from PySide6.QtGui import QPageLayout, QPageSize
+            from PySide6.QtCore import QMarginsF
+            layout = QPageLayout(
+                QPageSize(QPageSize.PageSizeId.A4),
+                QPageLayout.Orientation.Landscape,
+                QMarginsF(10, 10, 10, 10),
+            )
+            self.plot_view.page().printToPdf(fname, layout)
+            QMessageBox.information(self, "Export réussi",
+                                    f"PDF créé :\n{fname}\n\n"
+                                    "(Le fichier sera écrit dans quelques secondes.)")
+        except Exception as exc:
+            QMessageBox.critical(self, "Échec PDF", str(exc))
+
+    def _export_figure_js(self, fname: str, fmt: str, width: int, height: int) -> None:
+        scale = 2 if fmt == "png" else 1
+        js = f"""
+        (function() {{
+            window._pexReady = false;
+            window._pexData  = null;
+            var gd = document.querySelector('.js-plotly-plot');
+            if (!gd) {{
+                window._pexData  = 'ERR:no_graph';
+                window._pexReady = true;
+                return;
+            }}
+            Plotly.toImage(gd, {{
+                format: '{fmt}',
+                width:  {width},
+                height: {height},
+                scale:  {scale}
+            }}).then(function(dataUrl) {{
+                window._pexData  = dataUrl;
+                window._pexReady = true;
+            }}).catch(function(e) {{
+                window._pexData  = 'ERR:' + String(e);
+                window._pexReady = true;
+            }});
+        }})();
+        """
+        self._js_export_fname = fname
+        self._js_export_fmt   = fmt
+        self.plot_view.page().runJavaScript(js)
+
+        self._js_poll = QTimer(self)
+        self._js_poll.setInterval(300)
+        self._js_poll.timeout.connect(self._poll_js_export)
+        self._js_poll.start()
+
+    def _poll_js_export(self) -> None:
+        self.plot_view.page().runJavaScript("!!window._pexReady", self._check_js_ready)
+
+    def _check_js_ready(self, ready: bool) -> None:
+        if not ready:
+            return
+        self._js_poll.stop()
+        self.plot_view.page().runJavaScript("window._pexData", self._receive_js_export)
+
+    def _receive_js_export(self, data_url: str) -> None:
+        fname = self._js_export_fname
+        fmt   = self._js_export_fmt
+        if not data_url or str(data_url).startswith("ERR"):
+            QMessageBox.critical(self, "Erreur d'export",
+                                 f"Plotly.toImage a échoué :\n{data_url}")
+            return
+        try:
+            _, payload = data_url.split(",", 1)
+            if fmt == "svg":
+                import urllib.parse
+                with open(fname, "w", encoding="utf-8") as f:
+                    f.write(urllib.parse.unquote(payload))
+            else:
+                import base64
+                with open(fname, "wb") as f:
+                    f.write(base64.b64decode(payload))
+            QMessageBox.information(self, "Export réussi", f"Fichier créé :\n{fname}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Erreur d'écriture", str(exc))

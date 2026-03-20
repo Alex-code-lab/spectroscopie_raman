@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import copy
+import math
 import itertools
 from typing import Optional, List
 
@@ -12,7 +14,8 @@ import plotly.graph_objects as go
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QMessageBox, QTableWidget, QTableWidgetItem, QSpacerItem, QSizePolicy,
-    QComboBox, QDoubleSpinBox, QHeaderView, QLineEdit
+    QComboBox, QDoubleSpinBox, QHeaderView, QLineEdit, QFileDialog,
+    QDialog, QFormLayout, QDialogButtonBox, QSpinBox, QGroupBox, QRadioButton, QButtonGroup
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from plotly_downloads import install_plotly_download_handler, load_plotly_html, set_plotly_filename, sanitize_filename
@@ -137,7 +140,14 @@ class AnalysisTab(QWidget):
         self.table.setVisible(False)
 
         # Graphique des ratios
-        layout.addWidget(QLabel("<b>Graphique – Rapports d’intensité Raman selon [titrant]</b>"))
+        graph_header = QHBoxLayout()
+        graph_header.addWidget(QLabel("<b>Graphique – Rapports d’intensité Raman selon [titrant]</b>"))
+        graph_header.addStretch()
+        self.btn_save_graph = QPushButton("Enregistrer le graphique…", self)
+        self.btn_save_graph.setEnabled(False)
+        self.btn_save_graph.clicked.connect(self._save_graph)
+        graph_header.addWidget(self.btn_save_graph)
+        layout.addLayout(graph_header)
         self.plot_view = QWebEngineView(self)
         install_plotly_download_handler(self.plot_view)
         layout.addWidget(self.plot_view, 1)
@@ -518,6 +528,7 @@ class AnalysisTab(QWidget):
         self._peak_intensities = None
         self._ratios_long = None
         self.btn_export.setEnabled(False)
+        self.btn_save_graph.setEnabled(False)
         if combined is None:
             self._combined_df = None
             self.lbl_status.setText("Fichier combiné : non chargé ✗")
@@ -712,6 +723,7 @@ class AnalysisTab(QWidget):
         self._ratios_long = df_ratios
         self._set_preview(merged)
         self.btn_export.setEnabled(True)
+        self.btn_save_graph.setEnabled(True)
         self._analysis_dirty = False
         self._refresh_button_states()
         # Réinitialiser état du fit sigmoïde
@@ -756,19 +768,21 @@ class AnalysisTab(QWidget):
                 xaxis_title="Quantité de titrant (mol)",
                 yaxis_title="Rapport d’intensité (a.u.)",
                 width=1200,
-                height=600,
+                height=800,
                 legend_title_text="Ratio",
                 legend=dict(
                     orientation="h",
                     x=0.5,
-                    y=-0.2,
+                    y=-0.12,
                     xanchor="center",
                     yanchor="top",
                     bordercolor="black",
                     borderwidth=1,
                     bgcolor="rgba(255,255,255,0.8)",
+                    font=dict(size=10),
+                    title=dict(font=dict(size=10)),
                 ),
-                margin=dict(b=120),
+                margin=dict(t=60, b=220, l=80, r=20),
             )
             # Formatage type scientifique pour l'axe X (évite les libellés doublons)
             fig.update_xaxes(tickformat=".2e")
@@ -822,3 +836,202 @@ class AnalysisTab(QWidget):
             QMessageBox.information(self, "Exporté", f"Résultats enregistrés :\n{out_path}")
         except Exception as e:
             QMessageBox.critical(self, "Échec export", f"Impossible d'enregistrer : {e}")
+
+    # Pixels à 150 dpi pour les formats papier standard (paysage / portrait)
+    _EXPORT_PRESETS: dict[str, tuple[int, int]] = {
+        "A4 paysage  (297×210 mm, 150 dpi)": (1748, 1240),
+        "A4 portrait (210×297 mm, 150 dpi)": (1240, 1748),
+        "A3 paysage  (420×297 mm, 150 dpi)": (2480, 1748),
+        "A3 portrait (297×420 mm, 150 dpi)": (1748, 2480),
+        "Écran large  (1920×1080)":           (1920, 1080),
+        "Carré HD    (1400×1400)":            (1400, 1400),
+        "Personnalisé…":                      (0, 0),
+    }
+
+    def _save_graph(self) -> None:
+        """Ouvre un dialog de configuration puis enregistre le graphique.
+
+        PNG et SVG utilisent Plotly.toImage via JavaScript (même moteur de rendu
+        que l'affichage → résultat pixel-perfect).
+        PDF utilise QWebEnginePage.printToPdf (rendu Qt identique à l'écran).
+        """
+        if self._current_fig is None:
+            return
+
+        # ── Dialog de configuration ──────────────────────────────────────────
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Enregistrer le graphique")
+        dlg_layout = QVBoxLayout(dlg)
+
+        # Format de fichier
+        grp_fmt = QGroupBox("Format de fichier")
+        fmt_layout = QHBoxLayout(grp_fmt)
+        btn_grp_fmt = QButtonGroup(dlg)
+        rb_png = QRadioButton("PNG (haute résolution ×2)")
+        rb_svg = QRadioButton("SVG (vectoriel)")
+        rb_pdf = QRadioButton("PDF")
+        rb_png.setChecked(True)
+        for rb in (rb_png, rb_svg, rb_pdf):
+            btn_grp_fmt.addButton(rb)
+            fmt_layout.addWidget(rb)
+        dlg_layout.addWidget(grp_fmt)
+
+        # Taille de sortie (PNG / SVG uniquement — PDF utilise la taille du graphique affiché)
+        grp_size = QGroupBox("Taille de sortie  (PNG / SVG)")
+        size_layout = QVBoxLayout(grp_size)
+        cmb_preset = QComboBox()
+        for label in self._EXPORT_PRESETS:
+            cmb_preset.addItem(label)
+        size_layout.addWidget(cmb_preset)
+
+        custom_row = QHBoxLayout()
+        lbl_w = QLabel("Largeur (px) :")
+        spin_w = QSpinBox(); spin_w.setRange(400, 8000); spin_w.setValue(1748); spin_w.setSingleStep(10)
+        lbl_h = QLabel("Hauteur (px) :")
+        spin_h = QSpinBox(); spin_h.setRange(400, 8000); spin_h.setValue(1240); spin_h.setSingleStep(10)
+        for widget in (lbl_w, spin_w, lbl_h, spin_h):
+            custom_row.addWidget(widget)
+        size_layout.addLayout(custom_row)
+        dlg_layout.addWidget(grp_size)
+
+        def _on_preset_changed(idx: int) -> None:
+            label = cmb_preset.itemText(idx)
+            pw, ph = self._EXPORT_PRESETS[label]
+            is_custom = (pw == 0)
+            for widget in (lbl_w, spin_w, lbl_h, spin_h):
+                widget.setEnabled(is_custom)
+            if not is_custom:
+                spin_w.setValue(pw)
+                spin_h.setValue(ph)
+
+        def _on_fmt_changed() -> None:
+            grp_size.setEnabled(not rb_pdf.isChecked())
+
+        cmb_preset.currentIndexChanged.connect(_on_preset_changed)
+        rb_pdf.toggled.connect(_on_fmt_changed)
+        _on_preset_changed(0)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        dlg_layout.addWidget(buttons)
+
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        export_w = spin_w.value()
+        export_h = spin_h.value()
+        if rb_png.isChecked():
+            fmt, ext = "png", ".png"
+        elif rb_svg.isChecked():
+            fmt, ext = "svg", ".svg"
+        else:
+            fmt, ext = "pdf", ".pdf"
+
+        # ── Choix du fichier ────────────────────────────────────────────────
+        manip_name = self._get_manip_name() or "Rapport_Intensite"
+        default_name = sanitize_filename(manip_name) + "_Rapport_Intensite"
+        filter_str = {"png": "PNG (*.png)", "svg": "SVG (*.svg)", "pdf": "PDF (*.pdf)"}[fmt]
+        fname, _ = QFileDialog.getSaveFileName(self, "Enregistrer le graphique", default_name, filter_str)
+        if not fname:
+            return
+        if not fname.lower().endswith(ext):
+            fname += ext
+
+        # ── Export ──────────────────────────────────────────────────────────
+        if fmt == "pdf":
+            self._save_graph_pdf(fname)
+        else:
+            self._save_graph_js(fname, fmt, export_w, export_h)
+
+    def _save_graph_pdf(self, fname: str) -> None:
+        """Exporte en PDF via Qt (rendu identique à l'affichage)."""
+        try:
+            from PySide6.QtGui import QPageLayout, QPageSize
+            from PySide6.QtCore import QMarginsF
+            layout = QPageLayout(
+                QPageSize(QPageSize.PageSizeId.A4),
+                QPageLayout.Orientation.Landscape,
+                QMarginsF(10, 10, 10, 10),
+            )
+            self.plot_view.page().printToPdf(fname, layout)
+            QMessageBox.information(self, "Graphique enregistré",
+                                    f"PDF créé :\n{fname}\n\n"
+                                    "(Le fichier sera écrit dans quelques secondes.)")
+        except Exception as exc:
+            QMessageBox.critical(self, "Échec PDF", str(exc))
+
+    def _save_graph_js(self, fname: str, fmt: str, width: int, height: int) -> None:
+        """Lance l'export PNG/SVG via Plotly.toImage (JavaScript).
+
+        Le résultat est récupéré de façon asynchrone via un timer de polling.
+        """
+        from PySide6.QtCore import QTimer
+
+        scale = 2 if fmt == "png" else 1
+        js = f"""
+        (function() {{
+            window._pexReady = false;
+            window._pexData  = null;
+            var gd = document.querySelector('.js-plotly-plot');
+            if (!gd) {{
+                window._pexData  = 'ERR:no_graph';
+                window._pexReady = true;
+                return;
+            }}
+            Plotly.toImage(gd, {{
+                format: '{fmt}',
+                width:  {width},
+                height: {height},
+                scale:  {scale}
+            }}).then(function(dataUrl) {{
+                window._pexData  = dataUrl;
+                window._pexReady = true;
+            }}).catch(function(e) {{
+                window._pexData  = 'ERR:' + String(e);
+                window._pexReady = true;
+            }});
+        }})();
+        """
+        self._js_export_fname = fname
+        self._js_export_fmt   = fmt
+        self.plot_view.page().runJavaScript(js)
+
+        self._js_poll = QTimer(self)
+        self._js_poll.setInterval(300)
+        self._js_poll.timeout.connect(self._poll_js_export)
+        self._js_poll.start()
+
+    def _poll_js_export(self) -> None:
+        self.plot_view.page().runJavaScript("!!window._pexReady", self._check_js_ready)
+
+    def _check_js_ready(self, ready: bool) -> None:
+        if not ready:
+            return
+        self._js_poll.stop()
+        self.plot_view.page().runJavaScript("window._pexData", self._receive_js_export)
+
+    def _receive_js_export(self, data_url: str) -> None:
+        fname = self._js_export_fname
+        fmt   = self._js_export_fmt
+
+        if not data_url or str(data_url).startswith("ERR"):
+            QMessageBox.critical(self, "Erreur d'export",
+                                 f"Plotly.toImage a échoué :\n{data_url}")
+            return
+
+        try:
+            header, payload = data_url.split(",", 1)
+            if fmt == "svg":
+                import urllib.parse
+                svg_text = urllib.parse.unquote(payload)
+                with open(fname, "w", encoding="utf-8") as f:
+                    f.write(svg_text)
+            else:  # png
+                import base64
+                with open(fname, "wb") as f:
+                    f.write(base64.b64decode(payload))
+            QMessageBox.information(self, "Graphique enregistré", f"Fichier créé :\n{fname}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Erreur d'écriture", str(exc))
+
