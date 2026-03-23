@@ -212,14 +212,15 @@ les composantes principales signifient physiquement et chimiquement.
 
 \begin{lstlisting}
 spectroscopie_raman/
-|-- main.py             # Point d'entree Qt : fenetre principale, onglets
-|-- file_picker.py      # Onglet Fichiers : navigation, selection .txt
-|-- metadata_creator.py # Onglet Metadonnees : UI Qt (volumes, correspondance)
-|-- metadata_model.py   # Couche donnees pure (sans Qt) : calculs, fusion
-|-- spectra_plot.py     # Onglet Spectres : trace Plotly interactif
-|-- analysis_tab.py     # Onglet Analyse : pics, ratios, export Excel
-|-- peak_selector.py    # Onglet Exploration : PCA correlee + PCA libre
-|-- data_processing.py  # Chargement .txt, baseline, assemblage
+|-- main.py               # Point d'entree Qt : fenetre principale, onglets
+|-- file_picker.py        # Onglet Fichiers : navigation, selection .txt
+|-- metadata_creator.py   # Onglet Metadonnees : UI Qt (volumes, correspondance)
+|-- metadata_model.py     # Couche donnees pure (sans Qt) : calculs, fusion
+|-- spectra_plot.py       # Onglet Spectres : trace Plotly, export haute resolution
+|-- analysis_tab.py       # Onglet Analyse : pics, ratios, fit sigmoide, export
+|-- peak_selector.py      # Onglet Exploration : PCA correlee + PCA libre
+|-- data_processing.py    # Chargement .txt, baseline, assemblage
+|-- plotly_downloads.py   # Utilitaires export graphique (JS Plotly, printToPdf)
 \end{lstlisting}
 
 Le fichier \texttt{metadata\_model.py} est une \textbf{couche données pure} :
@@ -294,6 +295,13 @@ mais n'apparaissent pas dans la sélection finale.
 Remplissez le \textbf{tableau des volumes} (réactifs $\times$ tubes) :
 chaque ligne est un réactif (Solution A, B, C\,\ldots), chaque colonne est
 un tube expérimental. Les valeurs sont en \textmu{}L.
+
+\paragraph{Gestion des colonnes (tubes).}
+Un clic sur l'en-tête d'une colonne la sélectionne visuellement. Un clic
+droit sur cet en-tête ouvre un menu contextuel proposant de \textbf{dupliquer}
+ou de \textbf{supprimer} le tube correspondant. Des boutons dédiés dans la
+barre d'outils permettent également d'ajouter un tube vierge en fin de
+tableau.
 
 Pour générer automatiquement des volumes de titrant distribués autour de
 l'équivalence chimique, utilisez le bouton \textbf{Générer volumes (gaussien)}.
@@ -412,28 +420,48 @@ Récapitulatif du flux de travail en paillasse :
   \item La légende utilise \texttt{Sample description} si disponible, sinon le
         nom de fichier.
   \item Cliquez \textbf{Tracer avec baseline} pour générer la figure Plotly
-        interactive (zoom, pan, export PNG).
+        interactive (zoom, pan, légende cliquable).
 \end{itemize}
+
+\paragraph{Export du graphique.}
+Le bouton \textbf{Exporter le graphique\,\ldots} ouvre un dialogue proposant :
+\begin{itemize}
+  \item \textbf{Format} : PNG (haute résolution, facteur $\times 2$), SVG
+        (vectoriel) ou PDF (moteur Qt).
+  \item \textbf{Taille de sortie} (PNG et SVG) : préréglages A4 paysage, A4
+        portrait, A3 paysage, A3 portrait, écran large (1920$\times$1080),
+        carré HD (1400$\times$1400), ou dimensions personnalisées en pixels.
+\end{itemize}
+
+L'export PNG et SVG utilise l'API JavaScript de Plotly directement depuis le
+moteur de rendu de l'application (\texttt{Plotly.toImage} via
+\texttt{QWebEnginePage.runJavaScript}). Le résultat est ainsi
+\textbf{pixel-perfect} et identique à ce qui est affiché à l'écran.
+L'export PDF utilise \texttt{QWebEnginePage.printToPdf} en format A4 paysage.
 
 \subsection{Onglet Analyse}
 
 \begin{enumerate}
   \item Rechargez le fichier combiné si nécessaire.
-  \item Choisissez un \textbf{jeu de pics} prédéfini :
+  \item Choisissez un \textbf{jeu de pics} :
     \begin{itemize}
-      \item \textbf{532~nm} : 1231, 1327, 1342, 1358, 1450~\cm.
-      \item \textbf{785~nm} : 412, 444, 471, 547, 1561~\cm.
+      \item \textbf{532~nm — paires pré-enregistrées} : jeu de paires de pics
+            optimisé pour le laser 532~nm.
+      \item \textbf{785~nm} : pics à 412, 444, 471, 547, 1561~\cm.
+      \item \textbf{Personnalisé} : saisissez librement les Raman Shifts en
+            \cm, séparés par des virgules.
     \end{itemize}
-  \item Réglez la \textbf{tolérance} $\Delta\nu$ (défaut~: 2{,}00~\cm).
+  \item Réglez la \textbf{tolérance} $\Delta\nu$ (défaut~: 5{,}00~\cm).
   \item Cliquez \textbf{Analyser les pics} :
     \begin{itemize}
       \item recherche de l'intensité maximale dans $[\nu_0 - \Delta\nu,\,
             \nu_0 + \Delta\nu]$ pour chaque spectre et chaque pic,
       \item calcul de tous les ratios $I_i / I_j$ pour chaque paire de pics
             $(i, j)$,
-      \item jointure avec les métadonnées (concentration, tube\,\ldots),
+      \item jointure avec les métadonnées et calcul de la quantité de titrant
+            $n(\text{titrant})$ en mol,
       \item affichage d'un tableau triable et d'un graphique interactif des
-            ratios en fonction de \texttt{n(EGTA) (mol)}.
+            ratios en fonction de la quantité de titrant.
     \end{itemize}
   \item \textbf{Exporter résultats (Excel)\,\ldots} pour sauvegarder :
     \begin{itemize}
@@ -442,6 +470,24 @@ Récapitulatif du flux de travail en paillasse :
       \item feuille \texttt{ratios} : tous les ratios en format long.
     \end{itemize}
 \end{enumerate}
+
+\paragraph{Fit sigmoïde et point d'équivalence.}
+Pour chaque ratio calculé, il est possible d'ajuster une fonction sigmoïde
+afin de localiser le point d'équivalence de la titration :
+\begin{enumerate}
+  \item Sélectionnez le ratio dans la liste \textbf{Ratio à ajuster}.
+  \item Cliquez \textbf{Ajuster par sigmoïde} : le fit est réalisé par
+        moindres carrés (\texttt{scipy.optimize.curve\_fit}) et la courbe
+        ajustée est superposée au graphique.
+  \item Cliquez \textbf{Afficher l'équivalence} pour annoter le graphique
+        avec la valeur du point d'équivalence $x_\text{eq}$.
+\end{enumerate}
+
+\paragraph{Export du graphique (Analyse).}
+Le bouton \textbf{Enregistrer le graphique} propose les mêmes options que
+l'onglet Spectres : PNG haute résolution, SVG vectoriel ou PDF, avec choix
+de la taille de sortie parmi les préréglages A4, A3, écran large, ou en
+dimensions personnalisées.
 
 \subsection{Onglet Exploration (PCA)}
 
@@ -1177,18 +1223,13 @@ Pour chaque solution fixe, on saisit :
         (M, mM, µM, nM ou \% en masse).
 \end{itemize}
 
-\paragraph{Contrainte de quantité de matière fixe.}
-Lorsqu'on modifie $V_X$ ou $C_X^\text{stock}$, l'application maintient la
-\textbf{quantité de matière} $n_X = C_X^\text{stock} \times V_X$ constante
-et recalcule l'autre grandeur automatiquement :
-\[
-\text{si on modifie } C_X \Rightarrow V_X = \frac{n_X}{C_X}
-\qquad
-\text{si on modifie } V_X \Rightarrow C_X = \frac{n_X}{V_X}
-\]
-
-Cela évite de changer accidentellement la quantité de matière injectée dans
-les tubes lorsqu'on ajuste la concentration du stock.
+\paragraph{Indépendance des champs volume et concentration.}
+Les champs $V_X$ et $C_X^\text{stock}$ sont \textbf{entièrement indépendants} :
+modifier l'un n'affecte pas l'autre. Cela permet d'ajuster librement la
+concentration du stock ou le volume pipetté sans contrainte automatique.
+Le bouton \textbf{Quantités de matière\,\ldots} permet, si besoin, de
+consulter ou de modifier directement la quantité de matière $n_X$ résultante
+(cf.\ section~\ref{subsec:qmol}).
 
 \paragraph{Concentrations finales dans les tubes.}
 La concentration finale de la solution $X$ dans le tube $j$ est calculée
@@ -1392,9 +1433,12 @@ pour chaque réactif.
 
 \subsection{Mode compte-goutte}
 
-La case à cocher \textbf{Utilisation d'un compte-goutte} reconfigure
-automatiquement les paramètres de pipetage pour correspondre à la contrainte
-d'un compte-goutte (pas fixe et non ajustable) :
+La case à cocher \textbf{Utilisation d'un compte-goutte} applique un
+\textbf{preset} adapté au pipetage par compte-goutte. Après activation,
+tous les champs restent librement modifiables : il s'agit uniquement d'un
+point de départ commode, sans contrainte imposée.
+
+Les valeurs pré-remplies par ce preset sont les suivantes :
 
 \begin{table}[h!]
   \centering
@@ -1441,6 +1485,7 @@ grand, meilleure sera la couverture autour de $V_\text{eq}$.
 \end{remarque}
 
 \subsection{Dialogue \og Quantités de matière\fg{}}
+\label{subsec:qmol}
 
 Le bouton \textbf{Quantités de matière\ldots} ouvre un sous-dialogue qui
 affiche, pour chaque solution, la quantité de matière $n$ en nmol~:
@@ -1453,6 +1498,9 @@ L'utilisateur peut modifier directement $n_X$~; l'application recalcule
 $C_X^\text{stock}$ en conséquence (avec $V_X$ inchangé). Cette vue est utile
 lorsque le protocole est défini en quantités de matière plutôt qu'en
 concentrations.
+
+Un bouton \textbf{Valeurs par défaut} dans le dialogue principal remet
+l'ensemble des paramètres aux valeurs d'usine, sans fermer la fenêtre.
 
 \subsection{Exemple complet numérique}
 
@@ -1651,17 +1699,21 @@ graphique. Sépare la logique métier de l'interface utilisateur.
 \subsection{\texttt{metadata\_creator.py}}
 
 Interface Qt pour la saisie des métadonnées. Délègue tous les calculs purs
-à \texttt{metadata\_model} (via des méthodes d'une ligne du type
-\texttt{return mm.fonction(...)}). Contient :
+à \texttt{metadata\_model}. Contient :
 
 \begin{itemize}
-  \item Tableau des volumes (réactifs $\times$ tubes) avec éditeur interactif
-        (\texttt{TableEditorDialog}).
+  \item Tableau des volumes (réactifs $\times$ tubes) avec éditeur interactif,
+        gestion des colonnes par menu contextuel (ajout, suppression,
+        duplication de tubes via clic droit sur l'en-tête de colonne).
   \item Tableau de correspondance spectres $\leftrightarrow$ tubes, avec
         synchronisation automatique lors de la modification du tableau des
         volumes.
   \item Dialogue de génération de volumes gaussiens
-        (\texttt{GaussianVolumesDialog}).
+        (\texttt{GaussianVolumesDialog}) : paramètres principaux, solutions
+        fixes C/D/E/F avec volumes et concentrations indépendants, preset
+        compte-goutte, bouton \textbf{Valeurs par défaut}.
+  \item Feuille de protocole de paillasse (\texttt{ProtocolDialog}) en mode
+        libre et mode guidé, avec export Excel quatre feuilles.
   \item Sauvegarde et chargement des métadonnées au format \texttt{.xlsx}.
   \item Méthode \texttt{build\_merged\_metadata()} exposée publiquement pour
         les autres onglets.
@@ -1674,22 +1726,40 @@ Interface Qt pour la saisie des métadonnées. Délègue tous les calculs purs
   \item Filtre sur les fichiers sélectionnés (colonne \texttt{file}).
   \item Génère une figure Plotly interactive : une courbe par spectre,
         légende = \texttt{Sample description} si disponible.
-  \item Export PNG intégré dans l'interface Plotly.
+  \item Export haute résolution via \texttt{Plotly.toImage} (PNG $\times 2$,
+        SVG vectoriel) et \texttt{QWebEnginePage.printToPdf} (PDF A4
+        paysage), avec préréglages de taille (A4, A3, personnalisé).
 \end{itemize}
 
 \subsection{\texttt{analysis\_tab.py}}
 
 \begin{itemize}
   \item Recharge le fichier combiné via \texttt{load\_combined\_df}.
-  \item Propose des jeux de pics prédéfinis (532~nm, 785~nm) ou une saisie
-        manuelle.
+  \item Propose des jeux de pics prédéfinis (532~nm, 785~nm) et un mode
+        personnalisé (saisie libre des Raman Shifts).
   \item Calcule l'intensité maximale dans la fenêtre $[\nu_0 \pm \Delta\nu]$
-        pour chaque spectre et chaque pic.
+        pour chaque spectre et chaque pic (tolérance par défaut~: 5~\cm).
   \item Calcule tous les ratios $I_i / I_j$ pour chaque paire de pics $(i, j)$.
-  \item Fusionne avec les métadonnées pour afficher les résultats en contexte.
-  \item Graphique interactif des ratios vs une variable de métadonnées.
+  \item Fusionne avec les métadonnées et calcule $n(\text{titrant})$ en mol.
+  \item Graphique interactif des ratios en fonction de la quantité de titrant.
+  \item Ajustement sigmoïde par ratio avec affichage du point d'équivalence
+        $x_\text{eq}$ (\texttt{scipy.optimize.curve\_fit}).
   \item Export Excel avec deux feuilles : \texttt{intensites} et
         \texttt{ratios}.
+  \item Export graphique haute résolution (PNG, SVG, PDF) via la même
+        infrastructure que \texttt{spectra\_plot.py}.
+\end{itemize}
+
+\subsection{\texttt{plotly\_downloads.py}}
+
+\begin{itemize}
+  \item Utilitaires partagés pour l'export graphique.
+  \item L'export PNG et SVG appelle \texttt{Plotly.toImage} via
+        \texttt{QWebEnginePage.runJavaScript} : le moteur de rendu est
+        identique à l'affichage interactif, sans recours à Kaleido.
+  \item Un mécanisme de polling asynchrone (\texttt{QTimer}) attend la
+        résolution de la promesse JavaScript avant d'écrire le fichier.
+  \item L'export PDF utilise \texttt{QWebEnginePage.printToPdf}.
 \end{itemize}
 
 \subsection{\texttt{peak\_selector.py}}
@@ -1723,13 +1793,22 @@ Interface Qt pour la saisie des métadonnées. Délègue tous les calculs purs
   \item \textbf{Fichier combiné} : CSV (\texttt{.csv}) ou Excel
         (\texttt{.xlsx}) au choix dans la boîte de dialogue. Le dernier
         chemin est mémorisé.
-  \item \textbf{Résultats d'analyse} : toujours Excel (\texttt{.xlsx}),
-        deux feuilles :
+  \item \textbf{Résultats d'analyse} : Excel (\texttt{.xlsx}), deux feuilles :
     \begin{itemize}
       \item \texttt{intensites} : intensité maximale par pic et par spectre.
       \item \texttt{ratios} : tous les ratios en format long
             (spectre, pic\_num, pic\_den, ratio, métadonnées).
     \end{itemize}
+  \item \textbf{Métadonnées et protocole} : Excel (\texttt{.xlsx}),
+        quatre feuilles (\texttt{Protocole}, \texttt{Volumes},
+        \texttt{Correspondance}, \texttt{EtatProtocole}).
+  \item \textbf{Graphiques} (onglets Spectres et Analyse) : PNG haute
+        résolution (facteur $\times 2$), SVG vectoriel ou PDF (A4 paysage),
+        avec choix de la taille de sortie. L'export PNG et SVG utilise
+        \texttt{Plotly.toImage} via JavaScript pour un rendu identique à
+        l'affichage interactif.
+  \item \textbf{Paires de pics} (onglet Exploration) : CSV exportable via
+        le bouton \textbf{Exporter tableau CSV}.
 \end{itemize}
 
 % ===========================================================================
@@ -1793,6 +1872,13 @@ corrélée). Vérifiez que l'assemblage a réussi avant de lancer l'analyse.
 Le label \texttt{Contrôle} dans le tableau de correspondance doit être
 orthographié exactement ainsi (avec la majuscule initiale). Il est mappé
 automatiquement au dernier tube du tableau des volumes.
+
+\paragraph{L'export PDF ne correspond pas à l'affichage interactif.}
+Le PDF est généré par le moteur d'impression Qt (\texttt{printToPdf}),
+qui peut introduire de légères différences de mise en page selon le système.
+Pour un rendu pixel-perfect identique à ce qui est affiché à l'écran,
+préférez l'export \textbf{PNG haute résolution} ou \textbf{SVG vectoriel},
+qui utilisent directement l'API JavaScript de Plotly.
 
 % ===========================================================================
 \section{Crédits et licence}
