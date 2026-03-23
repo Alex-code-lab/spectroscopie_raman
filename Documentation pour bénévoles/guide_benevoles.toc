@@ -3,38 +3,38 @@
 \contentsline {subsection}{\numberline {1.1}Ce que l'on mesure}{3}{subsection.1.1}%
 \contentsline {subsection}{\numberline {1.2}Ce que fait le logiciel}{3}{subsection.1.2}%
 \contentsline {subsection}{\numberline {1.3}Les cinq onglets}{4}{subsection.1.3}%
-\contentsline {section}{\numberline {2}Étape 1 — Renseigner les informations de l'expérience}{6}{section.2}%
+\contentsline {section}{\numberline {2}Étape 1 : Renseigner les informations de l'expérience}{6}{section.2}%
 \contentsline {subsection}{\numberline {2.1}Objectif}{6}{subsection.2.1}%
 \contentsline {subsection}{\numberline {2.2}Ouvrir l'onglet Métadonnées}{6}{subsection.2.2}%
 \contentsline {subsection}{\numberline {2.3}Informations générales}{6}{subsection.2.3}%
 \contentsline {subsection}{\numberline {2.4}Générer le tableau des volumes}{8}{subsection.2.4}%
 \contentsline {subsection}{\numberline {2.5}Exporter la feuille de protocole}{10}{subsection.2.5}%
 \contentsline {subsection}{\numberline {2.6}Enregistrer les métadonnées}{11}{subsection.2.6}%
-\contentsline {section}{\numberline {3}Étape 2 — Charger les fichiers Raman}{12}{section.3}%
-\contentsline {subsection}{\numberline {3.1}Objectif}{12}{subsection.3.1}%
-\contentsline {subsection}{\numberline {3.2}Charger les spectres}{12}{subsection.3.2}%
-\contentsline {subsection}{\numberline {3.3}Remplir le tableau de correspondance}{14}{subsection.3.3}%
-\contentsline {section}{\numberline {4}Étape 3 — Visualiser les spectres}{17}{section.4}%
-\contentsline {subsection}{\numberline {4.1}Objectif}{17}{subsection.4.1}%
-\contentsline {subsection}{\numberline {4.2}Procédure}{17}{subsection.4.2}%
-\contentsline {subsection}{\numberline {4.3}Naviguer dans le graphique}{18}{subsection.4.3}%
-\contentsline {subsection}{\numberline {4.4}Exporter le graphique des spectres}{19}{subsection.4.4}%
-\contentsline {section}{\numberline {5}Étape 4 — Analyser les pics}{21}{section.5}%
-\contentsline {subsection}{\numberline {5.1}Objectif}{21}{subsection.5.1}%
-\contentsline {subsection}{\numberline {5.2}Ouvrir l'onglet Analyse}{21}{subsection.5.2}%
-\contentsline {subsection}{\numberline {5.3}Choisir le jeu de pics}{22}{subsection.5.3}%
-\contentsline {subsection}{\numberline {5.4}Lancer l'analyse}{23}{subsection.5.4}%
-\contentsline {subsection}{\numberline {5.5}Ajuster une courbe sigmoïde}{24}{subsection.5.5}%
-\contentsline {subsection}{\numberline {5.6}Exporter les résultats}{26}{subsection.5.6}%
+\contentsline {section}{\numberline {3}Étape 2 : Charger les fichiers Raman}{13}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Objectif}{13}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Charger les spectres}{13}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Remplir le tableau de correspondance}{15}{subsection.3.3}%
+\contentsline {section}{\numberline {4}Étape 3 : Visualiser les spectres}{18}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Objectif}{18}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Procédure}{18}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Naviguer dans le graphique}{19}{subsection.4.3}%
+\contentsline {subsection}{\numberline {4.4}Exporter le graphique des spectres}{20}{subsection.4.4}%
+\contentsline {section}{\numberline {5}Étape 4 : Analyser les pics}{22}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Objectif}{22}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Ouvrir l'onglet Analyse}{22}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5.3}Choisir le jeu de pics}{23}{subsection.5.3}%
+\contentsline {subsection}{\numberline {5.4}Lancer l'analyse}{24}{subsection.5.4}%
+\contentsline {subsection}{\numberline {5.5}Ajuster une courbe sigmoïde}{25}{subsection.5.5}%
+\contentsline {subsection}{\numberline {5.6}Exporter les résultats}{27}{subsection.5.6}%
 \contentsline {section}{\numberline {6}Récapitulatif du workflow}{29}{section.6}%
-\contentsline {section}{\numberline {7}Reprendre une session interrompue}{31}{section.7}%
-\contentsline {section}{\numberline {8}Questions fréquentes}{31}{section.8}%
-\contentsline {section}{\numberline {A}Pour aller plus loin — L'onglet Exploration}{33}{appendix.A}%
-\contentsline {subsection}{\numberline {A.1}Présentation générale}{33}{subsection.A.1}%
-\contentsline {subsection}{\numberline {A.2}Sélection des pics}{33}{subsection.A.2}%
-\contentsline {subsection}{\numberline {A.3}Spectres normalisés}{34}{subsection.A.3}%
-\contentsline {subsection}{\numberline {A.4}Spectres superposés}{34}{subsection.A.4}%
-\contentsline {subsection}{\numberline {A.5}PCA corrélée}{34}{subsection.A.5}%
-\contentsline {subsection}{\numberline {A.6}PCA libre (Scores, Loadings, Reconstruction)}{34}{subsection.A.6}%
-\contentsline {subsection}{\numberline {A.7}Scatter matrix}{34}{subsection.A.7}%
-\contentsline {subsection}{\numberline {A.8}Exporter les paires de pics}{34}{subsection.A.8}%
+\contentsline {section}{\numberline {7}Reprendre une session interrompue}{30}{section.7}%
+\contentsline {section}{\numberline {8}Questions fréquentes}{30}{section.8}%
+\contentsline {section}{\numberline {A}Pour aller plus loin : L'onglet Exploration}{32}{appendix.A}%
+\contentsline {subsection}{\numberline {A.1}Présentation générale}{32}{subsection.A.1}%
+\contentsline {subsection}{\numberline {A.2}Sélection des pics}{32}{subsection.A.2}%
+\contentsline {subsection}{\numberline {A.3}Spectres normalisés}{33}{subsection.A.3}%
+\contentsline {subsection}{\numberline {A.4}Spectres superposés}{33}{subsection.A.4}%
+\contentsline {subsection}{\numberline {A.5}PCA corrélée}{33}{subsection.A.5}%
+\contentsline {subsection}{\numberline {A.6}PCA libre (Scores, Loadings, Reconstruction)}{33}{subsection.A.6}%
+\contentsline {subsection}{\numberline {A.7}Scatter matrix}{33}{subsection.A.7}%
+\contentsline {subsection}{\numberline {A.8}Exporter les paires de pics}{33}{subsection.A.8}%

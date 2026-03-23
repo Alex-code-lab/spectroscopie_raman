@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QDialog,
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon, QPixmap
 
 # S'assurer que les imports de modules frères fonctionnent quel que soit l'endroit
 # d'où on lance le script
@@ -51,6 +52,15 @@ class MainWindow(QMainWindow):
         # Onglet Présentation (instructions d'utilisation)
         self.presentation_tab = QWidget(self)
         pres_layout = QVBoxLayout(self.presentation_tab)
+
+        # --- Logo page d'accueil ---
+        logo_path = os.path.join(APP_DIR, "Logo Ramanalyze", "logo ramanalyze.svg")
+        logo_pixmap = QPixmap(logo_path)
+        if not logo_pixmap.isNull():
+            logo_label = QLabel()
+            logo_label.setPixmap(logo_pixmap.scaledToHeight(90, Qt.SmoothTransformation))
+            logo_label.setAlignment(Qt.AlignCenter)
+            pres_layout.addWidget(logo_label)
 
         scroll = QScrollArea(self.presentation_tab)
         scroll.setWidgetResizable(True)
@@ -431,6 +441,13 @@ class MainWindow(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+
+    if sys.platform == "win32":
+        icon_path = os.path.join(APP_DIR, "Logo Ramanalyze", "logo-ramanalyze.ico")
+    else:
+        icon_path = os.path.join(APP_DIR, "Logo Ramanalyze", "logo ramanalyze.svg")
+    app.setWindowIcon(QIcon(icon_path))
+
     win = MainWindow()
     win.show()
     sys.exit(app.exec())

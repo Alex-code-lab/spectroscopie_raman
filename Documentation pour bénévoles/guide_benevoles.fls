@@ -286,14 +286,26 @@ OUTPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_do
 INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/guide_benevoles.out
 INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/guide_benevoles.out
 OUTPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/guide_benevoles.out
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/../Logo Ramanalyze/logo ramanalyze.pdf
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/../Logo Ramanalyze/logo ramanalyze.pdf
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/../Logo Ramanalyze/logo ramanalyze.pdf
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/../Logo Ramanalyze/logo ramanalyze.pdf
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/../Logo Ramanalyze/logo ramanalyze.pdf
 INPUT /usr/local/texlive/2024/texmf-dist/fonts/tfm/public/lm/ec-lmr17.tfm
 INPUT /usr/local/texlive/2024/texmf-dist/fonts/tfm/public/lm/ec-lmbx12.tfm
 INPUT /usr/local/texlive/2024/texmf-dist/fonts/tfm/public/lm/ec-lmr12.tfm
-INPUT /usr/local/texlive/2024/texmf-dist/fonts/tfm/public/lm/ec-lmr10.tfm
-INPUT /usr/local/texlive/2024/texmf-dist/fonts/tfm/public/lm/ec-lmbx12.tfm
-INPUT /usr/local/texlive/2024/texmf-dist/fonts/tfm/public/lm/ec-lmbx10.tfm
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/Ramanalyze - ecran accueil .png
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/Ramanalyze - ecran accueil .png
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/Ramanalyze - ecran accueil .png
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/Ramanalyze - ecran accueil .png
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/Ramanalyze - ecran accueil .png
+INPUT /usr/local/texlive/2024/texmf-dist/fonts/tfm/public/lm/ec-lmcsc10.tfm
 INPUT /usr/local/texlive/2024/texmf-var/fonts/map/pdftex/updmap/pdftex.map
 INPUT /usr/local/texlive/2024/texmf-dist/fonts/enc/dvips/lm/lm-ec.enc
+INPUT /usr/local/texlive/2024/texmf-dist/fonts/tfm/public/lm/ec-lmr10.tfm
+INPUT /usr/local/texlive/2024/texmf-dist/fonts/tfm/public/lm/ec-lmbx10.tfm
+INPUT /usr/local/texlive/2024/texmf-dist/fonts/tfm/public/lm/ec-lmri10.tfm
+INPUT /usr/local/texlive/2024/texmf-dist/fonts/tfm/public/lm/ec-lmbx12.tfm
 INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/guide_benevoles.toc
 INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/guide_benevoles.toc
 INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/guide_benevoles.toc
@@ -320,7 +332,6 @@ INPUT /usr/local/texlive/2024/texmf-dist/tex/latex/lm/omxlmex.fd
 INPUT /usr/local/texlive/2024/texmf-dist/tex/latex/lm/omxlmex.fd
 INPUT /usr/local/texlive/2024/texmf-dist/tex/latex/lm/omxlmex.fd
 INPUT /usr/local/texlive/2024/texmf-dist/fonts/tfm/public/lm/lmex10.tfm
-INPUT /usr/local/texlive/2024/texmf-dist/fonts/tfm/public/lm/ec-lmri10.tfm
 OUTPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/guide_benevoles.toc
 INPUT /usr/local/texlive/2024/texmf-dist/fonts/enc/dvips/lm/lm-mathsy.enc
 INPUT /usr/local/texlive/2024/texmf-dist/fonts/enc/dvips/lm/lm-rm.enc
@@ -329,7 +340,6 @@ INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_don
 INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/vis-accueil.png
 INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/vis-accueil.png
 INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/vis-accueil.png
-INPUT /usr/local/texlive/2024/texmf-dist/fonts/tfm/public/lm/ec-lmcsc10.tfm
 INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/vis-metadonnees.png
 INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/vis-metadonnees.png
 INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/vis-metadonnees.png
@@ -365,6 +375,16 @@ INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_don
 INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/vis-tableau-volume.png
 INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/vis-tableau-volume.png
 INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/vis-tableau-volume.png
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/Ramanalyze - feuille excel suivi en remplissage.png
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/Ramanalyze - feuille excel suivi en remplissage.png
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/Ramanalyze - feuille excel suivi en remplissage.png
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/Ramanalyze - feuille excel suivi en remplissage.png
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/Ramanalyze - feuille excel suivi en remplissage.png
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/Ramanalyze - feuille excel suivi remplie.png
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/Ramanalyze - feuille excel suivi remplie.png
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/Ramanalyze - feuille excel suivi remplie.png
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/Ramanalyze - feuille excel suivi remplie.png
+INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/Ramanalyze - feuille excel suivi remplie.png
 INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/vis-fichiers-raman.png
 INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/vis-fichiers-raman.png
 INPUT /Users/souchaud/Documents/Travail/CitizenSers/Spectroscopie/traitement_données/spectroscopie_raman/Documentation pour bénévoles/Ramanalyze_visuel/vis-fichiers-raman.png

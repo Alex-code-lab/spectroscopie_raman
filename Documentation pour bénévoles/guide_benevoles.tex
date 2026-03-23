@@ -1,5 +1,5 @@
 % ============================================================
-%  Ramanalyze — Guide à l'usage des bénévoles
+%  Ramanalyze : Guide à l'usage des bénévoles
 %  Niveau : débutant complet
 % ============================================================
 
@@ -35,6 +35,7 @@
 \definecolor{tab3col}{RGB}{78, 178, 60}
 \definecolor{tab4col}{RGB}{46, 152, 62}
 \definecolor{tab5col}{RGB}{26, 122, 52}
+\definecolor{wflight}{RGB}{155, 215, 170}
 
 % ── Graphique, figures et TikZ ────────────────────────────────
 \usepackage{graphicx}
@@ -117,9 +118,9 @@
 \pagestyle{fancy}
 \fancyhf{}
 \renewcommand{\headrulewidth}{0pt}
-\fancyhead[L]{\small\color{darkgray}\textit{Ramanalyze — Guide bénévoles}}
+\fancyhead[L]{\small\color{darkgray}\textit{Ramanalyze : Guide bénévoles}}
 \fancyhead[R]{\small\color{darkgray}\thepage}
-\fancyfoot[C]{\small\color{darkgray}\textit{CitizenSers — Usage interne}}
+\fancyfoot[C]{\small\color{darkgray}\textit{CitizenSers : Usage interne}}
 
 % ── Hyperliens ────────────────────────────────────────────────
 \usepackage[hidelinks, colorlinks=true,
@@ -211,16 +212,14 @@
 % ── Page de titre ─────────────────────────────────────────────
 \begin{titlepage}
   \centering
-  \vspace*{1.5cm}
+  \vspace*{1cm}
 
-  \begin{tikzpicture}
-    \node[rounded corners=8pt, fill=mainblue, text=white,
-          minimum width=13cm, minimum height=3.8cm,
-          align=center] {
-      {\Huge\bfseries Ramanalyze}\\[8pt]
-      {\large Guide à l'usage des bénévoles}
-    };
-  \end{tikzpicture}
+  \includegraphics[width=0.3\linewidth]{../Logo Ramanalyze/logo ramanalyze.pdf}
+
+  \vspace{1.2cm}
+
+  {\Huge\bfseries\color{tab5col} Ramanalyze}\\[8pt]
+  {\large\color{darkgray} Guide à l'usage des bénévoles}
 
   \vspace{1.2cm}
   {\large\color{darkgray}
@@ -232,17 +231,12 @@
 
   \vspace{1.8cm}
 
-  \begin{tikzpicture}
-    \node[draw=rulecolor, fill=figbg, rounded corners=7pt,
-          minimum width=11cm, minimum height=5.5cm,
-          align=center, text width=10cm,
-          font=\small\color{darkgray}] {
-      {\large\bfseries\color{rulecolor!70!darkgray}%
-       \MakeUppercase{[ capture d'écran ]}}\\[8pt]
-      Vue générale du logiciel ouvert,\\
-      avec les cinq onglets visibles en haut de la fenêtre.
-    };
-  \end{tikzpicture}
+  \begin{figure}[H]
+    \centering
+    {\setlength{\fboxsep}{0pt}\setlength{\fboxrule}{0.5pt}%
+     \fbox{\includegraphics[width=1\linewidth]{Ramanalyze_visuel/Ramanalyze - ecran accueil .png}}}
+    \caption{Vue générale du logiciel ouvert, avec les cinq onglets visibles en haut de la fenêtre.}
+  \end{figure}
 
   \vfill
 
@@ -262,32 +256,37 @@
 % ══════════════════════════════════════════════════════════════
 
 \subsection{Ce que l'on mesure}
-
-Un laser éclaire l'échantillon. La lumière renvoyée est analysée et
+On utilise la spectroscopie Raman pour mesurer la quantité de cuivre contenue dans un échantillon d'eau prélevé dans l'environnement. Pour cela, 
+un laser éclaire l'échantillon. La lumière renvoyée est analysée et
 produit un \textbf{spectre Raman} : un graphique représentant l'intensité
 lumineuse en fonction du nombre d'onde (en cm$^{-1}$). 
+
 En gros, la lumière est composée de différentes longueurs d'onde (correspondant à différentes couleurs).
-Le laser est composé que d'une seule longueur d'onde, mais quand on lui fait traverser une solution, il interagit avec les molécules présentes, 
-et certaines longueurs d'onde sont absorbées ou diffusées de manière spécifique : leur longueur d'onde change légèrement (et donc leur nombre d'onde qui n'est autre que 1/longueur d'onde).
-En fonction de comment la lumière à été modifiée, on peut en déduire des informations sur les molécules présentes dans la solution.
+Le laser est composé, lui,  d'une seule longueur d'onde. Cependant, quand il traverse un échantillon liquide, il interagit avec les molécules présentes.
+En intéragissant, certain faisceaux en parti modifié : leur longueur d'onde change légèrement (et donc leur nombre d'onde qui n'est autre que 1/longueur d'onde).
+On peut voir ça comme une boule de flipper qui rebondit sur des obstacles : lors de certains rebonds, la boule perd un peu d'énergie (ou en regagne sur certain bonus). Son énergie est modifiée. 
+Ainsi, en fonction de comment la lumière à été modifiée, on peut en déduire des informations sur les molécules présentes dans la solution.
 C'est en quelque sorte une signature lumineuse propre à chaque molécule.
 
-Chaque molécule produit ce signal à des valeurs précises, appelées
-\textbf{pics}. En comparant l'intensité de deux pics, on calcule un
-\textbf{ratio}. C'est ce ratio que l'on suit tout au long de l'expérience.
+Au final, chaque molécule entraine un signal lumineux spécifiques à des valeurs précises, appelées
+\textbf{pics}. 
+On peut ensuite comparer l'intensité de deux pics en calculant un
+\textbf{ratio} : c'est lui que l'on suit tout au long de l'expérience.
 
 Dans notre cas, on cherche à mesurer la quantité de cuivre présente dans
 un échantillon d'eau. Pour cela, on réalise une \textbf{titration} : on
 ajoute progressivement une solution dont on connaît la concentration, et on
 observe comment le ratio évolue. À un moment précis, les deux espèces
 chimiques se trouvent en quantités égales : c'est le \textbf{point
-d'équivalence}. En connaissant la quantité ajoutée à ce moment-là, on peut
+d'équivalence}. A ce point, le ratio des deux deux pics suivi évolue drastiquement, et c'est ainsi qu'on peut le repérer.
+ En connaissant la quantité ajoutée à ce moment-là, on peut
 déduire la quantité de cuivre initialement présente dans l'échantillon.
 
 Le tout est maintenant de trouver ce point d'équivalence à partir des spectres acquis : c'est ce que le logiciel \textbf{Ramanalyze} vous aide à faire, étape par étape.
 
 \begin{conseil}
-  Inutile de comprendre la physique exacte du Raman pour utiliser ce logiciel. L'idéal est d'avoir compris notre objectif et comment techniquement on l'atteint (acquisition puis analyse).
+  Inutile de comprendre la physique exacte du Raman pour utiliser ce logiciel.
+  L'idéal est d'avoir compris notre objectif, l'idée de la méthode et comment techniquement on l'atteint (acquisition puis analyse).
   Ensuite, il suffit de suivre les étapes dans l'ordre.
 \end{conseil}
 
@@ -296,6 +295,8 @@ Le tout est maintenant de trouver ce point d'équivalence à partir des spectres
 Ramanalyze rassemble en un seul endroit toutes les tâches d'analyse.
 
 \begin{enumerate}
+  \item Il permet de saisir les informations de l'expérience (concentrations, volumes, correspondance spectre / tube).
+  \item Il intégre les feuilles de remplissage des volumes, et permets un suivi détaillé à la paillasse.
   \item Il lit les fichiers bruts produits par le spectromètre.
   \item Il les associe aux informations de l'expérience (concentrations,
         volumes, correspondance spectre / tube).
@@ -348,7 +349,8 @@ On les parcourt \textbf{de gauche à droite} lors d'une nouvelle analyse.
         Rien à faire ici lors d'une analyse.
   \item \onglet{Métadonnées} : saisie des informations de l'expérience
         (nom, concentrations, volumes) et export de la feuille de
-        protocole de paillasse.
+        protocole de paillasse. Dans cet onglet, vous pouvez à la fois gérer votre protocole à venir, 
+        et/ou saisir les informations d'une expérience déjà réalisée.
   \item \onglet{Fichiers Raman} : chargement des fichiers spectres bruts
         et génération du fichier de travail.
   \item \onglet{Spectres} : visualisation des spectres acquis.
@@ -356,12 +358,12 @@ On les parcourt \textbf{de gauche à droite} lors d'une nouvelle analyse.
         export des résultats.
 \end{itemize}
 
-\figbig{vis-accueil.png}{Vue générale du logiciel — les cinq onglets sont visibles en haut de la fenêtre.}
+\figbig{vis-accueil.png}{Vue générale du logiciel : les cinq onglets sont visibles en haut de la fenêtre.}
 
 \newpage
 
 % ══════════════════════════════════════════════════════════════
-\section{Étape 1 — Renseigner les informations de l'expérience}
+\section{Étape 1 : Renseigner les informations de l'expérience}
 % ══════════════════════════════════════════════════════════════
 
 \subsection{Objectif}
@@ -379,7 +381,7 @@ Vous n'avez pas encore besoin des fichiers spectres à ce stade.
 
 Cliquez sur l'onglet \onglet{Métadonnées}.
 
-\figbig{vis-metadonnees.png}{Vue générale de l'onglet Métadonnées — informations générales, boutons de gestion des tableaux et boutons de sauvegarde.}
+\figbig{vis-metadonnees.png}{Vue générale de l'onglet Métadonnées : informations générales, boutons de gestion des tableaux et boutons de sauvegarde.}
 
 \subsection{Informations générales}
 
@@ -401,7 +403,7 @@ Ce texte servira de légende dans les graphiques.
 Assurez-vous que la valeur affichée correspond au laser utilisé lors
 de l'acquisition (532\,nm ou 785\,nm en général).
 
-\figbig{vis-metadonnees-vertes.png}{Onglet Métadonnées avec les informations renseignées — les boutons passent au vert une fois les tableaux complétés.}
+\figbig{vis-metadonnees-vertes.png}{Onglet Métadonnées avec les informations renseignées : les boutons passent au vert une fois les tableaux complétés.}
 
 \subsection{Générer le tableau des volumes}
 
@@ -415,7 +417,7 @@ protocole.
 Cliquez sur \bouton{Créer / éditer le tableau des volumes}.
 Une fenêtre s'ouvre.
 
-\figreal[0.6\linewidth]{vis-generation-volume.png}{Dialogue de génération des volumes — paramètres principaux, solutions fixes et options avancées.}
+\figreal[0.6\linewidth]{vis-generation-volume.png}{Dialogue de génération des volumes : paramètres principaux, solutions fixes et options avancées.}
 
 \etape{5}{Renseigner les paramètres principaux}
 
@@ -471,7 +473,7 @@ Si vous utilisez une pipette classique, laissez cette case décochée.
 Cliquez sur \bouton{OK}.
 Le tableau des volumes s'affiche dans l'onglet Métadonnées.
 
-\figreal{vis-tableau-volume.png}{Tableau des volumes — chaque colonne est un tube, chaque ligne un réactif. La ligne verte en bas indique le volume total.}
+\figreal{vis-tableau-volume.png}{Tableau des volumes : chaque colonne est un tube, chaque ligne un réactif. La ligne verte en bas indique le volume total.}
 
 \begin{conseil}
   Vous pouvez corriger n'importe quelle valeur en double-cliquant
@@ -490,21 +492,21 @@ l'opérateur.
 
 \begin{enumerate}
   \item Cliquez sur \bouton{Feuille de protocole\ldots}.
+  \item Vous avez la possibilité de le remplir directement sur le logiciel, ou de l'imprimer pour le remplir à la main.
+  \item Cliqué sur \bouton{Exporter Excel\ldots}.
   \item Choisissez un emplacement et un nom de fichier.
         Exemple : \texttt{GC001\_protocole}.
   \item Cliquez sur \bouton{Enregistrer}.
 \end{enumerate}
 
-\figph[Feuille de protocole Excel générée]{%
-  Capture d'écran de la feuille de protocole ouverte dans Excel.
-  Montrer les en-têtes colorés (bleu pour les volumes, vert pour la
-  vérification), les cases à cocher et les noms de réactifs en
-  colonne orange.}
+\figbig{Ramanalyze - feuille excel suivi en remplissage.png}{Feuille de protocole Excel générée — en cours de remplissage à la paillasse.}
+
+\figbig{Ramanalyze - feuille excel suivi remplie.png}{Feuille de protocole Excel générée — complètement remplie.}
 
 \begin{conseil}
   Cette feuille est particulièrement utile en binôme à la paillasse :
   le coordinateur annonce les volumes pendant que l'opérateur pipete
-  et coche les cases au fur et à mesure.
+  et coche les cases au fur et à mesure. Ces cases sont des gardes fous pour éviter des erreurs sur les volumes introduits et assurer une expériences réussie.
 \end{conseil}
 
 \subsection{Enregistrer les métadonnées}
@@ -539,7 +541,7 @@ Vous pourrez le recharger lors d'une session ultérieure.
 \newpage
 
 % ══════════════════════════════════════════════════════════════
-\section{Étape 2 — Charger les fichiers Raman}
+\section{Étape 2 : Charger les fichiers Raman}
 % ══════════════════════════════════════════════════════════════
 
 \subsection{Objectif}
@@ -554,7 +556,7 @@ spectre à son tube.
 
 Cliquez sur l'onglet \onglet{Fichiers Raman} en haut de la fenêtre.
 
-\figbig{vis-fichiers-raman.png}{Onglet Fichiers Raman avec des fichiers sélectionnés dans le panneau gauche — les fichiers validés apparaissent à droite.}
+\figbig{vis-fichiers-raman.png}{Onglet Fichiers Raman avec des fichiers sélectionnés dans le panneau gauche : les fichiers validés apparaissent à droite.}
 
 \etape{2}{Ajouter les fichiers de l'expérience}
 
@@ -612,7 +614,7 @@ sélectionner, puis cliquez sur \bouton{Supprimer la sélection}.
 
 Un message de confirmation s'affiche. Le fichier combiné est créé.
 
-\figbig{vis-fichier-raman-full.png}{Onglet Fichiers Raman après chargement complet — le message en bas confirme que le fichier combiné a bien été généré.}
+\figbig{vis-fichier-raman-full.png}{Onglet Fichiers Raman après chargement complet  le message en bas confirme que le fichier combiné a bien été généré.}
 
 \subsection{Remplir le tableau de correspondance}
 
@@ -645,7 +647,7 @@ Le tableau comporte deux colonnes principales.
   \item Répétez pour chaque ligne.
 \end{enumerate}
 
-\figreal[0.72\linewidth]{vis-correspondances.png}{Tableau de correspondance spectres\,/\,tubes — chaque fichier spectre est associé à un numéro de tube.}
+\figreal[0.72\linewidth]{vis-correspondances.png}{Tableau de correspondance spectres\,/\,tubes : chaque fichier spectre est associé à un numéro de tube.}
 
 \begin{attention}
   Si vous avez acquis deux réplicats pour un même tube, les deux
@@ -670,7 +672,7 @@ Le tableau comporte deux colonnes principales.
 \newpage
 
 % ══════════════════════════════════════════════════════════════
-\section{Étape 3 — Visualiser les spectres}
+\section{Étape 3 : Visualiser les spectres}
 % ══════════════════════════════════════════════════════════════
 
 \subsection{Objectif}
@@ -693,7 +695,7 @@ Le graphique s'affiche en quelques secondes.
 Chaque courbe correspond à un spectre.
 Les couleurs permettent de les distinguer.
 
-\figbig{vis-spectres.png}{Onglet Spectres — les spectres de chaque tube sont superposés et colorés. La légende à droite identifie chaque courbe.}
+\figbig{vis-spectres.png}{Onglet Spectres : les spectres de chaque tube sont superposés et colorés. La légende à droite identifie chaque courbe.}
 
 \subsection{Naviguer dans le graphique}
 
@@ -712,7 +714,7 @@ Le graphique est interactif.
         Cliquez à nouveau pour la faire réapparaître.
 \end{itemize}
 
-\figbig{vis-spectres-zoom.png}{Vue zoomée sur les pics principaux — la barre d'outils Plotly en haut à droite permet de zoomer, se déplacer ou revenir à la vue complète.}
+\figbig{vis-spectres-zoom.png}{Vue zoomée sur les pics principaux : la barre d'outils Plotly en haut à droite permet de zoomer, se déplacer ou revenir à la vue complète.}
 
 \subsection{Exporter le graphique des spectres}
 
@@ -746,7 +748,7 @@ Le graphique est interactif.
 \newpage
 
 % ══════════════════════════════════════════════════════════════
-\section{Étape 4 — Analyser les pics}
+\section{Étape 4 : Analyser les pics}
 % ══════════════════════════════════════════════════════════════
 
 \subsection{Objectif}
@@ -761,7 +763,7 @@ C'est l'étape centrale de l'analyse.
 
 Cliquez sur l'onglet \onglet{Analyse}.
 
-\figbig{vis-analyse-avant.png}{Onglet Analyse avant chargement du fichier combiné — les boutons principaux sont visibles en haut.}
+\figbig{vis-analyse-avant.png}{Onglet Analyse avant chargement du fichier combiné : les boutons principaux sont visibles en haut.}
 
 \etape{1}{Recharger le fichier combiné si nécessaire}
 
@@ -776,7 +778,7 @@ Cela garantit que les dernières métadonnées sont bien prises en compte.
 Dans la liste \champ{Jeu de pics}, choisissez :
 
 \begin{itemize}
-  \item \champ{532\,nm — paires pré-enregistrées} : pour un laser
+  \item \champ{532\,nm : paires pré-enregistrées} : pour un laser
         à 532\,nm. C'est le choix le plus courant.
   \item \champ{785\,nm} : pour un laser à 785\,nm.
   \item \champ{Personnalisé} : si vous souhaitez saisir vos propres
@@ -793,7 +795,7 @@ La valeur par défaut (5,00\,cm$^{-1}$) convient dans la grande
 majorité des cas.
 Ne la modifiez pas sauf indication contraire.
 
-\figbig{vis-analyse-chargee.png}{Onglet Analyse avec le fichier combiné chargé — le bouton \og Recharger \fg{} passe au vert, indiquant que les données sont prêtes.}
+\figbig{vis-analyse-chargee.png}{Onglet Analyse avec le fichier combiné chargé : le bouton \og Recharger \fg{} passe au vert, indiquant que les données sont prêtes.}
 
 \subsection{Lancer l'analyse}
 
@@ -812,7 +814,7 @@ Le logiciel effectue les opérations suivantes.
   \item Il affiche un tableau de résultats et le graphique des ratios.
 \end{enumerate}
 
-\figbig{vis-analyse-faites.png}{Résultat de l'analyse — le graphique des rapports d'intensité Raman affiche l'évolution de chaque ratio en fonction de la quantité de titrant.}
+\figbig{vis-analyse-faites.png}{Résultat de l'analyse : le graphique des rapports d'intensité Raman affiche l'évolution de chaque ratio en fonction de la quantité de titrant.}
 
 \begin{conseil}
   Si le calcul prend quelques secondes, c'est normal.
@@ -840,7 +842,7 @@ Cliquez sur \bouton{Afficher l'équivalence}.
 La valeur du point d'équivalence s'affiche sur le graphique,
 accompagnée d'une ligne verticale en pointillés.
 
-\figbig{vis-analyse-sigmoide.png}{Ajustement sigmoïde sur le ratio sélectionné — le point d'équivalence est annoté sur le graphique avec sa valeur.}
+\figbig{vis-analyse-sigmoide.png}{Ajustement sigmoïde sur le ratio sélectionné : le point d'équivalence est annoté sur le graphique avec sa valeur.}
 
 \begin{attention}
   Si l'ajustement produit une courbe incohérente (qui ne passe pas par
@@ -903,70 +905,71 @@ Le fichier Excel créé contient deux feuilles.
 
   \tikzstyle{stepbox} = [
     rounded corners=5pt,
-    fill=stepbg, draw=mainblue!40,
+    draw=none,
     minimum width=10.5cm, minimum height=1.1cm,
     align=left, text width=9.8cm,
-    font=\small
+    font=\small, text=white
   ]
 
-  \node[stepbox] (s1)
-    {\numcercle{1}\enskip
-     Renseigner les informations générales (onglet
-     \textbf{\color{mainblue}Métadonnées})};
+  \node[stepbox, fill=tab5col] (s1)
+    {{\bfseries 1.}\enskip
+     Renseigner les informations générales (onglet \textbf{Métadonnées})};
 
-  \node[stepbox, below=of s1] (s2)
-    {\numcercle{2}\enskip
+  \node[stepbox, fill=tab5col!91!wflight, below=of s1] (s2)
+    {{\bfseries 2.}\enskip
      Générer le tableau des volumes};
 
-  \node[stepbox, below=of s2] (s3)
-    {\numcercle{3}\enskip
+  \node[stepbox, fill=tab5col!82!wflight, below=of s2] (s3)
+    {{\bfseries 3.}\enskip
      Exporter la feuille de protocole de paillasse (facultatif)};
 
-  \node[stepbox, below=of s3] (s4)
-    {\numcercle{4}\enskip
-     Charger les fichiers \texttt{.txt} (onglet
-     \textbf{\color{mainblue}Fichiers Raman})} ;
+  \node[stepbox, fill=tab5col!73!wflight, below=of s3] (s4)
+    {{\bfseries 4.}\enskip
+     Ou charger la feuille de protocole réalisée};
 
-  \node[stepbox, below=of s4] (s5)
-    {\numcercle{5}\enskip
+  \node[stepbox, fill=tab5col!64!wflight, below=of s4] (s5)
+    {{\bfseries 5.}\enskip
+     Charger les fichiers \texttt{.txt} (onglet \textbf{Fichiers Raman})};
+
+  \node[stepbox, fill=tab5col!55!wflight, below=of s5] (s6)
+    {{\bfseries 6.}\enskip
      Générer le fichier combiné et l'enregistrer};
 
-  \node[stepbox, below=of s5] (s6)
-    {\numcercle{6}\enskip
+  \node[stepbox, fill=tab5col!45!wflight, below=of s6] (s7)
+    {{\bfseries 7.}\enskip
      Remplir le tableau de correspondance spectres\,/\,tubes};
 
-  \node[stepbox, below=of s6] (s7)
-    {\numcercle{7}\enskip
+  \node[stepbox, fill=tab5col!36!wflight, below=of s7] (s8)
+    {{\bfseries 8.}\enskip
      Enregistrer les métadonnées complètes (\texttt{.xlsx})};
 
-  \node[stepbox, below=of s7] (s8)
-    {\numcercle{8}\enskip
-     Visualiser et vérifier les spectres (onglet
-     \textbf{\color{mainblue}Spectres})} ;
+  \node[stepbox, fill=tab5col!27!wflight, below=of s8] (s9)
+    {{\bfseries 9.}\enskip
+     Visualiser et vérifier les spectres (onglet \textbf{Spectres})};
 
-  \node[stepbox, below=of s8] (s9)
-    {\numcercle{9}\enskip
-     Analyser les pics (onglet
-     \textbf{\color{mainblue}Analyse})} ;
+  \node[stepbox, fill=tab5col!18!wflight, below=of s9] (s10)
+    {{\bfseries 10.}\enskip
+     Analyser les pics (onglet \textbf{Analyse})};
 
-  \node[stepbox, below=of s9] (s10)
-    {\numcercle{10}\enskip
+  \node[stepbox, fill=tab5col!9!wflight, below=of s10] (s11)
+    {{\bfseries 11.}\enskip
      Ajuster la sigmoïde et lire le point d'équivalence};
 
-  \node[stepbox, below=of s10] (s11)
-    {\numcercle{11}\enskip
+  \node[stepbox, fill=wflight, below=of s11] (s12)
+    {{\bfseries 12.}\enskip
      Exporter les résultats Excel et le graphique};
 
-  \draw[->, thick, color=mainblue!50] (s1.south) -- (s2.north);
-  \draw[->, thick, color=mainblue!50] (s2.south) -- (s3.north);
-  \draw[->, thick, color=mainblue!50] (s3.south) -- (s4.north);
-  \draw[->, thick, color=mainblue!50] (s4.south) -- (s5.north);
-  \draw[->, thick, color=mainblue!50] (s5.south) -- (s6.north);
-  \draw[->, thick, color=mainblue!50] (s6.south) -- (s7.north);
-  \draw[->, thick, color=mainblue!50] (s7.south) -- (s8.north);
-  \draw[->, thick, color=mainblue!50] (s8.south) -- (s9.north);
-  \draw[->, thick, color=mainblue!50] (s9.south) -- (s10.north);
-  \draw[->, thick, color=mainblue!50] (s10.south) -- (s11.north);
+  \draw[->, thick, color=tab5col!60!white] (s1.south) -- (s2.north);
+  \draw[->, thick, color=tab5col!60!white] (s2.south) -- (s3.north);
+  \draw[->, thick, color=tab5col!60!white] (s3.south) -- (s4.north);
+  \draw[->, thick, color=tab5col!60!white] (s4.south) -- (s5.north);
+  \draw[->, thick, color=tab5col!60!white] (s5.south) -- (s6.north);
+  \draw[->, thick, color=tab5col!60!white] (s6.south) -- (s7.north);
+  \draw[->, thick, color=tab5col!60!white] (s7.south) -- (s8.north);
+  \draw[->, thick, color=tab5col!60!white] (s8.south) -- (s9.north);
+  \draw[->, thick, color=tab5col!60!white] (s9.south) -- (s10.north);
+  \draw[->, thick, color=tab5col!60!white] (s10.south) -- (s11.north);
+  \draw[->, thick, color=tab5col!60!white] (s11.south) -- (s12.north);
 
 \end{tikzpicture}
 \end{center}
@@ -1062,7 +1065,7 @@ vectoriel}, qui reproduisent exactement ce qui est affiché à l'écran.
 
 \appendix
 
-\section{Pour aller plus loin — L'onglet Exploration}
+\section{Pour aller plus loin : L'onglet Exploration}
 
 \begin{tcolorbox}[
   enhanced, colback=warnorange!8!white, colframe=warnorange!65!black,
@@ -1086,7 +1089,7 @@ L'onglet \onglet{Exploration} regroupe des outils d'analyse avancée.
 Il propose plusieurs sous-onglets accessibles via les boutons
 en haut de la zone de contenu.
 
-\figreal{vis-exploration.png}{Vue générale de l'onglet Exploration après analyse — les sous-onglets (PCA corrélée, Scores, Loadings, Scatter matrix\ldots) sont accessibles en haut.}
+\figreal{vis-exploration.png}{Vue générale de l'onglet Exploration après analyse : les sous-onglets (PCA corrélée, Scores, Loadings, Scatter matrix\ldots) sont accessibles en haut.}
 
 \subsection{Sélection des pics}
 
