@@ -350,12 +350,19 @@ class MainWindow(QMainWindow):
 </ul>
 """
 
+        _dark_bg = "#1a1a2e"
         text_label = QLabel(doc_html, container)
         text_label.setWordWrap(True)
         text_label.setTextFormat(Qt.RichText)
+        text_label.setStyleSheet(f"background-color: {_dark_bg}; padding: 12px;")
         container_layout.addWidget(text_label)
         container_layout.addStretch(1)
 
+        container.setStyleSheet(f"background-color: {_dark_bg};")
+        scroll.setStyleSheet(
+            f"QScrollArea {{ background-color: {_dark_bg}; border: none; }}"
+            f" QScrollArea > QWidget > QWidget {{ background-color: {_dark_bg}; }}"
+        )
         scroll.setWidget(container)
         pres_layout.addWidget(scroll)
 
