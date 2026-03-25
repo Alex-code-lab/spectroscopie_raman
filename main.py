@@ -85,7 +85,7 @@ class MainWindow(QMainWindow):
   .warn   { font-weight: 600; color: #e06c75; }
   .ok     { font-weight: 600; color: #46ba48; }
   .mono   { font-family: Menlo, Consolas, "Courier New", monospace; font-size: 0.92em;
-            background: #2a2a2a; color: #abb2bf; padding: 1px 4px; border-radius: 3px; }
+            background: #000000 !important; color: #ffffff !important; padding: 1px 4px; border-radius: 3px; }
   .note   { border-left: 4px solid #6fa8d6; background: #1e2a36;
             padding: 8px 12px; margin: 12px 0; border-radius: 0 4px 4px 0; }
   .warn-box { border-left: 4px solid #e07b00; background: #2a1f10;
@@ -350,19 +350,12 @@ class MainWindow(QMainWindow):
 </ul>
 """
 
-        _dark_bg = "#1a1a2e"
         text_label = QLabel(doc_html, container)
         text_label.setWordWrap(True)
         text_label.setTextFormat(Qt.RichText)
-        text_label.setStyleSheet(f"background-color: {_dark_bg}; padding: 12px;")
         container_layout.addWidget(text_label)
         container_layout.addStretch(1)
 
-        container.setStyleSheet(f"background-color: {_dark_bg};")
-        scroll.setStyleSheet(
-            f"QScrollArea {{ background-color: {_dark_bg}; border: none; }}"
-            f" QScrollArea > QWidget > QWidget {{ background-color: {_dark_bg}; }}"
-        )
         scroll.setWidget(container)
         pres_layout.addWidget(scroll)
 
