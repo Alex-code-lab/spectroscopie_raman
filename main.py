@@ -87,9 +87,9 @@ class MainWindow(QMainWindow):
   .mono   { font-family: Menlo, Consolas, "Courier New", monospace; font-size: 0.92em;
             background: #000000 !important; color: #ffffff !important; padding: 1px 4px; border-radius: 3px; }
   .note   { border-left: 4px solid #6fa8d6; background: #1e2a36;
-            padding: 8px 12px; margin: 12px 0; border-radius: 0 4px 4px 0; }
+            padding: 8px 12px; margin: 12px 0; border-radius: 0 4px 4px 0; color: #e0e0e0; }
   .warn-box { border-left: 4px solid #e07b00; background: #2a1f10;
-              padding: 8px 12px; margin: 12px 0; border-radius: 0 4px 4px 0; }
+              padding: 8px 12px; margin: 12px 0; border-radius: 0 4px 4px 0; color: #e8d5b0; }
   table { border-collapse: collapse; margin: 8px 0; }
   td, th { border: 1px solid #444; padding: 5px 10px; font-size: 0.93em; }
   th { background: #2a2a2a; color: #d4d4d4; font-weight: 600; }
@@ -132,11 +132,11 @@ class MainWindow(QMainWindow):
 </ol>
 
 <div class="note">
-  <b>Guidage visuel :</b>
+  <b style="color:#ffffff">Guidage visuel :</b>
   les boutons <span class="warn">rouges</span> signalent une action requise ;
   les <span class="ok">verts</span> indiquent une étape validée.<br>
   Après toute modification des fichiers ou des métadonnées, rechargez le
-  <b>fichier combiné</b> dans les onglets Analyse et Exploration.
+  <b style="color:#ffffff">fichier combiné</b> dans les onglets Analyse et Exploration.
 </div>
 
 <h3>1 — Onglet Métadonnées</h3>
@@ -204,12 +204,12 @@ class MainWindow(QMainWindow):
 </p>
 
 <div class="note">
-  <b>Workflow coordinateur / opérateur :</b>
+  <b style="color:#ffffff">Workflow coordinateur / opérateur :</b>
   le coordinateur coche sa case en premier pour indiquer qu'il a préparé
   le tube, puis l'opérateur valide après vérification indépendante.
-  Les boutons <b>Tout cocher — Coord.</b> et <b>Tout cocher — Opér.</b>
+  Les boutons <b style="color:#ffffff">Tout cocher — Coord.</b> et <b style="color:#ffffff">Tout cocher — Opér.</b>
   permettent de valider toutes les cases d'un rôle en un clic.
-  <b>Tout décocher</b> remet tout à zéro.
+  <b style="color:#ffffff">Tout décocher</b> remet tout à zéro.
 </div>
 
 <h4>Export et rechargement du fichier unifié</h4>
@@ -333,7 +333,7 @@ class MainWindow(QMainWindow):
 </ul>
 
 <div class="warn-box">
-  <b>Conseil :</b> Si les points du graphe Scores PC1 vs PC2 colorés par
+  <b style="color:#ffffff">Conseil :</b> Si les points du graphe Scores PC1 vs PC2 colorés par
   concentration ne se séparent pas selon PC1, regardez PC2 et PC3 — l’effet
   chimique n’est pas toujours dans la première composante.
 </div>
