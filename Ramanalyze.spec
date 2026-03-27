@@ -36,10 +36,20 @@ binaries += np_binaries
 hiddenimports += np_hidden
 hiddenimports += collect_submodules("numpy")
 
-# --- Données locales (si besoin) ---
+# --- Dépendances scientifiques supplémentaires ---
+hiddenimports += collect_submodules("pybaselines")
+hiddenimports += collect_submodules("pandas")
+hiddenimports += collect_submodules("plotly")
+hiddenimports += collect_submodules("fpdf")
+
+# --- Données locales ---
 styles_dir = os.path.join(project_dir, "styles")
 if os.path.isdir(styles_dir):
     datas.append((styles_dir, "styles"))
+
+logo_dir = os.path.join(project_dir, "Logo Ramanalyze")
+if os.path.isdir(logo_dir):
+    datas.append((logo_dir, "Logo Ramanalyze"))
 
 a = Analysis(
     ["main.py"],
@@ -88,4 +98,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=os.path.join(project_dir, "Logo Ramanalyze", "logo-ramanalyze.ico"),
 )

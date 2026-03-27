@@ -561,23 +561,15 @@ Cliquez sur l'onglet \onglet{Fichiers Raman} en haut de la fenêtre.
 \etape{2}{Ajouter les fichiers de l'expérience}
 
 \begin{enumerate}
-  \item Cliquez sur \bouton{Ajouter des fichiers\ldots}.
-        Une fenêtre de navigation s'ouvre.
-  \item Naviguez jusqu'au dossier contenant les fichiers de votre
-        expérience.
+  \item Dans le panneau gauche, naviguez jusqu'au dossier contenant
+        les fichiers de votre expérience.
   \item Pour sélectionner tous les fichiers en une seule fois, cliquez
         sur le premier fichier de la liste, puis maintenez la touche
         \textbf{Maj} (\texttt{Shift}) enfoncée et cliquez sur le dernier.
         Tous les fichiers intermédiaires sont sélectionnés.
-  \item Cliquez sur \bouton{Ouvrir} (ou \bouton{Ajouter} selon votre
-        système).
+  \item Cliquez sur \bouton{Ajouter la sélection}.
+        Les fichiers apparaissent dans le panneau de droite.
 \end{enumerate}
-
-\figph[Sélection des fichiers dans la fenêtre de navigation]{%
-  Capture d'écran de la fenêtre de navigation du système.
-  Encadrer en rouge les fichiers sélectionnés (surlignés) et
-  montrer l'extension \texttt{.txt} visible dans les noms de fichiers.
-  Indiquer le bouton \og Ouvrir \fg{} en bas à droite.}
 
 \begin{attention}
   Sélectionnez uniquement les fichiers \texttt{.txt} de votre
@@ -593,28 +585,14 @@ Vérifiez avoir bien sélectionné l'ensemble des spectres acquis que
 vous souhaitez analyser.
 
 Pour retirer un fichier ajouté par erreur, cliquez dessus pour le
-sélectionner, puis cliquez sur \bouton{Supprimer la sélection}.
+sélectionner, puis cliquez sur \bouton{Retirer}.
 
 \begin{conseil}
   Si vous avez acquis plusieurs spectres par tube (deux réplicats par
   exemple), chargez tous les fichiers correspondants.
 \end{conseil}
 
-\etape{4}{Générer le fichier combiné}
-
-\begin{enumerate}
-  \item Cliquez sur \bouton{Générer le fichier combiné\ldots}.
-  \item Une fenêtre de sauvegarde s'ouvre.
-  \item Choisissez un emplacement facilement retrouvable, par exemple
-        le dossier de votre expérience.
-  \item Donnez un nom explicite au fichier. Exemple :
-        \texttt{GC001\_combined}.
-  \item Cliquez sur \bouton{Enregistrer}.
-\end{enumerate}
-
-Un message de confirmation s'affiche. Le fichier combiné est créé.
-
-\figbig{vis-fichier-raman-full.png}{Onglet Fichiers Raman après chargement complet  le message en bas confirme que le fichier combiné a bien été généré.}
+\figbig{vis-fichier-raman-full.png}{Onglet Fichiers Raman avec les fichiers chargés dans la liste de droite, prêts à être analysés.}
 
 \subsection{Remplir le tableau de correspondance}
 
@@ -623,12 +601,12 @@ correspond à quel tube}.
 Sans cette information, le logiciel ne peut pas relier les données
 spectroscopiques aux concentrations.
 
-\etape{5}{Revenir à l'onglet Métadonnées}
+\etape{4}{Revenir à l'onglet Métadonnées}
 
 Cliquez sur l'onglet \onglet{Métadonnées}.
 Le tableau de correspondance se trouve en bas de la page.
 
-\etape{6}{Comprendre le tableau}
+\etape{5}{Comprendre le tableau}
 
 Le tableau comporte deux colonnes principales.
 
@@ -638,7 +616,7 @@ Le tableau comporte deux colonnes principales.
   \item La colonne de droite indique le numéro du tube associé.
 \end{itemize}
 
-\etape{7}{Associer chaque spectre à son tube}
+\etape{6}{Associer chaque spectre à son tube}
 
 \begin{enumerate}
   \item Cliquez sur la cellule de la colonne \champ{Tube} en face du
@@ -654,7 +632,7 @@ Le tableau comporte deux colonnes principales.
   fichiers doivent recevoir le même numéro de tube.
 \end{attention}
 
-\etape{8}{Sauvegarder les métadonnées complètes}
+\etape{7}{Sauvegarder les métadonnées complètes}
 
 \begin{enumerate}
   \item Cliquez sur \bouton{Enregistrer les métadonnées\ldots}.
@@ -664,8 +642,8 @@ Le tableau comporte deux colonnes principales.
 \end{enumerate}
 
 \begin{enresume}
-  À l'issue de cette étape, tous les spectres sont regroupés dans un
-  fichier combiné unique et chaque spectre est associé à son tube.
+  À l'issue de cette étape, tous les fichiers spectres sont chargés
+  et chaque spectre est associé à son tube.
   Le logiciel dispose de toutes les informations pour lancer l'analyse.
 \end{enresume}
 
@@ -882,11 +860,9 @@ Le fichier Excel créé contient deux feuilles.
   \item Choisissez l'emplacement de sauvegarde.
 \end{enumerate}
 
-\figph[Dialogue d'export du graphique]{%
-  Capture d'écran du dialogue d'export avec le menu déroulant de
-  format (PNG, SVG, PDF) et la liste de tailles préréglées.
-  Indiquer par des flèches les trois étapes : choisir le format,
-  choisir la taille, valider.}
+\figreal[0.87\linewidth]{Ramanalyze-enregistrement graphique.png}
+{Dialogue d'export du graphique : choix du format (PNG, SVG, PDF) et de la taille de sortie.
+Par la suite, il vous sera demandé de choisir l'emplacement de sauvegarde et de cliquer sur \og Enregistrer \fg{}.}
 
 \begin{enresume}
   À l'issue de cette étape, vous disposez des ratios d'intensité,
@@ -931,32 +907,28 @@ Le fichier Excel créé contient deux feuilles.
     {{\bfseries 5.}\enskip
      Charger les fichiers \texttt{.txt} (onglet \textbf{Fichiers Raman})};
 
-  \node[stepbox, fill=tab5col!55!wflight, below=of s5] (s6)
+  \node[stepbox, fill=tab5col!50!wflight, below=of s5] (s6)
     {{\bfseries 6.}\enskip
-     Générer le fichier combiné et l'enregistrer};
-
-  \node[stepbox, fill=tab5col!45!wflight, below=of s6] (s7)
-    {{\bfseries 7.}\enskip
      Remplir le tableau de correspondance spectres\,/\,tubes};
 
-  \node[stepbox, fill=tab5col!36!wflight, below=of s7] (s8)
-    {{\bfseries 8.}\enskip
+  \node[stepbox, fill=tab5col!40!wflight, below=of s6] (s7)
+    {{\bfseries 7.}\enskip
      Enregistrer les métadonnées complètes (\texttt{.xlsx})};
 
-  \node[stepbox, fill=tab5col!27!wflight, below=of s8] (s9)
-    {{\bfseries 9.}\enskip
+  \node[stepbox, fill=tab5col!30!wflight, below=of s7] (s8)
+    {{\bfseries 8.}\enskip
      Visualiser et vérifier les spectres (onglet \textbf{Spectres})};
 
-  \node[stepbox, fill=tab5col!18!wflight, below=of s9] (s10)
-    {{\bfseries 10.}\enskip
+  \node[stepbox, fill=tab5col!20!wflight, below=of s8] (s9)
+    {{\bfseries 9.}\enskip
      Analyser les pics (onglet \textbf{Analyse})};
 
-  \node[stepbox, fill=tab5col!9!wflight, below=of s10] (s11)
-    {{\bfseries 11.}\enskip
+  \node[stepbox, fill=tab5col!10!wflight, below=of s9] (s10)
+    {{\bfseries 10.}\enskip
      Ajuster la sigmoïde et lire le point d'équivalence};
 
-  \node[stepbox, fill=wflight, below=of s11] (s12)
-    {{\bfseries 12.}\enskip
+  \node[stepbox, fill=wflight, below=of s10] (s11)
+    {{\bfseries 11.}\enskip
      Exporter les résultats Excel et le graphique};
 
   \draw[->, thick, color=tab5col!60!white] (s1.south) -- (s2.north);
@@ -969,7 +941,6 @@ Le fichier Excel créé contient deux feuilles.
   \draw[->, thick, color=tab5col!60!white] (s8.south) -- (s9.north);
   \draw[->, thick, color=tab5col!60!white] (s9.south) -- (s10.north);
   \draw[->, thick, color=tab5col!60!white] (s10.south) -- (s11.north);
-  \draw[->, thick, color=tab5col!60!white] (s11.south) -- (s12.north);
 
 \end{tikzpicture}
 \end{center}
