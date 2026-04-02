@@ -122,7 +122,9 @@ class ProtocolDialog(QDialog):
         self._c_widgets: dict[tuple[int,int], QWidget] = {}  # (tr,col) → QWidget conteneur
 
         self.setWindowTitle("Suivi de protocole — Paillasse")
-        self.resize(max(900, 300 + self._n_tubes * 120), 560)
+        parent_width = parent.width() if parent is not None else 0
+        default_width = parent_width if parent_width > 0 else max(900, 300 + self._n_tubes * 120)
+        self.resize(default_width, 560)
         self.setSizeGripEnabled(True)
 
         root = QVBoxLayout(self)
