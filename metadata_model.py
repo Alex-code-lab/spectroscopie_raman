@@ -393,6 +393,7 @@ def sers_gaussian_volumes(
     duplicate_last: bool = True,
     center_power: float = 1.8,
     span_frac: float = 1.0,
+    max_Vtot_uL: float | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     """
     Génère une série de volumes de titrant (Solution B) pour une titration SERS.
@@ -421,7 +422,37 @@ def sers_gaussian_volumes(
         + float(V_Solution_F_uL)
     )
 
-    V_AB = float(Vtot_uL) - V_fixe_uL
+    # Nombre de volumes libres à placer (hors tube à 0)
+    n_free = int(n_tubes) - int(include_zero)
+    if n_free <= 0:
+        raise ValueError("Pas assez de tubes libres")
+
+    step = float(pipette_step_uL)
+
+    # En mode compte-goutte (ou si max_Vtot_uL fourni), cherche le plus petit Vtot
+    # (multiple du pas, entre Vtot_uL et max_Vtot_uL) qui donne assez de positions uniques
+    # pour les tubes libres.  Si include_zero=True et que la grille part de 0, cette
+    # position est réservée et ne compte pas pour les tubes libres.
+    Vtot_uL = float(Vtot_uL)
+    if max_Vtot_uL is not None and max_Vtot_uL > Vtot_uL and step > 0:
+        _limit = float(max_Vtot_uL)
+        _candidate = Vtot_uL
+        while _candidate <= _limit:
+            _V_AB_cand = _candidate - V_fixe_uL
+            if _V_AB_cand > 0:
+                _vmin = np.ceil(float(margin_uL) / step) * step
+                _vmax = np.floor((_V_AB_cand - float(margin_uL)) / step) * step
+                _n_pos = max(0, int(round((_vmax - _vmin) / step)) + 1) if _vmax >= _vmin else 0
+                # La position 0 est réservée au tube "include_zero" → ne pas la compter
+                _reserved = 1 if (include_zero and _vmin == 0.0) else 0
+                if _n_pos - _reserved >= n_free:
+                    Vtot_uL = _candidate
+                    break
+            _candidate += step
+        else:
+            Vtot_uL = _limit  # fallback : valeur max autorisée
+
+    V_AB = Vtot_uL - V_fixe_uL
     if V_AB <= 0:
         raise ValueError("Vtot <= V_fixe")
 
@@ -439,11 +470,6 @@ def sers_gaussian_volumes(
 
     n_Cu = C0_M * V_echant_L
     Veq_uL = (n_Cu / C_titrant_M) * 1e6
-
-    # Nombre de volumes libres
-    n_free = int(n_tubes) - int(include_zero) - int(duplicate_last)
-    if n_free <= 0:
-        raise ValueError("Pas assez de tubes libres")
 
     # Quantiles gaussiens
     p = (np.arange(1, n_free + 1) - 0.5) / n_free
@@ -466,19 +492,39 @@ def sers_gaussian_volumes(
     )
 
     # Volumes titrant
-    V_B_free = np.clip(Veq_uL + sigma_V * z, Vmin_uL, Vmax_uL)
+    V_B_ideal = np.clip(Veq_uL + sigma_V * z, Vmin_uL, Vmax_uL)
 
-    step = float(pipette_step_uL)
-    V_B_free = np.round(V_B_free / step) * step
-    if include_zero and len(V_B_free) > 0 and V_B_free.min() <= 0:
-        V_B_free[V_B_free <= 0] = step
+    # Grille de positions valides (multiples du pas dans [Vmin, Vmax])
+    # En mode compte-goutte le pas est grand → peu de positions → forcer l'unicité.
+    # Si include_zero=True, la position 0 est réservée au tube explicite :
+    # la grille des tubes libres part donc du premier multiple de pas > 0.
+    vmin_snap = np.ceil(Vmin_uL / step) * step
+    if include_zero and vmin_snap == 0.0:
+        vmin_snap = step
+    vmax_snap = np.floor(Vmax_uL / step) * step
+    grid = np.arange(vmin_snap, vmax_snap + step * 0.5, step)
+
+    if len(grid) >= len(V_B_ideal):
+        # Assignation gloutonne : trier les valeurs idéales, affecter chacune
+        # à la position de grille libre la plus proche.
+        order = np.argsort(V_B_ideal)
+        available = list(grid)
+        assigned = np.zeros(len(V_B_ideal))
+        for idx in order:
+            v = V_B_ideal[idx]
+            closest_i = min(range(len(available)), key=lambda i: abs(available[i] - v))
+            assigned[idx] = available[closest_i]
+            available.pop(closest_i)
+        V_B_free = assigned
+    else:
+        # Pas assez de positions uniques : fallback arrondi classique
+        V_B_free = np.round(V_B_ideal / step) * step
+
 
     V_B = []
     if include_zero:
         V_B.append(0.0)
     V_B.extend(V_B_free.tolist())
-    if duplicate_last:
-        V_B.append(V_B[-1])
 
     V_B = np.sort(np.array(V_B))
     if include_zero and len(V_B) > 1:

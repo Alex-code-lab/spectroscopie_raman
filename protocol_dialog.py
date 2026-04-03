@@ -138,7 +138,8 @@ class ProtocolDialog(QDialog):
         self._table = QTableWidget(1 + self._n_rows, n_cols, self)
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self._table.setSelectionMode(QTableWidget.NoSelection)
+        self._table.setSelectionMode(QTableWidget.SingleSelection)
+        self._table.setSelectionBehavior(QTableWidget.SelectRows)
         self._table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self._table.setShowGrid(True)
@@ -296,24 +297,44 @@ class ProtocolDialog(QDialog):
 
     def _build_buttons(self, root):
         row = QHBoxLayout()
+        btn_row    = QPushButton("Cocher la ligne")
         btn_coord  = QPushButton("Tout cocher — Coord.")
         btn_oper   = QPushButton("Tout cocher — Opér.")
         btn_reset  = QPushButton("Tout décocher")
         self._btn_export = QPushButton("Exporter Excel…")
         self._btn_close  = QPushButton("Fermer")
 
+        btn_row.setToolTip("Coche toutes les cases de la ligne sélectionnée")
+        btn_row.clicked.connect(self._check_selected_row)
         btn_coord.clicked.connect(lambda: self._check_all("coord", True))
         btn_oper.clicked.connect(lambda:  self._check_all("oper",  True))
         btn_reset.clicked.connect(lambda: self._check_all(None,    False))
         self._btn_export.clicked.connect(self._on_export)
         self._btn_close.clicked.connect(self.accept)
 
-        for btn in (btn_coord, btn_oper, btn_reset):
+        for btn in (btn_row, btn_coord, btn_oper, btn_reset):
             row.addWidget(btn)
         row.addStretch()
         row.addWidget(self._btn_export)
         row.addWidget(self._btn_close)
         root.addLayout(row)
+
+    def _check_selected_row(self):
+        """Coche toutes les cases de la ligne actuellement sélectionnée."""
+        indexes = self._table.selectedIndexes()
+        if not indexes:
+            return
+        tr = indexes[0].row()
+        if tr == 0:   # ligne d'en-tête de groupe (row 0 = en-têtes de tubes)
+            return
+        r_idx = tr - 1
+        for key, cb in self._checks.items():
+            if key[1] == r_idx:
+                cb.blockSignals(True)
+                cb.setEnabled(True)
+                cb.setChecked(True)
+                cb.blockSignals(False)
+        self._refresh_highlights()
 
     def _check_all(self, role: str | None, state: bool):
         """Coche ou décoche toutes les cases d'un rôle (ou toutes si role=None)."""
