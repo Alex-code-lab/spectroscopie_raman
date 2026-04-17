@@ -50,7 +50,7 @@ _C_DIM_FG   = QColor("#555555")   # texte ombré
 _SS_DIM     = "background: #2C2C2C; color: #555555;"
 _SS_ACTIVE  = "background: transparent;"
 
-_FIXED_COLS = 4   # Réactif | Conc. | Unité | Vérif.
+_FIXED_COLS = 5   # Réactif | Conc. | Unité (conc.) | Vérif. | Unité (vol.)
 _SUBCOLS    = 3   # Vol. | Coord. | Opér.  par tube
 
 # Indices relatifs des sous-colonnes tube dans QTableWidget (0-based)
@@ -94,6 +94,7 @@ def _normal_item_bg(r_idx: int, col: int, n_fixed: int, n_subcols: int) -> QColo
     if col == 0:   return _C_REACT
     if col == 1 or col == 2: return _C_META
     if col == 3:   return _C_VERIF_L  # verif
+    if col == 4:   return _C_META     # unité (vol.)
     rel = (col - n_fixed) % n_subcols
     if rel == _SUB_VOL:   return _C_VOL
     if rel == _SUB_COORD: return _C_COORD_A if r_idx % 2 == 0 else _C_COORD_B
@@ -196,18 +197,19 @@ class ProtocolDialog(QDialog):
 
     def _build_headers(self):
         tbl = self._table
-        labels = ["Réactif", "Conc.", "Unité", "Vérif."]
+        labels = ["Réactif", "Conc.", "Unité", "Vérif.", "Unité vol."]
         for _ in self._tubes:
-            labels += ["Vol. (µL)", "Coord.", "Opér."]
+            labels += ["Vol.", "Coord.", "Opér."]
         tbl.setHorizontalHeaderLabels(labels)
         tbl.horizontalHeader().setDefaultSectionSize(60)
         tbl.setColumnWidth(0, 140)
         tbl.setColumnWidth(1, 70)
         tbl.setColumnWidth(2, 60)
         tbl.setColumnWidth(3, 55)
+        tbl.setColumnWidth(4, 60)   # Unité vol.
         for t in range(self._n_tubes):
             base = _FIXED_COLS + t * _SUBCOLS
-            tbl.setColumnWidth(base,     70)
+            tbl.setColumnWidth(base,     65)
             tbl.setColumnWidth(base + 1, 55)
             tbl.setColumnWidth(base + 2, 55)
 
@@ -218,6 +220,7 @@ class ProtocolDialog(QDialog):
             (1, _C_META,  ""),
             (2, _C_META,  ""),
             (3, _C_VERIF, "Vérif.\nsolution"),
+            (4, _C_META,  "Unité"),
         ]:
             tbl.setItem(0, col, _item(label, bg=bg, fg=_C_WHITE, bold=True))
         for t_idx, tube_name in enumerate(self._tubes):
@@ -235,8 +238,11 @@ class ProtocolDialog(QDialog):
                                      bg=_C_ROW_A if r_idx % 2 == 0 else _C_ROW_B,
                                      center=False))
             raw = row.get("Concentration", "")
-            try:    conc_str = str(float(raw))
-            except: conc_str = str(raw) if raw not in (None, "") else ""
+            try:
+                v = round(float(raw), 1)
+                conc_str = str(int(v)) if v == int(v) else str(v)
+            except (ValueError, TypeError):
+                conc_str = str(raw) if raw not in (None, "") else ""
             rbg = _C_ROW_A if r_idx % 2 == 0 else _C_ROW_B
             tbl.setItem(tr, 1, _item(conc_str, bg=rbg))
             tbl.setItem(tr, 2, _item(str(row.get("Unité", "")), bg=rbg))
@@ -254,6 +260,10 @@ class ProtocolDialog(QDialog):
             except (ValueError, TypeError):
                 pas = 0.0
 
+            # Colonne Unité vol. (col 4) : "gouttes" ou "µL" une seule fois par ligne
+            unit_vol_str = "gouttes" if pas > 0 else "µL"
+            tbl.setItem(tr, 4, _item(unit_vol_str, bg=_C_META))
+
             # Tubes
             for t_idx, tube_name in enumerate(self._tubes):
                 base = _FIXED_COLS + t_idx * _SUBCOLS
@@ -261,9 +271,7 @@ class ProtocolDialog(QDialog):
                 try:
                     v = float(raw_vol)
                     if pas > 0:
-                        # Afficher le nombre de gouttes
-                        n = int(round(v))
-                        vol_str = f"{n} gouttes"
+                        vol_str = str(int(round(v)))
                     else:
                         vol_str = str(int(v)) if v == int(v) else str(v)
                 except (ValueError, TypeError):

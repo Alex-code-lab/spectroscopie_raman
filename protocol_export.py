@@ -13,11 +13,17 @@ La mise en forme suit le modèle CitizenSers :
 
 from __future__ import annotations
 
+import copy
+import os
+
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 import metadata_model as mm
+
+# Chemin du modèle de mise en page (même dossier que ce script)
+_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "modèle tableau.xlsx")
 
 # ── Palette ───────────────────────────────────────────────────────────────────
 _TUBE_HDR    = PatternFill("solid", fgColor="2E75B6")  # bleu foncé  — volume
@@ -70,6 +76,90 @@ def _s(ws, row: int, col: int, value=None, *, fill=None, font=None,
 
 def _col_letter(n: int) -> str:
     return get_column_letter(n)
+
+
+def _apply_template_settings(ws, tmpl_path: str,
+                              last_col: int, last_row: int,
+                              col_first_tube: int = 7) -> bool:
+    """Copie la mise en page de la feuille 'Protocole' du modèle vers *ws*.
+
+    Copie intégralement : orientation, papier, échelle, marges, fitToPage,
+    largeur par défaut des colonnes, largeurs explicites, et toutes les colonnes
+    tubes (vol + coord + opér).  Zone d'impression recalculée dynamiquement.
+    """
+    try:
+        tmpl_wb = openpyxl.load_workbook(tmpl_path)
+    except Exception:
+        return False
+
+    tmpl_ws = (tmpl_wb["Protocole"] if "Protocole" in tmpl_wb.sheetnames
+               else tmpl_wb.active)
+    tps = tmpl_ws.page_setup
+    tpm = tmpl_ws.page_margins
+    tsf = tmpl_ws.sheet_format
+
+    # ── Page setup complet ────────────────────────────────────────────────────
+    if tps.orientation:   ws.page_setup.orientation = tps.orientation
+    if tps.paperSize:     ws.page_setup.paperSize   = tps.paperSize
+    if tps.scale:         ws.page_setup.scale        = tps.scale
+    ws.page_setup.fitToWidth  = tps.fitToWidth
+    ws.page_setup.fitToHeight = tps.fitToHeight
+
+    # ── fitToPage (sheet_properties) ─────────────────────────────────────────
+    try:
+        from openpyxl.worksheet.properties import PageSetupProperties
+        tpp = (tmpl_ws.sheet_properties.pageSetUpPr
+               if tmpl_ws.sheet_properties else None)
+        if tpp and tpp.fitToPage:
+            if ws.sheet_properties.pageSetUpPr is None:
+                ws.sheet_properties.pageSetUpPr = PageSetupProperties()
+            ws.sheet_properties.pageSetUpPr.fitToPage = True
+    except Exception:
+        pass
+
+    # ── Marges (attribut par attribut pour éviter le partage de référence) ───
+    for attr in ("left", "right", "top", "bottom", "header", "footer"):
+        val = getattr(tpm, attr, None)
+        if val is not None:
+            setattr(ws.page_margins, attr, val)
+
+    # ── Largeur par défaut de colonne ─────────────────────────────────────────
+    if tsf.defaultColWidth:
+        ws.sheet_format.defaultColWidth = tsf.defaultColWidth
+
+    # ── Largeurs explicites (colonnes fixes du modèle) ────────────────────────
+    for col_letter, dim in tmpl_ws.column_dimensions.items():
+        if dim.width:
+            ws.column_dimensions[col_letter].width = dim.width
+
+    # ── Colonnes tubes : appliquer la largeur de la colonne G à tous les vol,
+    #    et une largeur réduite aux sous-colonnes coord/opér ──────────────────
+    g_dim = tmpl_ws.column_dimensions.get("G")
+    tube_vol_w = g_dim.width if (g_dim and g_dim.width) else 4.66
+    for col_idx in range(col_first_tube, last_col + 1):
+        rel = (col_idx - col_first_tube) % 3   # 0=vol, 1=coord, 2=opér
+        w   = tube_vol_w if rel == 0 else 3.5
+        cl  = get_column_letter(col_idx)
+        ws.column_dimensions[cl].width = w
+
+    # ── Zone d'impression dynamique ───────────────────────────────────────────
+    ws.print_area = f"$A$1:${get_column_letter(last_col)}${last_row}"
+
+    return True
+
+
+def _autofit_columns(ws, min_width: int = 3, max_width: int = 30, padding: int = 1) -> None:
+    """Ajuste chaque colonne à la largeur minimale nécessaire pour son contenu."""
+    for col_cells in ws.columns:
+        max_len = min_width
+        for cell in col_cells:
+            if cell.value is None:
+                continue
+            lines = str(cell.value).split("\n")
+            cell_max = max(len(ln) for ln in lines) if lines else 0
+            max_len = max(max_len, cell_max)
+        col_letter = col_cells[0].column_letter
+        ws.column_dimensions[col_letter].width = min(max_width, max_len + padding)
 
 
 # ── Fonction principale ───────────────────────────────────────────────────────
@@ -128,12 +218,13 @@ def export_protocol_excel(df_comp, meta: dict, path: str,
     ws.title = "Protocole"
 
     # ── Indices de colonnes ───────────────────────────────────────────────────
-    COL_LABEL  = 1   # "Réactifs" — label vertical orange (fusionné)
-    COL_REACT  = 2   # nom du réactif
-    COL_CONC   = 3   # concentration
-    COL_UNIT   = 4   # unité
-    COL_VERIF  = 5   # vérification solution (☐)
-    COL_FIRST_TUBE = 6   # début des colonnes tubes
+    COL_LABEL      = 1   # "Réactifs" — label vertical orange (fusionné)
+    COL_REACT      = 2   # nom du réactif
+    COL_CONC       = 3   # concentration
+    COL_UNIT       = 4   # unité concentration
+    COL_VERIF      = 5   # vérification solution (☐)
+    COL_VOL_UNIT   = 6   # unité volume (µL ou gouttes)
+    COL_FIRST_TUBE = 7   # début des colonnes tubes
 
     # ── Indices de lignes ─────────────────────────────────────────────────────
     ROW_META1  = 1   # nom manip / date / lieu
@@ -180,10 +271,11 @@ def export_protocol_excel(df_comp, meta: dict, path: str,
 
     # ── En-têtes des colonnes fixes ───────────────────────────────────────────
     for col, label, fill in [
-        (COL_REACT, "Réactif",               _META_HDR),
-        (COL_CONC,  "Concentration",          _META_HDR),
-        (COL_UNIT,  "Unité",                  _META_HDR),
-        (COL_VERIF, "Vérification\nsolution", _VERIF_HDR),
+        (COL_REACT,    "Réactif",               _META_HDR),
+        (COL_CONC,     "Concentration",          _META_HDR),
+        (COL_UNIT,     "Unité",                  _META_HDR),
+        (COL_VERIF,    "Vérification\nsolution", _VERIF_HDR),
+        (COL_VOL_UNIT, "Unité\nvolume",          _META_HDR),
     ]:
         font = _WHITE_BOLD if fill is _VERIF_HDR else _BOLD
         _s(ws, ROW_HDR, col, label, fill=fill, font=font,
@@ -211,10 +303,11 @@ def export_protocol_excel(df_comp, meta: dict, path: str,
         _s(ws, dr, COL_REACT, str(row.get("Réactif", "")),
            fill=rfil, font=_DARK, align=_LEFT, border=_THIN_BORDER)
 
-        # Concentration
+        # Concentration (max 1 décimale)
         raw_conc = row.get("Concentration", "")
         try:
-            conc_val = float(raw_conc)
+            cv = round(float(raw_conc), 1)
+            conc_val = int(cv) if cv == int(cv) else cv
         except (ValueError, TypeError):
             conc_val = str(raw_conc) if raw_conc not in (None, "") else ""
         _s(ws, dr, COL_CONC, conc_val,
@@ -234,6 +327,10 @@ def export_protocol_excel(df_comp, meta: dict, path: str,
         except (ValueError, TypeError):
             pas = 0.0
 
+        # Colonne Unité volume : "gouttes" ou "µL" une seule fois par ligne
+        _s(ws, dr, COL_VOL_UNIT, "gouttes" if pas > 0 else "µL",
+           fill=rfil, font=_DARK, align=_CTR, border=_THIN_BORDER)
+
         # Volumes + cases à cocher par tube
         for t_idx, tube_name in enumerate(tube_cols):
             base = COL_FIRST_TUBE + t_idx * 3
@@ -241,7 +338,7 @@ def export_protocol_excel(df_comp, meta: dict, path: str,
             try:
                 v = float(raw_vol)
                 if pas > 0:
-                    vol_val = f"{int(round(v))} gouttes"
+                    vol_val = int(round(v))
                 else:
                     vol_val = int(v) if v == int(v) else v
             except (ValueError, TypeError):
@@ -256,20 +353,17 @@ def export_protocol_excel(df_comp, meta: dict, path: str,
     for r in range(ROW_DATA, last_data_row + 1):
         ws.row_dimensions[r].height = 20
 
-    ws.column_dimensions[_col_letter(COL_LABEL)].width = 4
-    ws.column_dimensions[_col_letter(COL_REACT)].width = 20
-    ws.column_dimensions[_col_letter(COL_CONC) ].width = 10
-    ws.column_dimensions[_col_letter(COL_UNIT) ].width = 8
-    ws.column_dimensions[_col_letter(COL_VERIF)].width = 7
-
-    for t_idx in range(n_tubes):
-        base = COL_FIRST_TUBE + t_idx * 3
-        ws.column_dimensions[_col_letter(base)    ].width = 9   # volume
-        ws.column_dimensions[_col_letter(base + 1)].width = 5   # coordinateur
-        ws.column_dimensions[_col_letter(base + 2)].width = 5   # opérateur
+    # Appliquer la mise en page du modèle (largeurs, impression, marges…)
+    last_col = COL_FIRST_TUBE + n_tubes * 3 - 1
+    used_template = _apply_template_settings(
+        ws, _TEMPLATE_PATH, last_col=last_col, last_row=last_data_row
+    )
+    # Fallback si le modèle est introuvable : ajustement automatique au contenu
+    if not used_template:
+        _autofit_columns(ws, min_width=3, max_width=28, padding=1)
 
     # Figer les volets : colonne Réactif visible en scrollant à droite
-    ws.freeze_panes = ws.cell(ROW_DATA, COL_FIRST_TUBE)
+    ws.freeze_panes = ws.cell(ROW_DATA, COL_FIRST_TUBE)  # figer jusqu'à la colonne des tubes
 
     # ── Feuilles de données (rechargement comme métadonnées) ──────────────────
     _write_df_to_sheet(wb, "Volumes", df_comp)
