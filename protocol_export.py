@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import copy
 import os
+import sys
 
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -22,8 +23,21 @@ from openpyxl.utils import get_column_letter
 
 import metadata_model as mm
 
-# Chemin du modèle de mise en page (même dossier que ce script)
-_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "modèle tableau.xlsx")
+
+def _resource_dir() -> str:
+    """Retourne le dossier contenant les ressources embarquées.
+
+    - En mode PyInstaller (onefile/onedir) : sys._MEIPASS (dossier temporaire
+      où PyInstaller extrait les fichiers data).
+    - En mode normal (script Python) : dossier du fichier source.
+    """
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+# Chemin du modèle de mise en page (feuille de protocole)
+_TEMPLATE_PATH = os.path.join(_resource_dir(), "modele_tableau.xlsx")
 
 # ── Palette ───────────────────────────────────────────────────────────────────
 _TUBE_HDR    = PatternFill("solid", fgColor="2E75B6")  # bleu foncé  — volume

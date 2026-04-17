@@ -41,6 +41,7 @@ hiddenimports += collect_submodules("pybaselines")
 hiddenimports += collect_submodules("pandas")
 hiddenimports += collect_submodules("plotly")
 hiddenimports += collect_submodules("fpdf")
+hiddenimports += collect_submodules("openpyxl")
 
 # --- Données locales ---
 styles_dir = os.path.join(project_dir, "styles")
@@ -50,6 +51,11 @@ if os.path.isdir(styles_dir):
 logo_dir = os.path.join(project_dir, "Logo Ramanalyze")
 if os.path.isdir(logo_dir):
     datas.append((logo_dir, "Logo Ramanalyze"))
+
+# --- Modèle Excel de mise en page (feuille de protocole) ---
+template_xlsx = os.path.join(project_dir, "modele_tableau.xlsx")
+if os.path.isfile(template_xlsx):
+    datas.append((template_xlsx, "."))
 
 a = Analysis(
     ["main.py"],

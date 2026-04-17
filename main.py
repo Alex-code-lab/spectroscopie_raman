@@ -16,8 +16,13 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QPixmap
 
 # S'assurer que les imports de modules frères fonctionnent quel que soit l'endroit
-# d'où on lance le script
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
+# d'où on lance le script.
+# En mode PyInstaller onefile, sys._MEIPASS pointe vers le dossier d'extraction
+# temporaire où tous les fichiers data sont copiés.
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    APP_DIR = sys._MEIPASS
+else:
+    APP_DIR = os.path.dirname(os.path.abspath(__file__))
 if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
 
