@@ -151,12 +151,13 @@ class MainWindow(QMainWindow):
 
 <table>
   <tr><th>Solution</th><th>Rôle</th></tr>
-  <tr><td><b>Solution A</b></td><td>Tampon (volume variable, complémentaire à B)</td></tr>
+  <tr><td><b>Solution A1</b></td><td>Tampon NH3+ concentré (70 mM) — volume fixe, maintient les particules de cuivre stables</td></tr>
+  <tr><td><b>Solution A2</b></td><td>Tampon NH3+ (7 mM) — volume variable, complémentaire à B (A2 + B = constante)</td></tr>
   <tr><td><b>Solution B</b></td><td>Titrant (<span class="accent">paramètre variable</span>)</td></tr>
-  <tr><td><b>Solution C</b></td><td>Indicateur</td></tr>
-  <tr><td><b>Solution D</b></td><td>PEG</td></tr>
-  <tr><td><b>Solution E</b></td><td>Nanoparticules</td></tr>
-  <tr><td><b>Solution F</b></td><td>Crosslinker</td></tr>
+  <tr><td><b>Solution C</b></td><td>Indicateur SERS (molécule rapporteur, volume fixe)</td></tr>
+  <tr><td><b>Solution D</b></td><td>PEG (agent de crowding, volume fixe)</td></tr>
+  <tr><td><b>Solution E</b></td><td>Nanoparticules SERS (volume fixe)</td></tr>
+  <tr><td><b>Solution F</b></td><td>Crosslinker (ex. spermine, volume fixe)</td></tr>
 </table>
 
 <h4>Correspondance spectres ↔ tubes</h4>
@@ -199,8 +200,8 @@ class MainWindow(QMainWindow):
 </ol>
 <p>
   Un libellé de statut vert indique l'étape en cours :
-  <span class="mono">→ Vérifier la solution : Solution A</span> ou
-  <span class="mono">→ Solution A · Tube 1</span>.
+  <span class="mono">→ Vérifier la solution : Solution A2</span> ou
+  <span class="mono">→ Solution A2 · Tube 1</span>.
 </p>
 
 <div class="note">

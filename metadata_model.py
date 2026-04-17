@@ -383,6 +383,7 @@ def sers_gaussian_volumes(
     V_echant_uL: float,
     C_titrant_uM: float,
     Vtot_uL: float,
+    V_Solution_A1_uL: float = 100.0,
     V_Solution_C_uL: float = 30.0,
     V_Solution_D_uL: float = 750.0,
     V_Solution_E_uL: float = 750.0,
@@ -416,6 +417,7 @@ def sers_gaussian_volumes(
     # Volume fixe identique dans tous les tubes
     V_fixe_uL = (
         float(V_echant_uL)
+        + float(V_Solution_A1_uL)
         + float(V_Solution_C_uL)
         + float(V_Solution_D_uL)
         + float(V_Solution_E_uL)

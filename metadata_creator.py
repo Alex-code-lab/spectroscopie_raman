@@ -143,11 +143,11 @@ class TableEditorDialog(QDialog):
 
         # --- Option saisie manuelle (désactive la sync A↔B) ---
         mode_row = QHBoxLayout()
-        self.chk_manual_mode = QCheckBox("Saisie manuelle (désactiver la synchronisation Solution A ↔ Solution B)", self)
+        self.chk_manual_mode = QCheckBox("Saisie manuelle (désactiver la synchronisation Solution A2 ↔ Solution B)", self)
         self.chk_manual_mode.setToolTip(
-            "Coché : vous pouvez saisir librement les volumes de Solution A et Solution B "
+            "Coché : vous pouvez saisir librement les volumes de Solution A2 et Solution B "
             "sans qu'ils se recalculent mutuellement.\n"
-            "Décoché (défaut) : modifier A ajuste B automatiquement pour conserver la somme constante."
+            "Décoché (défaut) : modifier A2 ajuste B automatiquement pour conserver la somme constante."
         )
         mode_row.addWidget(self.chk_manual_mode)
         mode_row.addStretch(1)
@@ -633,7 +633,7 @@ class GaussianVolumesDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(
             "Génère automatiquement les volumes de titrant (Solution B) autour de l'équivalence.\n"
-            "Seules Solution A (tampon) et Solution B (titrant) varient."
+            "Solution A2 (tampon NH3+, 7 mM) et Solution B (titrant) varient de tube en tube."
         ))
 
         # Case à cocher mode compte‑goutte
@@ -663,16 +663,19 @@ class GaussianVolumesDialog(QDialog):
 
         unit_choices = ["M", "mM", "µM", "nM", "% en masse"]
 
+        self.spin_VA1 = QDoubleSpinBox(self); self.spin_VA1.setDecimals(1); self.spin_VA1.setRange(0.0, 1e9); self.spin_VA1.setValue(100.0)
         self.spin_VC = QDoubleSpinBox(self); self.spin_VC.setDecimals(1); self.spin_VC.setRange(0.0, 1e9); self.spin_VC.setValue(30.0)
         self.spin_VD = QDoubleSpinBox(self); self.spin_VD.setDecimals(1); self.spin_VD.setRange(0.0, 1e9); self.spin_VD.setValue(750.0)
         self.spin_VE = QDoubleSpinBox(self); self.spin_VE.setDecimals(1); self.spin_VE.setRange(0.0, 1e9); self.spin_VE.setValue(750.0)
         self.spin_VF = QDoubleSpinBox(self); self.spin_VF.setDecimals(1); self.spin_VF.setRange(0.0, 1e9); self.spin_VF.setValue(60.0)
 
+        self.spin_conc_A1 = QDoubleSpinBox(self); self.spin_conc_A1.setDecimals(6); self.spin_conc_A1.setRange(0.0, 1e12); self.spin_conc_A1.setValue(70.0)
         self.spin_conc_C = QDoubleSpinBox(self); self.spin_conc_C.setDecimals(6); self.spin_conc_C.setRange(0.0, 1e12); self.spin_conc_C.setValue(10.0)
         self.spin_conc_D = QDoubleSpinBox(self); self.spin_conc_D.setDecimals(6); self.spin_conc_D.setRange(0.0, 1e12); self.spin_conc_D.setValue(0.5)
         self.spin_conc_E = QDoubleSpinBox(self); self.spin_conc_E.setDecimals(6); self.spin_conc_E.setRange(0.0, 1e12); self.spin_conc_E.setValue(1.0)
         self.spin_conc_F = QDoubleSpinBox(self); self.spin_conc_F.setDecimals(6); self.spin_conc_F.setRange(0.0, 1e12); self.spin_conc_F.setValue(1.0)
 
+        self.combo_unit_A1 = QComboBox(self); self.combo_unit_A1.addItems(unit_choices); self.combo_unit_A1.setCurrentText("mM")
         self.combo_unit_C = QComboBox(self); self.combo_unit_C.addItems(unit_choices); self.combo_unit_C.setCurrentText("µM")
         self.combo_unit_D = QComboBox(self); self.combo_unit_D.addItems(unit_choices); self.combo_unit_D.setCurrentText("% en masse")
         self.combo_unit_E = QComboBox(self); self.combo_unit_E.addItems(unit_choices); self.combo_unit_E.setCurrentText("mM")
@@ -693,9 +696,11 @@ class GaussianVolumesDialog(QDialog):
             h.addStretch(1)
             return w
 
+        self._lbl_VA1 = QLabel("V (µL)", self)
         self._lbl_VC = QLabel("V (µL)", self)
         self._lbl_VF = QLabel("V (µL)", self)
 
+        form2.addRow("Solution A1 (NH3+, 70 mM)", _row(self.spin_VA1, self.spin_conc_A1, self.combo_unit_A1, self._lbl_VA1))
         form2.addRow("Solution C", _row(self.spin_VC, self.spin_conc_C, self.combo_unit_C, self._lbl_VC))
         form2.addRow("Solution D", _row(self.spin_VD, self.spin_conc_D, self.combo_unit_D))
         form2.addRow("Solution E", _row(self.spin_VE, self.spin_conc_E, self.combo_unit_E))
@@ -703,6 +708,8 @@ class GaussianVolumesDialog(QDialog):
 
         # Quantités de matière de référence (en nmol) pour le couplage C ↔ V
         # Solution F : 6e-8 mol = 60 nmol  |  Solution C : 3e-10 mol = 0.3 nmol
+        # Solution A1 : 70 mM × 100 µL = 7000 nmol
+        self._n_nmol_A1 = 7000.0
         self._n_nmol_F = 60.0
         self._n_nmol_C = 0.3
         self._updating_fixed = False  # garde contre les mises à jour récursives
@@ -786,6 +793,13 @@ class GaussianVolumesDialog(QDialog):
             """Retourne le pas en µL/goutte si mode compte-goutte actif, sinon 0."""
             return float(self.spin_step.value()) if self.chk_dropper.isChecked() else 0.0
 
+        _sa1_conc, _sa1_vol, _sa1_unit = _make_sync(
+            self.spin_VA1, self.spin_conc_A1, self.combo_unit_A1,
+            lambda: self._n_nmol_A1, _get_dropper_step)
+        self.spin_conc_A1.valueChanged.connect(_sa1_conc)
+        self.spin_VA1.valueChanged.connect(_sa1_vol)
+        self.combo_unit_A1.currentTextChanged.connect(_sa1_unit)
+
         _sc_conc, _sc_vol, _sc_unit = _make_sync(
             self.spin_VC, self.spin_conc_C, self.combo_unit_C,
             lambda: self._n_nmol_C, _get_dropper_step)
@@ -803,6 +817,11 @@ class GaussianVolumesDialog(QDialog):
         # Initialiser les volumes à partir des quantités et concentrations par défaut
         self._updating_fixed = True
         try:
+            v_a1_init = _vol_from_n_conc(self._n_nmol_A1,
+                                         float(self.spin_conc_A1.value()),
+                                         str(self.combo_unit_A1.currentText()).strip())
+            if v_a1_init is not None:
+                self.spin_VA1.setValue(round(v_a1_init, 1))
             v_c_init = _vol_from_n_conc(self._n_nmol_C,
                                         float(self.spin_conc_C.value()),
                                         str(self.combo_unit_C.currentText()).strip())
@@ -830,7 +849,8 @@ class GaussianVolumesDialog(QDialog):
             if state:
                 self.spin_margin.setValue(0.0)
                 self.spin_step.setValue(40.0)
-                # Changer à 1 goutte (= 40 µL) — le couplage recalcule la concentration
+                # A1 : 3 gouttes (= 120 µL) ; C et F : 1 goutte — le couplage recalcule la concentration
+                self.spin_VA1.setValue(3.0)
                 self.spin_VC.setValue(1.0)
                 self.spin_VF.setValue(1.0)
 
@@ -861,38 +881,44 @@ class GaussianVolumesDialog(QDialog):
         layout.addWidget(buttons)
 
     def _apply_dropper_vol_mode(self, dropper_on: bool) -> None:
-        """Bascule spin_VC / spin_VF entre mode µL et mode gouttes."""
+        """Bascule spin_VA1 / spin_VC / spin_VF entre mode µL et mode gouttes."""
         step = float(self.spin_step.value()) if dropper_on else 0.0
         self._updating_fixed = True
         try:
             if dropper_on:
-                # Récupérer le volume actuel en µL et le convertir en nombre de gouttes
+                # Récupérer les volumes actuels en µL et les convertir en nombre de gouttes
+                cur_va1_uL = float(self.spin_VA1.value())
                 cur_vc_uL = float(self.spin_VC.value())
                 cur_vf_uL = float(self.spin_VF.value())
-                self.spin_VC.setDecimals(0)
-                self.spin_VC.setSingleStep(1.0)
-                self.spin_VC.setSuffix(" gouttes")
-                self.spin_VF.setDecimals(0)
-                self.spin_VF.setSingleStep(1.0)
-                self.spin_VF.setSuffix(" gouttes")
-                self._lbl_VC.setText("N gouttes")
-                self._lbl_VF.setText("N gouttes")
-                # Convertir en gouttes (arrondi)
+                for spin, lbl in [
+                    (self.spin_VA1, self._lbl_VA1),
+                    (self.spin_VC,  self._lbl_VC),
+                    (self.spin_VF,  self._lbl_VF),
+                ]:
+                    spin.setDecimals(0)
+                    spin.setSingleStep(1.0)
+                    spin.setSuffix(" gouttes")
+                    lbl.setText("N gouttes")
+                # Convertir en gouttes (arrondi) — A1 : 3 gouttes par défaut
+                self.spin_VA1.setValue(max(1, round(cur_va1_uL / step)) if step > 0 else 3)
                 self.spin_VC.setValue(max(1, round(cur_vc_uL / step)) if step > 0 else 1)
                 self.spin_VF.setValue(max(1, round(cur_vf_uL / step)) if step > 0 else 1)
             else:
                 # Récupérer le nombre de gouttes et reconvertir en µL
                 prev_step = float(self.spin_step.value())
+                cur_va1_g = float(self.spin_VA1.value())
                 cur_vc_g = float(self.spin_VC.value())
                 cur_vf_g = float(self.spin_VF.value())
-                self.spin_VC.setDecimals(1)
-                self.spin_VC.setSingleStep(1.0)
-                self.spin_VC.setSuffix("")
-                self.spin_VF.setDecimals(1)
-                self.spin_VF.setSingleStep(1.0)
-                self.spin_VF.setSuffix("")
-                self._lbl_VC.setText("V (µL)")
-                self._lbl_VF.setText("V (µL)")
+                for spin, lbl in [
+                    (self.spin_VA1, self._lbl_VA1),
+                    (self.spin_VC,  self._lbl_VC),
+                    (self.spin_VF,  self._lbl_VF),
+                ]:
+                    spin.setDecimals(1)
+                    spin.setSingleStep(1.0)
+                    spin.setSuffix("")
+                    lbl.setText("V (µL)")
+                self.spin_VA1.setValue(round(cur_va1_g * prev_step, 1) if prev_step > 0 else cur_va1_g)
                 self.spin_VC.setValue(round(cur_vc_g * prev_step, 1) if prev_step > 0 else cur_vc_g)
                 self.spin_VF.setValue(round(cur_vf_g * prev_step, 1) if prev_step > 0 else cur_vf_g)
         finally:
@@ -904,9 +930,10 @@ class GaussianVolumesDialog(QDialog):
         "C_titrant_uM": 5.0, "Vtot_uL": DEFAULT_VTOT_UL,
         "margin_uL": 20.0, "pipette_step_uL": 1.0,
         "include_zero": True, "add_control": False, "compte_goutte": False,
-        "_V_C": 30.0, "_V_D": 750.0, "_V_E": 750.0, "_V_F": 60.0,
+        "_V_A1": 100.0, "_V_C": 30.0, "_V_D": 750.0, "_V_E": 750.0, "_V_F": 60.0,
     }
     _DEFAULTS_FIXED_STOCK = {
+        "Solution A1": (70.0, "mM"),
         "Solution C": (10.0, "µM"), "Solution D": (0.5, "% en masse"),
         "Solution E": (1.0, "mM"), "Solution F": (1.0, "mM"),
     }
@@ -940,6 +967,9 @@ class GaussianVolumesDialog(QDialog):
             # Appliquer le mode d'affichage (gouttes ou µL) avant de charger les volumes
             self._apply_dropper_vol_mode(dropper_on)
             _step = float(params.get("pipette_step_uL", self.spin_step.value()))
+            if "_V_A1" in params:
+                v_a1 = float(params["_V_A1"])
+                self.spin_VA1.setValue(round(v_a1 / _step) if dropper_on and _step > 0 else round(v_a1, 1))
             if "_V_C" in params:
                 v_c = float(params["_V_C"])
                 # Les paramètres sauvegardés stockent toujours des µL → convertir si mode gouttes
@@ -953,6 +983,7 @@ class GaussianVolumesDialog(QDialog):
                 self.spin_VF.setValue(round(v_f / _step) if dropper_on and _step > 0 else round(v_f, 1))
             if fixed_stock is not None:
                 for letter, spin_conc, combo in [
+                    ("Solution A1", self.spin_conc_A1, self.combo_unit_A1),
                     ("Solution C", self.spin_conc_C, self.combo_unit_C),
                     ("Solution D", self.spin_conc_D, self.combo_unit_D),
                     ("Solution E", self.spin_conc_E, self.combo_unit_E),
@@ -964,6 +995,11 @@ class GaussianVolumesDialog(QDialog):
                         combo.setCurrentText(str(u_val))
 
             # Reconstruire les quantités de référence depuis les valeurs chargées (C × V)
+            n_a1 = self._conc_to_n_nmol(float(self.spin_conc_A1.value()),
+                                        str(self.combo_unit_A1.currentText()).strip(),
+                                        float(self.spin_VA1.value()))
+            if n_a1 is not None and n_a1 > 0:
+                self._n_nmol_A1 = n_a1
             n_c = self._conc_to_n_nmol(float(self.spin_conc_C.value()),
                                        str(self.combo_unit_C.currentText()).strip(),
                                        float(self.spin_VC.value()))
@@ -983,6 +1019,7 @@ class GaussianVolumesDialog(QDialog):
             if state:
                 self.spin_margin.setValue(0.0)
                 self.spin_step.setValue(40.0)
+                self.spin_VA1.setValue(3.0)
                 self.spin_VC.setValue(1.0)
                 self.spin_VF.setValue(1.0)
 
@@ -1007,7 +1044,8 @@ class GaussianVolumesDialog(QDialog):
             "V_echant_uL": float(self.spin_Vech.value()),
             "C_titrant_uM": float(self.spin_Ctit.value()),
             "Vtot_uL": float(self.spin_Vtot.value()),
-            # En mode compte-goutte, spin_VC/spin_VF contiennent des gouttes → reconvertir en µL
+            # En mode compte-goutte, spin_VA1/spin_VC/spin_VF contiennent des gouttes → reconvertir en µL
+            "V_Solution_A1_uL": self._spin_to_uL(self.spin_VA1),
             "V_Solution_C_uL": self._spin_to_uL(self.spin_VC),
             "V_Solution_D_uL": float(self.spin_VD.value()),
             "V_Solution_E_uL": float(self.spin_VE.value()),
@@ -1021,6 +1059,7 @@ class GaussianVolumesDialog(QDialog):
 
     def fixed_solution_stocks(self) -> dict[str, tuple[float, str]]:
         return {
+            "Solution A1": (float(self.spin_conc_A1.value()), str(self.combo_unit_A1.currentText()).strip()),
             "Solution C": (float(self.spin_conc_C.value()), str(self.combo_unit_C.currentText()).strip()),
             "Solution D": (float(self.spin_conc_D.value()), str(self.combo_unit_D.currentText()).strip()),
             "Solution E": (float(self.spin_conc_E.value()), str(self.combo_unit_E.currentText()).strip()),
@@ -1090,6 +1129,7 @@ class GaussianVolumesDialog(QDialog):
                 }
             )
 
+        _add_solution("Solution A1", "Solution A1 (NH3+, 70 mM)", self.spin_conc_A1, self.combo_unit_A1, self.spin_VA1)
         _add_solution("Solution C", "Solution C", self.spin_conc_C, self.combo_unit_C, self.spin_VC)
         _add_solution("Solution D", "Solution D", self.spin_conc_D, self.combo_unit_D, self.spin_VD)
         _add_solution("Solution E", "Solution E", self.spin_conc_E, self.combo_unit_E, self.spin_VE)
@@ -1123,7 +1163,7 @@ class GaussianVolumesDialog(QDialog):
         _apply_solution("Solution D", self.spin_conc_D, self.combo_unit_D, self.spin_VD)
         _apply_solution("Solution E", self.spin_conc_E, self.combo_unit_E, self.spin_VE)
 
-        # Solutions C et F : met à jour n_nmol de référence, puis recalcule le volume
+        # Solutions A1, C et F : met à jour n_nmol de référence, puis recalcule le volume
         def _apply_anchored(key: str, n_attr: str,
                             conc_spin: QDoubleSpinBox, unit_combo: QComboBox,
                             vol_spin: QDoubleSpinBox) -> None:
@@ -1145,6 +1185,8 @@ class GaussianVolumesDialog(QDialog):
             finally:
                 self._updating_fixed = False
 
+        _apply_anchored("Solution A1", "_n_nmol_A1",
+                        self.spin_conc_A1, self.combo_unit_A1, self.spin_VA1)
         _apply_anchored("Solution C", "_n_nmol_C",
                         self.spin_conc_C, self.combo_unit_C, self.spin_VC)
         _apply_anchored("Solution F", "_n_nmol_F",
@@ -1173,26 +1215,27 @@ class MetadataCreatorWidget(QWidget):
                 "Réactif": [
                     "Echantillon",
                     "Contrôle",
-                    "Solution A",
+                    "Solution A1",
+                    "Solution A2",
                     "Solution B",
                     "Solution C",
                     "Solution D",
                     "Solution E",
                     "Solution F",
                 ],
-                "Concentration": ["0,5", "", "4", "2", "2", "0,5", "1", "1"],
-                "Unité": ["µM", "", "mM", "µM", "µM", "% en masse", "mM", "mM"],
-                "Tube 1":  [1000, 0, 500,   0,  30, 750, 750,  60],
-                "Tube 2":  [1000, 0, 411,  89,  30, 750, 750,  60],
-                "Tube 3":  [1000, 0, 321, 179,  30, 750, 750,  60],
-                "Tube 4":  [1000, 0, 299, 201,  30, 750, 750,  60],
-                "Tube 5":  [1000, 0, 277, 223,  30, 750, 750,  60],
-                "Tube 6":  [1000, 0, 254, 246,  30, 750, 750,  60],
-                "Tube 7":  [1000, 0, 232, 268,  30, 750, 750,  60],
-                "Tube 8":  [1000, 0, 188, 312,  30, 750, 750,  60],
-                "Tube 9":  [1000, 0,  98, 402,  30, 750, 750,  60],
-                "Tube 10": [1000, 0,  54, 446,  30, 750, 750,  60],
-                "Tube 11": [   0, 1000,  54, 446,  30, 750, 750,  60],
+                "Concentration": ["0,5", "", "70", "7", "2", "2", "0,5", "1", "1"],
+                "Unité": ["µM", "", "mM", "mM", "µM", "µM", "% en masse", "mM", "mM"],
+                "Tube 1":  [1000, 0, 100, 400,   0,  30, 750, 750,  60],
+                "Tube 2":  [1000, 0, 100, 311,  89,  30, 750, 750,  60],
+                "Tube 3":  [1000, 0, 100, 221, 179,  30, 750, 750,  60],
+                "Tube 4":  [1000, 0, 100, 199, 201,  30, 750, 750,  60],
+                "Tube 5":  [1000, 0, 100, 177, 223,  30, 750, 750,  60],
+                "Tube 6":  [1000, 0, 100, 154, 246,  30, 750, 750,  60],
+                "Tube 7":  [1000, 0, 100, 132, 268,  30, 750, 750,  60],
+                "Tube 8":  [1000, 0, 100,  88, 312,  30, 750, 750,  60],
+                "Tube 9":  [1000, 0, 100,   0, 402,  30, 750, 750,  60],
+                "Tube 10": [1000, 0, 100,   0, 446,  30, 750, 750,  60],
+                "Tube 11": [   0, 1000, 100,   0, 446,  30, 750, 750,  60],
             }
         ),
         "Titration Angelina": pd.DataFrame(
@@ -1302,12 +1345,16 @@ class MetadataCreatorWidget(QWidget):
             "<li>le tableau de correspondance entre les noms de spectres et les tubes</li>"
             "</ul>"
             "<b>Glossaire des solutions utilisées :</b><ul>"
-            "<li><b>Solution A</b> : Tampon (milieu de base, contrôle du pH)</li>"
-            "<li><b>Solution B</b> : Titrant (variable expérimentale principale)</li>"
-            "<li><b>Solution C</b> : Indicateur (molécule rapporteur suivie par spectroscopie)</li>"
-            "<li><b>Solution D</b> : PEG (agent de crowding / modification du milieu)</li>"
-            "<li><b>Solution E</b> : NPs (nanoparticules)</li>"
-            "<li><b>Solution F</b> : Crosslinker (ex. spermine, agent de réticulation)</li>"
+            "<li><b>Echantillon</b> : Echantillon d'eau à analyser (contient les ions Cu²⁺)</li>"
+            "<li><b>Solution A1</b> : Tampon NH3+ concentré (70 mM) — volume fixe par tube. "
+            "Maintient les particules de cuivre stables en solution.</li>"
+            "<li><b>Solution A2</b> : Tampon NH3+ (7 mM) — milieu de base, contrôle du pH. "
+            "Volume complémentaire à Solution B (A2 + B = constante par tube).</li>"
+            "<li><b>Solution B</b> : Titrant (variable expérimentale principale, volume croissant de tube en tube)</li>"
+            "<li><b>Solution C</b> : Indicateur SERS (molécule rapporteur suivie par spectroscopie, volume fixe)</li>"
+            "<li><b>Solution D</b> : PEG (agent de crowding / modification du milieu, volume fixe)</li>"
+            "<li><b>Solution E</b> : NPs (nanoparticules SERS, volume fixe)</li>"
+            "<li><b>Solution F</b> : Crosslinker (ex. spermine, agent de réticulation, volume fixe)</li>"
             "</ul>"
             "Les tableaux sont éditables comme dans Excel mais sont stockés en interne sous forme de DataFrame pandas.",
             self,
@@ -1912,6 +1959,7 @@ class MetadataCreatorWidget(QWidget):
         fixed_stock = dlg.fixed_solution_stocks()
         # Mémoriser les paramètres pour la prochaine ouverture
         self._last_gaussian_params = dict(params)
+        self._last_gaussian_params["_V_A1"] = dlg._spin_to_uL(dlg.spin_VA1)
         self._last_gaussian_params["_V_C"] = dlg._spin_to_uL(dlg.spin_VC)
         self._last_gaussian_params["_V_D"] = dlg.spin_VD.value()
         self._last_gaussian_params["_V_E"] = dlg.spin_VE.value()
@@ -1946,10 +1994,12 @@ class MetadataCreatorWidget(QWidget):
             cD, uD = fixed_stock.get("Solution D", (0.5, "% en masse"))
             cE, uE = fixed_stock.get("Solution E", (1.0, "mM"))
             cF, uF = fixed_stock.get("Solution F", (1.0, "mM"))
+            cA1, uA1 = fixed_stock.get("Solution A1", (70.0, "mM"))
             base_rows = [
                 {"Réactif": "Echantillon", "Concentration": float(params["C0_nM"]), "Unité": "nM"},
                 {"Réactif": "Contrôle",    "Concentration": float(params["C0_nM"]), "Unité": "nM"},
-                {"Réactif": "Solution A",  "Concentration": 4.0,                    "Unité": "mM"},
+                {"Réactif": "Solution A1", "Concentration": float(cA1),             "Unité": str(uA1)},
+                {"Réactif": "Solution A2", "Concentration": 7.0,                    "Unité": "mM"},
                 {"Réactif": "Solution B",  "Concentration": float(params["C_titrant_uM"]), "Unité": "µM"},
                 {"Réactif": "Solution C",  "Concentration": float(cC), "Unité": str(uC)},
                 {"Réactif": "Solution D",  "Concentration": float(cD), "Unité": str(uD)},
@@ -2002,8 +2052,9 @@ class MetadataCreatorWidget(QWidget):
             df.loc[len(df)] = new
             return int(df.index[-1])
 
-        # A (tampon) et B (titrant)
-        idx_A = ensure_row("Solution A")
+        # A1 (tampon concentré fixe), A2 (tampon variable), B (titrant)
+        idx_A1 = ensure_row("Solution A1")
+        idx_A = ensure_row("Solution A2")
         idx_B = ensure_row("Solution B")
         idx_sample = ensure_row("Echantillon")
         idx_control = ensure_row("Contrôle")
@@ -2020,10 +2071,14 @@ class MetadataCreatorWidget(QWidget):
         df.at[idx_B, "Unité"] = "µM"
 
         # Solutions fixes : concentration stock + unité (saisie dans le dialogue)
+        cA1, uA1 = fixed_stock.get("Solution A1", (70.0, "mM"))
         cC, uC = fixed_stock.get("Solution C", (2.0, "µM"))
         cD, uD = fixed_stock.get("Solution D", (0.5, "% en masse"))
         cE, uE = fixed_stock.get("Solution E", (1.0, "mM"))
         cF, uF = fixed_stock.get("Solution F", (1.0, "mM"))
+
+        df.at[idx_A1, "Concentration"] = float(cA1)
+        df.at[idx_A1, "Unité"] = str(uA1)
 
         df.at[idx_C, "Concentration"] = float(cC)
         df.at[idx_C, "Unité"] = str(uC)
@@ -2046,6 +2101,7 @@ class MetadataCreatorWidget(QWidget):
         fixed_map = {
             "Echantillon": params["V_echant_uL"],
             "Contrôle": 0.0,
+            "Solution A1": params["V_Solution_A1_uL"],
             "Solution C": params["V_Solution_C_uL"],
             "Solution D": params["V_Solution_D_uL"],
             "Solution E": params["V_Solution_E_uL"],
@@ -2106,7 +2162,7 @@ class MetadataCreatorWidget(QWidget):
         if "Pas (µL)" not in df.columns:
             df["Pas (µL)"] = 0.0
         if compte_goutte and pas > 0:
-            for reactif_name in ("Solution A", "Solution B", "Solution C", "Solution F"):
+            for reactif_name in ("Solution A1", "Solution A2", "Solution B", "Solution C", "Solution F"):
                 mask = df["Réactif"].astype(str).str.strip().str.lower() == reactif_name.strip().lower()
                 if not mask.any():
                     continue
@@ -2122,7 +2178,7 @@ class MetadataCreatorWidget(QWidget):
 
         # Réordonner : Echantillon et Contrôle en tête, puis les solutions
         _ROW_ORDER = ["Echantillon", "Contrôle",
-                      "Solution A", "Solution B", "Solution C",
+                      "Solution A1", "Solution A2", "Solution B", "Solution C",
                       "Solution D", "Solution E", "Solution F"]
         def _row_key(r):
             name = str(r.get("Réactif", "")).strip()
@@ -2730,10 +2786,10 @@ class MetadataCreatorWidget(QWidget):
             sum_target=self._sum_target_uL,
         )
         # ---------------------------------------------------------
-        # Synchronisation Solution A + Solution B = constante
+        # Synchronisation Solution A2 + Solution B = constante
         # ---------------------------------------------------------
         # On impose :
-        #     Solution A + Solution B = constante (par tube)
+        #     Solution A2 + Solution B = constante (par tube)
         # La constante est définie à l'ouverture du tableau.
         # Si l'utilisateur modifie A → B s'ajuste, et inversement.
         table = dlg.table
@@ -2776,7 +2832,7 @@ class MetadataCreatorWidget(QWidget):
                 if item is None:
                     continue
                 name = _norm_name(item.text())
-                if name == "solution a":
+                if name == "solution a2":
                     row_a = r
                 elif name == "solution b":
                     row_b = r
@@ -2852,11 +2908,11 @@ class MetadataCreatorWidget(QWidget):
                 # val = nombre de gouttes (si compte-goutte) ou µL sinon
                 val_uL = val * pas_B if pas_B > 0 else val
                 remaining_uL = total - val_uL
-                # Solution A : reconvertir en gouttes si nécessaire
+                # Solution A2 : reconvertir en gouttes si nécessaire
                 new_val_A = round(remaining_uL / pas_A) if pas_A > 0 else remaining_uL
                 other_row, new_val = row_A, new_val_A
             else:
-                # L'utilisateur a modifié Solution A
+                # L'utilisateur a modifié Solution A2
                 val_uL = val * pas_A if pas_A > 0 else val
                 remaining_uL = total - val_uL
                 # Solution B : reconvertir en gouttes si nécessaire
