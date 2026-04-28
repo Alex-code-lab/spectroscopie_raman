@@ -150,9 +150,8 @@ class MainWindow(QMainWindow):
 <h4>Tableau des volumes</h4>
 <p>
   Chaque ligne est un réactif, chaque colonne est un tube (Tube 1, Tube 2…).
-  Les valeurs sont en µL. Le bouton <b>Générer volumes (gaussien)</b> remplit
-  automatiquement les colonnes A et B avec des volumes centrés autour de
-  l’équivalence chimique.
+  Les valeurs sont en µL. Le bouton <b>Générer un tableau de volume</b> ouvre
+  une génération avancée de volumes centrés autour de l’équivalence chimique.
 </p>
 
 <table>

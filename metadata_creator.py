@@ -627,7 +627,7 @@ class MolesDialog(QDialog):
 class GaussianVolumesDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Générer volumes (gaussien)")
+        self.setWindowTitle("Générer un tableau de volume")
         self.resize(520, 420)
 
         layout = QVBoxLayout(self)
@@ -1238,6 +1238,35 @@ class MetadataCreatorWidget(QWidget):
                 "Tube 11": [   0, 1000, 100,   0, 446,  30, 750, 750,  60],
             }
         ),
+        "Titration classique compte-gouttes (actuel)": pd.DataFrame(
+            {
+                "Réactif": [
+                    "Echantillon",
+                    "Contrôle",
+                    "Solution A1",
+                    "Solution A2",
+                    "Solution B",
+                    "Solution C",
+                    "Solution D",
+                    "Solution E",
+                    "Solution F",
+                ],
+                "Concentration": ["1000", "", "58,333333", "7", "5", "7,5", "0,5", "1", "1,5"],
+                "Unité": ["nM", "", "mM", "mM", "µM", "µM", "% en masse", "mM", "mM"],
+                "Tube 1":  [1000, 0, 3, 11,  0, 1, 750, 750, 1],
+                "Tube 2":  [1000, 0, 3, 10,  1, 1, 750, 750, 1],
+                "Tube 3":  [1000, 0, 3,  9,  2, 1, 750, 750, 1],
+                "Tube 4":  [1000, 0, 3,  8,  3, 1, 750, 750, 1],
+                "Tube 5":  [1000, 0, 3,  7,  4, 1, 750, 750, 1],
+                "Tube 6":  [1000, 0, 3,  6,  5, 1, 750, 750, 1],
+                "Tube 7":  [1000, 0, 3,  5,  6, 1, 750, 750, 1],
+                "Tube 8":  [1000, 0, 3,  4,  7, 1, 750, 750, 1],
+                "Tube 9":  [1000, 0, 3,  3,  8, 1, 750, 750, 1],
+                "Tube 10": [1000, 0, 3,  2,  9, 1, 750, 750, 1],
+                "Tube 11": [1000, 0, 3,  1, 10, 1, 750, 750, 1],
+                "Pas (µL)": [0, 0, 40, 40, 40, 40, 0, 0, 40],
+            }
+        ),
         "Titration Angelina": pd.DataFrame(
             {
                 "Réactif": [
@@ -1283,6 +1312,14 @@ class MetadataCreatorWidget(QWidget):
         self._sum_target_uL: float = DEFAULT_VTOT_UL
 
         layout = QVBoxLayout(self)
+
+        # Première action proposée : charger une fiche existante.
+        top_actions = QHBoxLayout()
+        self.btn_load_meta = QPushButton("Charger des métadonnées…", self)
+        self.btn_load_meta.clicked.connect(self._on_load_metadata_clicked)
+        top_actions.addWidget(self.btn_load_meta)
+        top_actions.addStretch(1)
+        layout.addLayout(top_actions)
 
         # Champs d'en-tête pour la manipulation : nom, date, lieu, coordinateur, opérateur
         header_layout = QVBoxLayout()
@@ -1366,6 +1403,7 @@ class MetadataCreatorWidget(QWidget):
 
         self.combo_volume_preset = QComboBox(self)
         self.combo_volume_preset.addItems(self.VOLUME_PRESETS.keys())
+        self.combo_volume_preset.setCurrentText("Titration classique compte-gouttes (actuel)")
         preset_layout.addWidget(self.combo_volume_preset)
 
         # Le changement de modèle ne s'applique pas automatiquement : il faut valider.
@@ -1373,12 +1411,17 @@ class MetadataCreatorWidget(QWidget):
         self.btn_validate_volume_preset.clicked.connect(self._on_validate_volume_preset_clicked)
         preset_layout.addWidget(self.btn_validate_volume_preset)
 
+        self.btn_export_proto  = QPushButton("Feuille de protocole…", self)
+        self.btn_export_proto.clicked.connect(self._on_export_protocol_clicked)
+        preset_layout.addWidget(self.btn_export_proto)
+
         preset_layout.addStretch(1)
-        layout.addLayout(preset_layout)
-    
-        self.btn_generate_volumes = QPushButton("Générer volumes (gaussien)…", self)
+
+        self.btn_generate_volumes = QPushButton("Générer un tableau de volume…", self)
+        self.btn_generate_volumes.setToolTip("Option avancée : générer un nouveau tableau de volumes paramétrable.")
         self.btn_generate_volumes.clicked.connect(self._on_generate_volumes_clicked)
         preset_layout.addWidget(self.btn_generate_volumes)
+        layout.addLayout(preset_layout)
 
         # --- Boutons pour ouvrir les éditeurs de tableaux ---
         btns = QHBoxLayout()
@@ -1388,15 +1431,11 @@ class MetadataCreatorWidget(QWidget):
 
         # Boutons enregistrer / charger sur une seconde ligne
         self.btn_save_meta     = QPushButton("Enregistrer les métadonnées…", self)
-        self.btn_load_meta     = QPushButton("Charger des métadonnées…", self)
-        self.btn_export_proto  = QPushButton("Feuille de protocole…", self)
 
         self.btn_edit_comp.clicked.connect(self._on_edit_comp_clicked)
         self.btn_edit_map.clicked.connect(self._on_edit_map_clicked)
         self.btn_show_conc.clicked.connect(self._on_show_conc_clicked)
         self.btn_save_meta.clicked.connect(self._on_save_metadata_clicked)
-        self.btn_load_meta.clicked.connect(self._on_load_metadata_clicked)
-        self.btn_export_proto.clicked.connect(self._on_export_protocol_clicked)
 
         # Première ligne
         btns.addWidget(self.btn_edit_comp)
@@ -1408,8 +1447,7 @@ class MetadataCreatorWidget(QWidget):
         # Seconde ligne
         btns2 = QHBoxLayout()
         btns2.addWidget(self.btn_save_meta)
-        btns2.addWidget(self.btn_load_meta)
-        btns2.addWidget(self.btn_export_proto)
+        btns2.addStretch(1)
         layout.addLayout(btns2)
 
         # Couleurs des boutons selon l'état (rouge si non défini, vert si prêt)
@@ -1460,13 +1498,21 @@ class MetadataCreatorWidget(QWidget):
         else:
             self.btn_show_conc.setStyleSheet(red)
 
+        # Bouton protocole : prêt dès que le tableau des volumes existe.
+        if comp_ready:
+            self.btn_export_proto.setStyleSheet(green)
+        else:
+            self.btn_export_proto.setStyleSheet(red)
+
         # Mettre à jour les tooltips
         self.btn_edit_comp.setToolTip("Vert = tableau des volumes défini" if comp_ready else "Rouge = à créer / éditer")
         self.btn_edit_map.setToolTip("Vert = correspondance définie" if map_ready else "Rouge = à créer / éditer")
         if comp_ready:
             self.btn_show_conc.setToolTip("Calculable (volumes définis)")
+            self.btn_export_proto.setToolTip("Vert = feuille de protocole prête")
         else:
             self.btn_show_conc.setToolTip("Rouge = définir d'abord les volumes")
+            self.btn_export_proto.setToolTip("Rouge = définir d'abord le tableau des volumes")
 # ------------------------------------------------------------------
 # Helpers – recalcul à partir d'un tableau des concentrations édité
 # ------------------------------------------------------------------
@@ -1892,6 +1938,13 @@ class MetadataCreatorWidget(QWidget):
             return
 
         self.df_comp = self.VOLUME_PRESETS[name].copy()
+        try:
+            conc_df = mm.compute_concentration_table(self.df_comp)
+            tube_cols = self._get_tube_columns(self.df_comp)
+            if tube_cols and not conc_df.empty:
+                self._sum_target_uL = float(conc_df.at[0, tube_cols[0]])
+        except Exception:
+            self._sum_target_uL = DEFAULT_VTOT_UL
         self.lbl_status_comp.setText(
             f"Tableau des volumes : {self.df_comp.shape[0]} ligne(s), {self.df_comp.shape[1]} colonne(s)"
         )
@@ -1903,6 +1956,7 @@ class MetadataCreatorWidget(QWidget):
             "Vous pouvez maintenant ouvrir 'Créer / éditer le tableau des volumes' pour l'ajuster.",
         )
         self._sync_df_map_with_df_comp()
+        self._refresh_button_states()
 
     def _apply_manip_name_to_df_map(self, manip_name: str) -> None:
         """
@@ -2650,6 +2704,13 @@ class MetadataCreatorWidget(QWidget):
             # Volumes
             if "Volumes" in xls.sheet_names:
                 self.df_comp = pd.read_excel(xls, sheet_name="Volumes")
+                try:
+                    conc_df = mm.compute_concentration_table(self.df_comp)
+                    tube_cols = self._get_tube_columns(self.df_comp)
+                    if tube_cols and not conc_df.empty:
+                        self._sum_target_uL = float(conc_df.at[0, tube_cols[0]])
+                except Exception:
+                    self._sum_target_uL = DEFAULT_VTOT_UL
                 self.lbl_status_comp.setText(
                     f"Tableau des volumes : {self.df_comp.shape[0]} ligne(s), {self.df_comp.shape[1]} colonne(s)"
                 )
