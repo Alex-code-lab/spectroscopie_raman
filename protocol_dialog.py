@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidget, QTableWidgetItem, QCheckBox, QWidget,
     QHeaderView, QLabel, QFileDialog, QMessageBox,
-    QSizePolicy,
+    QSizePolicy, QGroupBox, QPlainTextEdit,
 )
 
 import metadata_model as mm
@@ -148,6 +148,16 @@ class ProtocolDialog(QDialog):
         self._build_data()
         self._apply_initial_states()
         root.addWidget(self._table)
+
+        # Zone Notes
+        gb_notes = QGroupBox("Notes")
+        gb_layout = QVBoxLayout(gb_notes)
+        gb_layout.setContentsMargins(6, 4, 6, 4)
+        self._notes_edit = QPlainTextEdit()
+        self._notes_edit.setPlaceholderText("Remarques sur l'expérience…")
+        self._notes_edit.setMaximumHeight(90)
+        gb_layout.addWidget(self._notes_edit)
+        root.addWidget(gb_notes)
 
         self._build_buttons(root)
 
@@ -302,6 +312,9 @@ class ProtocolDialog(QDialog):
                 cb.setEnabled(True)
                 cb.setChecked(True)
                 cb.blockSignals(False)
+        notes = self._initial_states.get("__notes__", "")
+        if notes:
+            self._notes_edit.setPlainText(str(notes))
 
     def _build_buttons(self, root):
         row = QHBoxLayout()
@@ -455,7 +468,9 @@ class ProtocolDialog(QDialog):
     # ── Export ────────────────────────────────────────────────────────────────
 
     def get_states(self) -> dict:
-        return {k: cb.isChecked() for k, cb in self._checks.items()}
+        states = {k: cb.isChecked() for k, cb in self._checks.items()}
+        states["__notes__"] = self._notes_edit.toPlainText()
+        return states
 
     def _on_export(self):
         path, _ = QFileDialog.getSaveFileName(
@@ -467,7 +482,8 @@ class ProtocolDialog(QDialog):
         try:
             protocol_export.export_protocol_excel(
                 self._df, self._meta, path,
-                states=self.get_states(), df_map=self._df_map
+                states=self.get_states(), df_map=self._df_map,
+                notes=self._notes_edit.toPlainText(),
             )
         except Exception as e:
             QMessageBox.critical(self, "Erreur d'export",

@@ -197,7 +197,8 @@ def _write_df_to_sheet(wb, sheet_name: str, df) -> None:
 
 def export_protocol_excel(df_comp, meta: dict, path: str,
                            states: dict | None = None,
-                           df_map=None) -> None:
+                           df_map=None,
+                           notes: str = "") -> None:
     """Génère le fichier Excel complet (protocole + métadonnées).
 
     Le fichier produit contient 4 feuilles :
@@ -362,15 +363,49 @@ def export_protocol_excel(df_comp, meta: dict, path: str,
             _s(ws, dr, base + 1, _box(("coord", r_idx, t_idx)),     fill=rfil,      font=_CHECK_FONT, align=_CTR, border=_THIN_BORDER)
             _s(ws, dr, base + 2, _box(("oper",  r_idx, t_idx)),     fill=rfil,      font=_CHECK_FONT, align=_CTR, border=_THIN_BORDER)
 
+    # ── Zone Notes ────────────────────────────────────────────────────────────
+    last_col = COL_FIRST_TUBE + n_tubes * 3 - 1
+    notes_text = (notes or "").strip()
+    if notes_text:
+        ROW_NOTES_LABEL = last_data_row + 2   # +1 ligne vide de séparation
+        ROW_NOTES_TEXT  = last_data_row + 3
+
+        ws.merge_cells(
+            start_row=ROW_NOTES_LABEL, start_column=COL_REACT,
+            end_row=ROW_NOTES_LABEL, end_column=last_col,
+        )
+        c = ws.cell(ROW_NOTES_LABEL, COL_REACT)
+        c.value     = "Notes"
+        c.fill      = _REACT_SIDE
+        c.font      = _WHITE_BOLD
+        c.alignment = _LEFT
+        c.border    = _THIN_BORDER
+        ws.row_dimensions[ROW_NOTES_LABEL].height = 18
+
+        ws.merge_cells(
+            start_row=ROW_NOTES_TEXT, start_column=COL_REACT,
+            end_row=ROW_NOTES_TEXT, end_column=last_col,
+        )
+        c = ws.cell(ROW_NOTES_TEXT, COL_REACT)
+        c.value     = notes_text
+        c.font      = _DARK
+        c.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+        c.border    = _THIN_BORDER
+        n_lines = notes_text.count("\n") + 1
+        ws.row_dimensions[ROW_NOTES_TEXT].height = max(40, n_lines * 15 + 10)
+
+        last_row_for_template = ROW_NOTES_TEXT
+    else:
+        last_row_for_template = last_data_row
+
     # ── Dimensions des colonnes et lignes ─────────────────────────────────────
     ws.row_dimensions[ROW_HDR].height = 90
     for r in range(ROW_DATA, last_data_row + 1):
         ws.row_dimensions[r].height = 20
 
     # Appliquer la mise en page du modèle (largeurs, impression, marges…)
-    last_col = COL_FIRST_TUBE + n_tubes * 3 - 1
     used_template = _apply_template_settings(
-        ws, _TEMPLATE_PATH, last_col=last_col, last_row=last_data_row
+        ws, _TEMPLATE_PATH, last_col=last_col, last_row=last_row_for_template
     )
     # Fallback si le modèle est introuvable : ajustement automatique au contenu
     if not used_template:
@@ -387,11 +422,13 @@ def export_protocol_excel(df_comp, meta: dict, path: str,
     if states:
         import pandas as pd
         rows = []
-        for key, checked in states.items():
-            if key[0] == "verif":
-                rows.append({"type": "verif", "r_idx": key[1], "t_idx": -1, "checked": int(checked)})
+        for key, val in states.items():
+            if key == "__notes__":
+                rows.append({"type": "__notes__", "r_idx": -1, "t_idx": -1, "checked": str(val)})
+            elif key[0] == "verif":
+                rows.append({"type": "verif", "r_idx": key[1], "t_idx": -1, "checked": int(val)})
             else:
-                rows.append({"type": key[0], "r_idx": key[1], "t_idx": key[2], "checked": int(checked)})
+                rows.append({"type": key[0], "r_idx": key[1], "t_idx": key[2], "checked": int(val)})
         _write_df_to_sheet(wb, "EtatProtocole", pd.DataFrame(rows))
 
     wb.save(path)

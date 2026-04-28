@@ -2616,11 +2616,13 @@ class MetadataCreatorWidget(QWidget):
                 # État du protocole de paillasse
                 if self._protocol_states:
                     rows = []
-                    for key, checked in self._protocol_states.items():
-                        if key[0] == "verif":
-                            rows.append({"type": "verif", "r_idx": key[1], "t_idx": -1, "checked": int(checked)})
+                    for key, val in self._protocol_states.items():
+                        if key == "__notes__":
+                            rows.append({"type": "__notes__", "r_idx": -1, "t_idx": -1, "checked": str(val)})
+                        elif key[0] == "verif":
+                            rows.append({"type": "verif", "r_idx": key[1], "t_idx": -1, "checked": int(val)})
                         else:
-                            rows.append({"type": key[0], "r_idx": key[1], "t_idx": key[2], "checked": int(checked)})
+                            rows.append({"type": key[0], "r_idx": key[1], "t_idx": key[2], "checked": int(val)})
                     pd.DataFrame(rows).to_excel(writer, sheet_name="EtatProtocole", index=False)
         except Exception as e:
             QMessageBox.critical(
@@ -2672,7 +2674,10 @@ class MetadataCreatorWidget(QWidget):
             if "EtatProtocole" in xls.sheet_names:
                 df_proto = pd.read_excel(xls, sheet_name="EtatProtocole")
                 for _, r in df_proto.iterrows():
-                    t   = str(r.get("type", ""))
+                    t = str(r.get("type", ""))
+                    if t == "__notes__":
+                        self._protocol_states["__notes__"] = str(r.get("checked", ""))
+                        continue
                     ri  = int(r.get("r_idx", 0))
                     ti  = int(r.get("t_idx", -1))
                     chk = bool(r.get("checked", 0))
