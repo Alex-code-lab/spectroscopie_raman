@@ -49,6 +49,8 @@ _VERIF_CELL  = PatternFill("solid", fgColor="E2EFDA")  # vert clair
 _META_HDR    = PatternFill("solid", fgColor="D6DCE4")  # gris        — nom/conc/unité
 _ROW_A       = PatternFill("solid", fgColor="DEEAF1")  # bleu très clair (lignes paires)
 _ROW_B       = PatternFill("solid", fgColor="FFFFFF")  # blanc       (lignes impaires)
+_INSTR_CELL  = PatternFill("solid", fgColor="FFF2CC")  # jaune clair — consignes
+_WARN_CELL   = PatternFill("solid", fgColor="FCE4D6")  # orange clair — avertissement
 
 # ── Polices ───────────────────────────────────────────────────────────────────
 _WHITE_BOLD  = Font(color="FFFFFF", bold=True, size=9)
@@ -56,6 +58,8 @@ _HDR_FONT    = Font(color="FFFFFF", bold=True, size=8)
 _DARK        = Font(color="000000", size=9)
 _BOLD        = Font(bold=True, size=9)
 _CHECK_FONT  = Font(size=13)
+_INSTR_FONT  = Font(color="7F6000", bold=True, size=9)
+_WARN_FONT   = Font(color="9C0006", bold=True, size=9)
 
 # ── Bordures ──────────────────────────────────────────────────────────────────
 _T  = Side(style="thin",   color="BFBFBF")
@@ -176,6 +180,33 @@ def _autofit_columns(ws, min_width: int = 3, max_width: int = 30, padding: int =
         ws.column_dimensions[col_letter].width = min(max_width, max_len + padding)
 
 
+_MIX_AFTER_REACTIFS = {"solution b", "solution c", "solution d", "solution e"}
+_F_ALERT_REACTIF = "solution e"
+_MIX_TEXT = "Mélanger les tubes"
+_F_ALERT_TEXT = "Attention, pour l'ajout de la solution F, Mélanger chaque tube immédiatement"
+_INSTRUCTION_MIX_IDX = 0
+_INSTRUCTION_WARNING_IDX = 1
+
+
+def _reactif_key(value) -> str:
+    return str(value or "").strip().casefold()
+
+
+def _protocol_display_rows(df_comp):
+    """Retourne les lignes à afficher dans la feuille Protocole.
+
+    Les consignes ajoutées ici sont propres à la feuille de paillasse : les
+    feuilles de données brutes restent identiques pour permettre le rechargement.
+    """
+    for r_idx, (_, row) in enumerate(df_comp.iterrows()):
+        yield ("reactif", r_idx, row)
+        reactif = _reactif_key(row.get("Réactif", ""))
+        if reactif in _MIX_AFTER_REACTIFS:
+            yield ("instruction", ("instruction", r_idx, _INSTRUCTION_MIX_IDX), _MIX_TEXT, "mix")
+        if reactif == _F_ALERT_REACTIF:
+            yield ("instruction", ("instruction", r_idx, _INSTRUCTION_WARNING_IDX), _F_ALERT_TEXT, "warning")
+
+
 # ── Fonction principale ───────────────────────────────────────────────────────
 
 _CHECK_ON  = "✓"   # case cochée dans l'export
@@ -217,7 +248,8 @@ def export_protocol_excel(df_comp, meta: dict, path: str,
         Chemin de sortie (.xlsx)
     states : dict | None
         États des cases à cocher issus de ProtocolDialog.get_states().
-        Clés : ("verif", r_idx) | ("coord", r_idx, t_idx) | ("oper", r_idx, t_idx).
+        Clés : ("verif", r_idx) | ("coord", r_idx, t_idx) |
+               ("oper", r_idx, t_idx) | ("instruction", r_idx, instruction_idx).
     df_map : pd.DataFrame | None
         Tableau de correspondance spectres ↔ tubes (optionnel).
     """
@@ -248,8 +280,9 @@ def export_protocol_excel(df_comp, meta: dict, path: str,
     ROW_HDR    = 4   # en-têtes du tableau (pivotés)
     ROW_DATA   = 5   # première ligne de données
 
-    n_data = len(df_comp)
-    last_data_row = ROW_DATA + n_data - 1
+    protocol_rows = list(_protocol_display_rows(df_comp))
+    last_data_row = ROW_DATA + len(protocol_rows) - 1
+    last_col = COL_FIRST_TUBE + n_tubes * 3 - 1
 
     # ── En-tête d'information manip ───────────────────────────────────────────
     info_line1 = [
@@ -310,8 +343,27 @@ def export_protocol_excel(df_comp, meta: dict, path: str,
                fill=fill, font=font, align=_ROT, border=_THIN_BORDER)
 
     # ── Données ───────────────────────────────────────────────────────────────
-    for r_idx, (_, row) in enumerate(df_comp.iterrows()):
-        dr   = ROW_DATA + r_idx
+    for display_idx, display_row in enumerate(protocol_rows):
+        dr = ROW_DATA + display_idx
+
+        if display_row[0] == "instruction":
+            _, key, text, kind = display_row
+            fill = _WARN_CELL if kind == "warning" else _INSTR_CELL
+            font = _WARN_FONT if kind == "warning" else _INSTR_FONT
+            for col in range(COL_REACT, last_col + 1):
+                _s(ws, dr, col, "", fill=fill, font=font,
+                   align=_LEFT, border=_THIN_BORDER)
+            _s(ws, dr, COL_REACT, _box(key), fill=fill, font=_CHECK_FONT,
+               align=_CTR, border=_THIN_BORDER)
+            ws.merge_cells(
+                start_row=dr, start_column=COL_CONC,
+                end_row=dr, end_column=last_col,
+            )
+            _s(ws, dr, COL_CONC, text, fill=fill, font=font,
+               align=_LEFT, border=_THIN_BORDER)
+            continue
+
+        _, r_idx, row = display_row
         rfil = _ROW_A if r_idx % 2 == 0 else _ROW_B
 
         # Réactif
@@ -364,7 +416,6 @@ def export_protocol_excel(df_comp, meta: dict, path: str,
             _s(ws, dr, base + 2, _box(("oper",  r_idx, t_idx)),     fill=rfil,      font=_CHECK_FONT, align=_CTR, border=_THIN_BORDER)
 
     # ── Zone Notes ────────────────────────────────────────────────────────────
-    last_col = COL_FIRST_TUBE + n_tubes * 3 - 1
     notes_text = (notes or "").strip()
     if notes_text:
         ROW_NOTES_LABEL = last_data_row + 2   # +1 ligne vide de séparation
@@ -400,8 +451,14 @@ def export_protocol_excel(df_comp, meta: dict, path: str,
 
     # ── Dimensions des colonnes et lignes ─────────────────────────────────────
     ws.row_dimensions[ROW_HDR].height = 90
-    for r in range(ROW_DATA, last_data_row + 1):
-        ws.row_dimensions[r].height = 20
+    for display_idx, display_row in enumerate(protocol_rows):
+        r = ROW_DATA + display_idx
+        if display_row[0] != "instruction":
+            ws.row_dimensions[r].height = 20
+        elif display_row[3] == "warning":
+            ws.row_dimensions[r].height = 28
+        else:
+            ws.row_dimensions[r].height = 22
 
     # Appliquer la mise en page du modèle (largeurs, impression, marges…)
     used_template = _apply_template_settings(

@@ -2685,6 +2685,8 @@ class MetadataCreatorWidget(QWidget):
                         self._protocol_states[("verif", ri)] = chk
                     elif t in ("coord", "oper"):
                         self._protocol_states[(t, ri, ti)] = chk
+                    elif t == "instruction":
+                        self._protocol_states[("instruction", ri, ti)] = chk
             self._refresh_button_states()
         except Exception as e:
             QMessageBox.critical(

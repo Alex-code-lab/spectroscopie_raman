@@ -140,8 +140,9 @@ class MainWindow(QMainWindow):
   <b style="color:#ffffff">Guidage visuel :</b>
   les boutons <span class="warn">rouges</span> signalent une action requise ;
   les <span class="ok">verts</span> indiquent une étape validée.<br>
-  Après toute modification des fichiers ou des métadonnées, rechargez le
-  <b style="color:#ffffff">fichier combiné</b> dans les onglets Analyse et Exploration.
+  Dans l’onglet Analyse, les données sont reconstruites automatiquement au moment
+  de lancer l’analyse. Pour l’Exploration, rechargez les données après toute
+  modification des fichiers ou des métadonnées.
 </div>
 
 <h3>1 — Onglet Métadonnées</h3>
@@ -282,7 +283,8 @@ class MainWindow(QMainWindow):
   </li>
   <li>Réglez la <b>tolérance</b> (fenêtre de recherche autour de chaque pic,
       défaut 2 cm⁻¹).</li>
-  <li>Cliquez <b>Analyser les pics</b> pour calculer :
+  <li>Cliquez <b>Analyser les pics</b> : l’application recharge automatiquement
+      les fichiers Raman sélectionnés et les métadonnées courantes, puis calcule :
     <ul>
       <li>l’intensité maximale dans chaque fenêtre, par spectre ;</li>
       <li>tous les ratios entre paires de pics ;</li>
@@ -349,8 +351,8 @@ class MainWindow(QMainWindow):
   <li>Vérifiez la correspondance spectres ↔ tubes (les bons spectres sont-ils
       assignés aux bons tubes ?).</li>
   <li>Vérifiez les unités des concentrations stock dans le tableau des volumes.</li>
-  <li>Rechargez le fichier combiné dans l’onglet concerné après toute
-      modification des métadonnées.</li>
+  <li>Dans l’onglet Analyse, relancez simplement <b>Analyser les pics</b> après
+      toute modification des fichiers ou des métadonnées.</li>
   <li>En PCA, vérifiez que la correction de baseline est satisfaisante :
       une mauvaise baseline peut dominer PC1 et masquer l’effet chimique.</li>
 </ul>

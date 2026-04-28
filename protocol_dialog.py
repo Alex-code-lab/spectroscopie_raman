@@ -43,6 +43,10 @@ _C_COORD_B  = QColor("#EBF5FB")
 _C_OPER_A   = QColor("#E8F4F8")
 _C_OPER_B   = QColor("#F5FBFD")
 _C_WHITE    = QColor("#FFFFFF")
+_C_INSTR    = QColor("#FFF2CC")
+_C_WARN     = QColor("#FCE4D6")
+_C_INSTR_FG = QColor("#7F6000")
+_C_WARN_FG  = QColor("#9C0006")
 
 # ── Couleurs ombrées ──────────────────────────────────────────────────────────
 _C_DIM_BG   = QColor("#2C2C2C")   # fond ombré (thème sombre)
@@ -117,10 +121,14 @@ class ProtocolDialog(QDialog):
         self._tubes         = mm.get_tube_columns(df_comp)
         self._n_tubes       = len(self._tubes)
         self._n_rows        = len(df_comp)
+        self._display_rows  = list(protocol_export._protocol_display_rows(self._df))
 
         # Registres des widgets
         self._checks:  dict[tuple, QCheckBox] = {}   # clé → QCheckBox
         self._c_widgets: dict[tuple[int,int], QWidget] = {}  # (tr,col) → QWidget conteneur
+        self._r_idx_for_table_row: dict[int, int] = {}  # ligne table → ligne df_comp
+        self._instruction_rows: dict[int, tuple[tuple, str]] = {}  # ligne table → (clé, type)
+        self._instruction_labels: dict[tuple, str] = {}  # clé → texte affiché
 
         self.setWindowTitle("Suivi de protocole — Paillasse")
         parent_width = parent.width() if parent is not None else 0
@@ -136,7 +144,7 @@ class ProtocolDialog(QDialog):
 
         # Table
         n_cols = _FIXED_COLS + self._n_tubes * _SUBCOLS
-        self._table = QTableWidget(1 + self._n_rows, n_cols, self)
+        self._table = QTableWidget(1 + len(self._display_rows), n_cols, self)
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QTableWidget.NoEditTriggers)
         self._table.setSelectionMode(QTableWidget.SingleSelection)
@@ -240,8 +248,28 @@ class ProtocolDialog(QDialog):
 
     def _build_data(self):
         tbl = self._table
-        for r_idx, (_, row) in enumerate(self._df.iterrows()):
-            tr = r_idx + 1
+        for display_idx, display_row in enumerate(self._display_rows):
+            tr = display_idx + 1
+
+            if display_row[0] == "instruction":
+                _, key, text, kind = display_row
+                bg = _C_WARN if kind == "warning" else _C_INSTR
+                fg = _C_WARN_FG if kind == "warning" else _C_INSTR_FG
+                self._instruction_rows[tr] = (key, kind)
+                self._instruction_labels[key] = text
+                tbl.setRowHeight(tr, 30 if kind == "warning" else 24)
+                w, cb = _centered_checkbox(bg.name())
+                self._checks[key] = cb
+                self._c_widgets[(tr, 0)] = w
+                cb.stateChanged.connect(self._refresh_highlights)
+                tbl.setItem(tr, 0, _item("", bg=bg))
+                tbl.setCellWidget(tr, 0, w)
+                tbl.setSpan(tr, 1, 1, tbl.columnCount() - 1)
+                tbl.setItem(tr, 1, _item(text, bg=bg, fg=fg, bold=True, center=False))
+                continue
+
+            _, r_idx, row = display_row
+            self._r_idx_for_table_row[tr] = r_idx
             tbl.setRowHeight(tr, 26)
 
             tbl.setItem(tr, 0, _item(str(row.get("Réactif", "")),
@@ -348,9 +376,22 @@ class ProtocolDialog(QDialog):
         tr = indexes[0].row()
         if tr == 0:   # ligne d'en-tête de groupe (row 0 = en-têtes de tubes)
             return
-        r_idx = tr - 1
+        instruction = self._instruction_rows.get(tr)
+        if instruction is not None:
+            key, _ = instruction
+            cb = self._checks.get(key)
+            if cb is not None:
+                cb.blockSignals(True)
+                cb.setEnabled(True)
+                cb.setChecked(True)
+                cb.blockSignals(False)
+                self._refresh_highlights()
+            return
+        r_idx = self._r_idx_for_table_row.get(tr)
+        if r_idx is None:
+            return
         for key, cb in self._checks.items():
-            if key[1] == r_idx:
+            if key[0] in ("verif", "coord", "oper") and key[1] == r_idx:
                 cb.blockSignals(True)
                 cb.setEnabled(True)
                 cb.setChecked(True)
@@ -376,9 +417,17 @@ class ProtocolDialog(QDialog):
         Retourne :
           ("verif", r_idx)           — vérification solution non cochée
           ("tube",  r_idx, t_idx)    — coord ou opér non coché pour ce tube
+          ("instruction", key)        — consigne non cochée
           None                       — tout est terminé
         """
-        for r_idx in range(self._n_rows):
+        for display_row in self._display_rows:
+            if display_row[0] == "instruction":
+                key = display_row[1]
+                if not self._checks[key].isChecked():
+                    return ("instruction", key)
+                continue
+
+            _, r_idx, _ = display_row
             if not self._checks[("verif", r_idx)].isChecked():
                 return ("verif", r_idx)
             for t_idx in range(self._n_tubes):
@@ -392,6 +441,8 @@ class ProtocolDialog(QDialog):
         """Colonnes éclairées (0-based) pour l'étape active."""
         if active[0] == "verif":
             return {3}   # colonne Vérif.
+        if active[0] == "instruction":
+            return set(range(self._table.columnCount()))
         t_idx = active[2]
         base = _FIXED_COLS + t_idx * _SUBCOLS
         # Volume inclus pour montrer la quantité à pipeter
@@ -406,26 +457,29 @@ class ProtocolDialog(QDialog):
         if active is None:
             # Tout terminé : tout éclairé
             self._lbl_step.setText("✓ Protocole complété !")
-            for tr in range(1, 1 + self._n_rows):
-                r_idx = tr - 1
+            for tr, r_idx in self._r_idx_for_table_row.items():
                 for col in range(n_cols):
                     self._set_cell(tr, col, r_idx, dim=False, enabled=True)
+            for tr, (key, kind) in self._instruction_rows.items():
+                self._set_instruction_row(tr, key, kind, dim=False, enabled=True)
             return
 
-        active_r_idx = active[1]
+        active_r_idx = active[1] if active[0] != "instruction" else None
         active_cols  = self._active_cols(active)
 
         # Texte de guidage
         if active[0] == "verif":
             react = self._df.iloc[active_r_idx].get("Réactif", f"Ligne {active_r_idx+1}")
             self._lbl_step.setText(f"→ Vérifier la solution : {react}")
+        elif active[0] == "instruction":
+            text = self._instruction_labels.get(active[1], "Consigne")
+            self._lbl_step.setText(f"→ {text}")
         else:
             react = self._df.iloc[active_r_idx].get("Réactif", f"Ligne {active_r_idx+1}")
             tube  = self._tubes[active[2]]
             self._lbl_step.setText(f"→ {react}  ·  {tube}")
 
-        for tr in range(1, 1 + self._n_rows):
-            r_idx     = tr - 1
+        for tr, r_idx in self._r_idx_for_table_row.items():
             same_row  = (r_idx == active_r_idx)
 
             for col in range(n_cols):
@@ -435,6 +489,10 @@ class ProtocolDialog(QDialog):
                 enabled = lit
                 dim     = not lit
                 self._set_cell(tr, col, r_idx, dim=dim, enabled=enabled)
+
+        for tr, (key, kind) in self._instruction_rows.items():
+            lit = (active[0] == "instruction" and key == active[1])
+            self._set_instruction_row(tr, key, kind, dim=not lit, enabled=lit)
 
     def _set_cell(self, tr: int, col: int, r_idx: int,
                   dim: bool, enabled: bool):
@@ -461,6 +519,25 @@ class ProtocolDialog(QDialog):
                 normal_bg = _normal_item_bg(r_idx, col, _FIXED_COLS, _SUBCOLS)
                 w.setStyleSheet(f"background: {normal_bg.name()};")
             # Activer / désactiver la case
+            cb = w.findChild(QCheckBox)
+            if cb is not None:
+                cb.setEnabled(enabled or cb.isChecked())
+
+    def _set_instruction_row(self, tr: int, key: tuple, kind: str,
+                             dim: bool, enabled: bool):
+        """Applique l'état visuel d'une ligne de consigne."""
+        bg = _C_DIM_BG if dim else (_C_WARN if kind == "warning" else _C_INSTR)
+        fg = _C_DIM_FG if dim else (_C_WARN_FG if kind == "warning" else _C_INSTR_FG)
+
+        for col in range(self._table.columnCount()):
+            it = self._table.item(tr, col)
+            if it is not None:
+                it.setBackground(QBrush(bg))
+                it.setForeground(QBrush(fg))
+
+        w = self._c_widgets.get((tr, 0))
+        if w is not None:
+            w.setStyleSheet(_SS_DIM if dim else f"background: {bg.name()};")
             cb = w.findChild(QCheckBox)
             if cb is not None:
                 cb.setEnabled(enabled or cb.isChecked())

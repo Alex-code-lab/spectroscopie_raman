@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from plotly_downloads import install_plotly_download_handler, load_plotly_html, set_plotly_filename, sanitize_filename
 
-from data_processing import build_combined_dataframe_from_ui, load_combined_df
+from data_processing import load_combined_df
 
 class AnalysisTab(QWidget):
     """
@@ -50,18 +50,18 @@ class AnalysisTab(QWidget):
         # --- UI ---
         layout = QVBoxLayout(self)
 
-        header = QLabel("<b>Analyse de pics sur le fichier combiné</b><br>\n"
-                        "Cette page utilise le fichier combiné (txt + métadonnées) validé dans l’onglet Métadonnées.")
+        header = QLabel("<b>Analyse de pics</b><br>\n"
+                        "Cette page reconstruit automatiquement les données à partir des fichiers Raman sélectionnés et des métadonnées chargées.")
         header.setWordWrap(True)
         layout.addWidget(header)
 
         # état (fichier combiné présent / absent)
-        self.lbl_status = QLabel("Fichier combiné : non chargé")
+        self.lbl_status = QLabel("Données combinées : chargement automatique lors de l'analyse")
         layout.addWidget(self.lbl_status)
 
         # Options d'analyse (présets de pics + tolérance)
         opts = QHBoxLayout()
-        opts.addWidget(QLabel("Jeu de pics :"))
+        opts.addWidget(QLabel("Longueur d'onde du spectromètre :"))
         self.cmb_presets = QComboBox(self)
         self.cmb_presets.addItems([
             "532 nm — paires pré-enregistrées",
@@ -99,11 +99,9 @@ class AnalysisTab(QWidget):
 
         # Boutons d'action
         actions = QHBoxLayout()
-        self.btn_refresh = QPushButton("Recharger le fichier combiné depuis Métadonnées", self)
         self.btn_analyze = QPushButton("Analyser les pics", self)
         self.btn_export = QPushButton("Exporter résultats (Excel)…", self)
         self.btn_export.setEnabled(False)
-        self.btn_refresh.clicked.connect(self._reload_combined)
         self.btn_analyze.clicked.connect(self._run_analysis)
         self.btn_export.clicked.connect(self._export_results)
         # Tout changement de paramètres d'analyse => il faudra relancer l'analyse
@@ -113,7 +111,6 @@ class AnalysisTab(QWidget):
             self.spin_laser_nm.valueChanged.connect(self._on_analysis_param_changed)
         if hasattr(self, "edit_custom_waves"):
             self.edit_custom_waves.textChanged.connect(self._on_analysis_param_changed)
-        actions.addWidget(self.btn_refresh)
         actions.addWidget(self.btn_analyze)
         actions.addWidget(self.btn_export)
         layout.addLayout(actions)
@@ -155,11 +152,11 @@ class AnalysisTab(QWidget):
         # --- Fit sigmoïde (équivalence) ---
         fit_layout = QHBoxLayout()
 
-        fit_layout.addWidget(QLabel("Ratio à ajuster :"))
+        fit_layout.addWidget(QLabel("Ajuster le ratio de longueur d'onde :"))
         self.cmb_fit_ratio = QComboBox(self)
         fit_layout.addWidget(self.cmb_fit_ratio)
 
-        self.btn_fit_sigmoid = QPushButton("Ajuster par sigmoïde", self)
+        self.btn_fit_sigmoid = QPushButton("Ajustement mathématique de la courbe", self)
         self.btn_fit_sigmoid.clicked.connect(self._fit_sigmoid)
         fit_layout.addWidget(self.btn_fit_sigmoid)
 
@@ -449,19 +446,13 @@ class AnalysisTab(QWidget):
             and (not self._ratios_long.empty)
         )
 
-        # Bouton reload : vert si le fichier combiné est chargé
-        self.btn_refresh.setStyleSheet(green if combined_ready else red)
-        self.btn_refresh.setToolTip(
-            "Vert = fichier combiné chargé" if combined_ready else "Rouge = recharger le fichier combiné"
-        )
-
         # Bouton analyse : vert seulement si l'analyse a été faite et est à jour
         self.btn_analyze.setStyleSheet(green if analysis_ready else red)
         self.btn_analyze.setToolTip(
             "Vert = analyse à jour"
             if analysis_ready
             else (
-                "Rouge = lancez (ou relancez) l'analyse" if combined_ready else "Rouge = chargez d'abord le fichier combiné"
+                "Rouge = lancez ou relancez l'analyse ; les données seront chargées automatiquement"
             )
         )
 
@@ -469,11 +460,6 @@ class AnalysisTab(QWidget):
         """Marque l'analyse comme à relancer si un paramètre change."""
         self._analysis_dirty = True
         self._refresh_button_states()
-        # Ne pas recharger automatiquement le fichier combiné au démarrage pour éviter
-        # les popups d'avertissement si aucun .txt/metadonnée n'est encore défini.
-        # L'utilisateur cliquera sur "Recharger le fichier combiné depuis Métadonnées"
-        # quand il sera prêt.
-        # self._reload_combined()
 
     # ---------- Helpers ----------
     def _on_preset_changed(self, idx: int):
@@ -521,7 +507,7 @@ class AnalysisTab(QWidget):
             if hasattr(self, "edit_custom_waves"):
                 self.edit_custom_waves.setEnabled(True)
 
-    def _reload_combined(self):
+    def _reload_combined(self) -> bool:
         """Reconstruit le DataFrame combiné à partir des métadonnées et fichiers .txt."""
         combined = load_combined_df(self, self._file_picker, self._metadata_creator)
         self._analysis_dirty = True
@@ -531,11 +517,14 @@ class AnalysisTab(QWidget):
         self.btn_save_graph.setEnabled(False)
         if combined is None:
             self._combined_df = None
-            self.lbl_status.setText("Fichier combiné : non chargé ✗")
+            self.lbl_status.setText("Données combinées : non chargées ✗")
+            self._refresh_button_states()
+            return False
         else:
             self._combined_df = combined
-            self.lbl_status.setText("Fichier combiné : chargé ✓")
+            self.lbl_status.setText("Données combinées : chargées automatiquement ✓")
         self._refresh_button_states()
+        return True
     def _set_preview(self, df: pd.DataFrame, n: int = 20):  # n conservé pour compat, ignoré ici
         # Afficher TOUT le DataFrame avec défilement et tri
         self.table.setSortingEnabled(False)
@@ -565,10 +554,7 @@ class AnalysisTab(QWidget):
 
     # ---------- Analyse ----------
     def _run_analysis(self):
-        if self._combined_df is None or self._combined_df.empty:
-            self._analysis_dirty = True
-            self._refresh_button_states()
-            QMessageBox.warning(self, "Données manquantes", "Aucun fichier combiné chargé. Allez dans l’onglet Métadonnées, assemblez puis validez le choix.")
+        if not self._reload_combined():
             return
 
         # On travaille sur une copie locale pour ne pas modifier le fichier combiné global
@@ -1034,4 +1020,3 @@ class AnalysisTab(QWidget):
             QMessageBox.information(self, "Graphique enregistré", f"Fichier créé :\n{fname}")
         except Exception as exc:
             QMessageBox.critical(self, "Erreur d'écriture", str(exc))
-
