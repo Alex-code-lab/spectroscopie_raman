@@ -38,10 +38,17 @@ from PySide6.QtWidgets import (
     QTextBrowser,
 )
 
-from PySide6.QtCore import Qt, QDate, QDateTime, QUrl
+from PySide6.QtCore import QObject, Qt, QDate, QDateTime, QUrl, Slot
 from PySide6.QtGui import QColor, QBrush, QDesktopServices
 
 import metadata_model as mm
+
+try:
+    from PySide6.QtWebChannel import QWebChannel
+    from PySide6.QtWebEngineWidgets import QWebEngineView
+except Exception:
+    QWebChannel = None
+    QWebEngineView = None
 
 
 # Affichage numérique: précision et suppression de l'écriture scientifique.
@@ -664,6 +671,137 @@ class AmmoniumTestDialog(QDialog):
             "test_2": self.edit_test_2.text().strip(),
             "ph": self.edit_ph.text().strip(),
         }
+
+
+class _MapPickerBridge(QObject):
+    def __init__(self, dialog: "MapPickerDialog") -> None:
+        super().__init__(dialog)
+        self._dialog = dialog
+
+    @Slot(float, float)
+    def setCoordinates(self, lat: float, lon: float) -> None:
+        self._dialog.set_coordinates(float(lat), float(lon))
+
+
+class MapPickerDialog(QDialog):
+    """Fenêtre interne permettant de choisir un point sur une carte OpenStreetMap."""
+
+    def __init__(self, lat: float | None = None, lon: float | None = None, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Pointer le prélèvement sur la carte")
+        self.resize(850, 620)
+        self._lat = lat
+        self._lon = lon
+
+        layout = QVBoxLayout(self)
+        self.lbl_coords = QLabel(self._coords_text(), self)
+        layout.addWidget(self.lbl_coords)
+
+        self.view = QWebEngineView(self)
+        self._channel = QWebChannel(self)
+        self._bridge = _MapPickerBridge(self)
+        self._channel.registerObject("coordBridge", self._bridge)
+        self.view.page().setWebChannel(self._channel)
+        self.view.setHtml(self._map_html(), QUrl("https://www.openstreetmap.org/"))
+        layout.addWidget(self.view, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _coords_text(self) -> str:
+        if self._lat is None or self._lon is None:
+            return "Cliquez sur la carte pour choisir le point de prélèvement."
+        return f"Point sélectionné : latitude {self._lat:.6f}, longitude {self._lon:.6f}"
+
+    def set_coordinates(self, lat: float, lon: float) -> None:
+        self._lat = lat
+        self._lon = lon
+        self.lbl_coords.setText(self._coords_text())
+
+    def has_coordinates(self) -> bool:
+        return self._lat is not None and self._lon is not None
+
+    def coordinates(self) -> tuple[float, float]:
+        return float(self._lat), float(self._lon)
+
+    def _map_html(self) -> str:
+        center_lat = self._lat if self._lat is not None else 46.6
+        center_lon = self._lon if self._lon is not None else 2.4
+        has_point = "true" if self.has_coordinates() else "false"
+        html = """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; }
+    body { background: #202020; color: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+    #hint {
+      position: absolute; z-index: 1000; top: 10px; left: 50px;
+      background: rgba(20, 20, 20, 0.82); color: white;
+      padding: 6px 10px; border-radius: 4px; font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="hint">Cliquez sur la carte pour placer le prélèvement.</div>
+  <script>
+    const startLat = __CENTER_LAT__;
+    const startLon = __CENTER_LON__;
+    const hasPoint = __HAS_POINT__;
+    let coordBridge = null;
+    let marker = null;
+
+    new QWebChannel(qt.webChannelTransport, function(channel) {
+      coordBridge = channel.objects.coordBridge;
+    });
+
+    const map = L.map('map').setView([startLat, startLon], hasPoint ? 16 : 6);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+
+    function setPoint(lat, lon) {
+      if (marker === null) {
+        marker = L.marker([lat, lon], { draggable: true }).addTo(map);
+        marker.on('dragend', function(event) {
+          const p = event.target.getLatLng();
+          setPoint(p.lat, p.lng);
+        });
+      } else {
+        marker.setLatLng([lat, lon]);
+      }
+      document.getElementById('hint').textContent =
+        'Latitude ' + lat.toFixed(6) + ' · Longitude ' + lon.toFixed(6);
+      if (coordBridge) {
+        coordBridge.setCoordinates(lat, lon);
+      }
+    }
+
+    if (hasPoint) {
+      setPoint(startLat, startLon);
+    }
+
+    map.on('click', function(event) {
+      setPoint(event.latlng.lat, event.latlng.lng);
+    });
+  </script>
+</body>
+</html>
+"""
+        return (
+            html.replace("__CENTER_LAT__", f"{center_lat:.6f}")
+            .replace("__CENTER_LON__", f"{center_lon:.6f}")
+            .replace("__HAS_POINT__", has_point)
+        )
 
 
 
@@ -1401,6 +1539,14 @@ class MetadataCreatorWidget(QWidget):
 
         header_layout.addLayout(row1)
 
+        row_association = QHBoxLayout()
+        row_association.addWidget(QLabel("Association(s) du prélèvement :", self))
+        self.edit_sample_associations = QLineEdit(self)
+        self.edit_sample_associations.setPlaceholderText("ex : association A ; association B")
+        row_association.addWidget(self.edit_sample_associations)
+        self.edit_sample_associations.textChanged.connect(self._on_header_field_changed)
+        header_layout.addLayout(row_association)
+
         # Ligne 2 : date/heure + lieu du prélèvement
         row2 = QHBoxLayout()
         row2.addWidget(QLabel("Date/heure du prélèvement :", self))
@@ -1442,11 +1588,40 @@ class MetadataCreatorWidget(QWidget):
         self.edit_sample_lon.textChanged.connect(self._on_header_field_changed)
         self.edit_sample_lon.editingFinished.connect(self._normalize_sample_gps_fields)
 
-        self.btn_sample_map = QPushButton("Voir sur la carte…", self)
-        self.btn_sample_map.setToolTip("Ouvre le point dans OpenStreetMap avec la latitude et la longitude saisies.")
+        self.btn_sample_map = QPushButton("Carte / pointer…", self)
+        self.btn_sample_map.setToolTip(
+            "Ouvre une carte interne : cliquez sur le point de prélèvement pour remplir latitude et longitude."
+        )
         self.btn_sample_map.clicked.connect(self._on_view_sample_map_clicked)
         row_gps.addWidget(self.btn_sample_map)
         header_layout.addLayout(row_gps)
+
+        row_water = QHBoxLayout()
+        row_water.addWidget(QLabel("Type d'eau :", self))
+        self.combo_water_type = QComboBox(self)
+        self.combo_water_type.addItems(["Choisir...", "Eau douce", "Eau de mer", "Eau estuarienne"])
+        self.combo_water_type.currentTextChanged.connect(self._on_water_type_changed)
+        row_water.addWidget(self.combo_water_type)
+
+        self.lbl_tide_coefficient = QLabel("Coefficient de marée :", self)
+        row_water.addWidget(self.lbl_tide_coefficient)
+        self.spin_tide_coefficient = QSpinBox(self)
+        self.spin_tide_coefficient.setRange(0, 200)
+        self.spin_tide_coefficient.setSpecialValueText("non renseigné")
+        self.spin_tide_coefficient.valueChanged.connect(self._on_header_field_changed)
+        row_water.addWidget(self.spin_tide_coefficient)
+
+        self.lbl_high_tide_time = QLabel("Heure de pleine mer :", self)
+        row_water.addWidget(self.lbl_high_tide_time)
+        self.edit_high_tide_time = QLineEdit(self)
+        self.edit_high_tide_time.setPlaceholderText("ex : 14:35")
+        self.edit_high_tide_time.editingFinished.connect(self._normalize_high_tide_time)
+        self.edit_high_tide_time.textChanged.connect(self._on_header_field_changed)
+        row_water.addWidget(self.edit_high_tide_time)
+        row_water.addStretch(1)
+        header_layout.addLayout(row_water)
+        self._refresh_tide_fields_enabled()
+        self._refresh_water_type_style()
 
         layout.addLayout(header_layout)
 
@@ -1464,6 +1639,39 @@ class MetadataCreatorWidget(QWidget):
         row_measures.addWidget(self.btn_ammonium_test)
         row_measures.addStretch(1)
         measures_layout.addLayout(row_measures)
+
+        row_bacterio = QHBoxLayout()
+        self.chk_bacterio_analysis = QCheckBox("Analyses bactériologiques", self)
+        self.chk_bacterio_analysis.toggled.connect(self._on_bacterio_analysis_toggled)
+        row_bacterio.addWidget(self.chk_bacterio_analysis)
+
+        self.lbl_bacterio_deposit_day = QLabel("Jour de dépôt :", self)
+        row_bacterio.addWidget(self.lbl_bacterio_deposit_day)
+        self.edit_bacterio_deposit_day = QDateEdit(self)
+        self.edit_bacterio_deposit_day.setCalendarPopup(True)
+        self.edit_bacterio_deposit_day.setDisplayFormat("dd/MM/yyyy")
+        self.edit_bacterio_deposit_day.setDate(QDate.currentDate())
+        self.edit_bacterio_deposit_day.dateChanged.connect(self._on_header_field_changed)
+        row_bacterio.addWidget(self.edit_bacterio_deposit_day)
+
+        self.lbl_bacterio_deposit_time = QLabel("Heure du dépôt :", self)
+        row_bacterio.addWidget(self.lbl_bacterio_deposit_time)
+        self.edit_bacterio_deposit_time = QLineEdit(self)
+        self.edit_bacterio_deposit_time.setPlaceholderText("ex : 09:30")
+        self.edit_bacterio_deposit_time.editingFinished.connect(self._normalize_bacterio_deposit_time)
+        self.edit_bacterio_deposit_time.textChanged.connect(self._on_header_field_changed)
+        row_bacterio.addWidget(self.edit_bacterio_deposit_time)
+
+        self.lbl_bacterio_company = QLabel("Entreprise de mesure :", self)
+        row_bacterio.addWidget(self.lbl_bacterio_company)
+        self.edit_bacterio_company = QLineEdit(self)
+        self.edit_bacterio_company.setPlaceholderText("ex : laboratoire / entreprise")
+        self.edit_bacterio_company.textChanged.connect(self._on_header_field_changed)
+        row_bacterio.addWidget(self.edit_bacterio_company)
+        row_bacterio.addStretch(1)
+        measures_layout.addLayout(row_bacterio)
+        self._refresh_bacterio_fields_visible()
+
         layout.addLayout(measures_layout)
 
         # Compatibilité avec l'ancien nommage : ces attributs pointent désormais
@@ -1736,6 +1944,98 @@ class MetadataCreatorWidget(QWidget):
                 widget.setDate(qd)
 
     @staticmethod
+    def _normalize_time_text(text: str | None) -> str:
+        txt = str(text or "").strip().lower().replace(" ", "")
+        if not txt:
+            return ""
+        txt = txt.replace("h", ":").replace(".", ":")
+        if re.fullmatch(r"\d{3,4}", txt):
+            txt = f"{txt[:-2]}:{txt[-2:]}"
+        match = re.fullmatch(r"(\d{1,2})(?::(\d{1,2}))?", txt)
+        if not match:
+            return str(text or "").strip()
+        hour = int(match.group(1))
+        minute = int(match.group(2) or 0)
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            return str(text or "").strip()
+        return f"{hour:02d}:{minute:02d}"
+
+    def _normalize_high_tide_time(self) -> None:
+        if not hasattr(self, "edit_high_tide_time"):
+            return
+        txt = self.edit_high_tide_time.text().strip()
+        if not txt:
+            return
+        normalized = self._normalize_time_text(txt)
+        if normalized != txt:
+            self.edit_high_tide_time.setText(normalized)
+
+    def _normalize_bacterio_deposit_time(self) -> None:
+        if not hasattr(self, "edit_bacterio_deposit_time"):
+            return
+        txt = self.edit_bacterio_deposit_time.text().strip()
+        if not txt:
+            return
+        normalized = self._normalize_time_text(txt)
+        if normalized != txt:
+            self.edit_bacterio_deposit_time.setText(normalized)
+
+    def _is_tidal_water_type(self) -> bool:
+        if not hasattr(self, "combo_water_type"):
+            return False
+        water_type = self._norm_text_key(self.combo_water_type.currentText())
+        return water_type in {"eau de mer", "eau salee", "eau estuarienne", "eau esturienne"}
+
+    def _is_water_type_selected(self) -> bool:
+        if not hasattr(self, "combo_water_type"):
+            return False
+        return self._norm_text_key(self.combo_water_type.currentText()) not in {"", "choisir..."}
+
+    def _refresh_water_type_style(self) -> None:
+        if not hasattr(self, "combo_water_type"):
+            return
+        if self._is_water_type_selected():
+            self.combo_water_type.setStyleSheet("background-color: #5cb85c; color: white; font-weight: 700;")
+        else:
+            self.combo_water_type.setStyleSheet("background-color: #d9534f; color: white; font-weight: 700;")
+
+    def _refresh_tide_fields_enabled(self) -> None:
+        visible = self._is_tidal_water_type()
+        for widget_name in (
+            "lbl_tide_coefficient",
+            "spin_tide_coefficient",
+            "lbl_high_tide_time",
+            "edit_high_tide_time",
+        ):
+            widget = getattr(self, widget_name, None)
+            if widget is not None:
+                widget.setVisible(visible)
+                widget.setEnabled(visible)
+
+    def _on_water_type_changed(self, *args) -> None:
+        self._refresh_tide_fields_enabled()
+        self._refresh_water_type_style()
+        self._on_header_field_changed()
+
+    def _refresh_bacterio_fields_visible(self) -> None:
+        visible = bool(self.chk_bacterio_analysis.isChecked()) if hasattr(self, "chk_bacterio_analysis") else False
+        for widget_name in (
+            "lbl_bacterio_deposit_day",
+            "edit_bacterio_deposit_day",
+            "lbl_bacterio_deposit_time",
+            "edit_bacterio_deposit_time",
+            "lbl_bacterio_company",
+            "edit_bacterio_company",
+        ):
+            widget = getattr(self, widget_name, None)
+            if widget is not None:
+                widget.setVisible(visible)
+
+    def _on_bacterio_analysis_toggled(self, checked: bool) -> None:
+        self._refresh_bacterio_fields_visible()
+        self._on_header_field_changed()
+
+    @staticmethod
     def _person_initials(name: str) -> str:
         # Saisie attendue : "Nom puis prénom".
         # Le code manip utilise donc l'initiale du prénom puis celle du nom.
@@ -1843,19 +2143,35 @@ class MetadataCreatorWidget(QWidget):
         self._normalize_coord_field(self.edit_sample_lon, -180.0, 180.0)
 
     def _on_view_sample_map_clicked(self) -> None:
+        self._normalize_sample_gps_fields()
         lat = self._parse_coord_value(self.edit_sample_lat.text() if hasattr(self, "edit_sample_lat") else "")
         lon = self._parse_coord_value(self.edit_sample_lon.text() if hasattr(self, "edit_sample_lon") else "")
-        if lat is None or lon is None or lat < -90 or lat > 90 or lon < -180 or lon > 180:
-            QMessageBox.warning(
-                self,
-                "Coordonnées GPS invalides",
-                "Veuillez saisir une latitude entre -90 et 90 et une longitude entre -180 et 180, "
-                "au format décimal, par exemple : 48.856600 et 2.352200.",
-            )
+
+        if lat is not None and not (-90 <= lat <= 90):
+            lat = None
+        if lon is not None and not (-180 <= lon <= 180):
+            lon = None
+
+        if QWebEngineView is None or QWebChannel is None:
+            if lat is None or lon is None:
+                QMessageBox.warning(
+                    self,
+                    "Carte interne indisponible",
+                    "Le composant QtWebEngine n'est pas disponible, et aucune coordonnée valide n'est renseignée.",
+                )
+                return
+            url = f"https://www.openstreetmap.org/?mlat={lat:.6f}&mlon={lon:.6f}#map=16/{lat:.6f}/{lon:.6f}"
+            if not QDesktopServices.openUrl(QUrl(url)):
+                QMessageBox.warning(self, "Carte indisponible", "Impossible d'ouvrir la carte dans le navigateur.")
             return
-        url = f"https://www.openstreetmap.org/?mlat={lat:.6f}&mlon={lon:.6f}#map=16/{lat:.6f}/{lon:.6f}"
-        if not QDesktopServices.openUrl(QUrl(url)):
-            QMessageBox.warning(self, "Carte indisponible", "Impossible d'ouvrir la carte dans le navigateur.")
+
+        dlg = MapPickerDialog(lat, lon, self)
+        if dlg.exec() != QDialog.Accepted or not dlg.has_coordinates():
+            return
+        new_lat, new_lon = dlg.coordinates()
+        self.edit_sample_lat.setText(f"{new_lat:.6f}")
+        self.edit_sample_lon.setText(f"{new_lon:.6f}")
+        self._on_header_field_changed()
 
     def _build_manip_name(self) -> str:
         initials = self._person_initials(self.edit_sampler.text() if hasattr(self, "edit_sampler") else "")
@@ -1909,9 +2225,33 @@ class MetadataCreatorWidget(QWidget):
         )
         ammonium_enabled = bool(self._ammonium_test_enabled)
         ammonium = "Oui" if ammonium_enabled else "Non"
+        bacterio_enabled = bool(self.chk_bacterio_analysis.isChecked()) if hasattr(self, "chk_bacterio_analysis") else False
+        bacterio = "Oui" if bacterio_enabled else "Non"
+        bacterio_day = ""
+        bacterio_time = ""
+        bacterio_company = ""
+        if bacterio_enabled:
+            bacterio_day = self._date_time_text(getattr(self, "edit_bacterio_deposit_day", None))
+            bacterio_time = self._normalize_time_text(
+                self.edit_bacterio_deposit_time.text() if hasattr(self, "edit_bacterio_deposit_time") else ""
+            )
+            bacterio_company = (
+                self.edit_bacterio_company.text().strip() if hasattr(self, "edit_bacterio_company") else ""
+            )
+        tidal = self._is_tidal_water_type()
+        tide_coefficient = ""
+        if tidal and hasattr(self, "spin_tide_coefficient") and self.spin_tide_coefficient.value() > 0:
+            tide_coefficient = str(self.spin_tide_coefficient.value())
+        high_tide_time = ""
+        if tidal and hasattr(self, "edit_high_tide_time"):
+            high_tide_time = self._normalize_time_text(self.edit_high_tide_time.text())
+        water_type = ""
+        if hasattr(self, "combo_water_type") and self._is_water_type_selected():
+            water_type = self.combo_water_type.currentText().strip()
         return {
             "Nom de la manip": str(name or "").strip(),
             "Préleveur·se": self.edit_sampler.text().strip() if hasattr(self, "edit_sampler") else "",
+            "Association(s) du prélèvement": self.edit_sample_associations.text().strip() if hasattr(self, "edit_sample_associations") else "",
             "Lieu du prélèvement": self.edit_sample_location.text().strip() if hasattr(self, "edit_sample_location") else "",
             "Latitude du prélèvement": self._format_coord_value(
                 self.edit_sample_lat.text() if hasattr(self, "edit_sample_lat") else "",
@@ -1924,11 +2264,18 @@ class MetadataCreatorWidget(QWidget):
                 180.0,
             ),
             "Date/heure du prélèvement": self._date_time_text(getattr(self, "edit_sample_datetime", None)),
+            "Type d'eau": water_type,
+            "Coefficient de marée": tide_coefficient,
+            "Heure de pleine mer": high_tide_time,
             "Test ammonium réalisé": ammonium,
             "Test ammonium réalisé par": str(self._ammonium_test_values.get("operator", "") or "") if ammonium_enabled else "",
             "Test ammonium 1 (grossier)": str(self._ammonium_test_values.get("test_1", "") or "") if ammonium_enabled else "",
             "Test ammonium 2 (précis)": str(self._ammonium_test_values.get("test_2", "") or "") if ammonium_enabled else "",
             "pH": str(self._ammonium_test_values.get("ph", "") or "") if ammonium_enabled else "",
+            "Analyses bactériologiques": bacterio,
+            "Jour de dépôt": bacterio_day,
+            "Heure du dépôt": bacterio_time,
+            "Entreprise de mesure": bacterio_company,
             "Nom de la manip de titration": str(titration_name or "").strip(),
             "Lieu de la titration": self.edit_titration_location.text().strip() if hasattr(self, "edit_titration_location") else "",
             "Date/heure de la titration": self._date_time_text(getattr(self, "edit_titration_datetime", None)),
@@ -1947,6 +2294,13 @@ class MetadataCreatorWidget(QWidget):
             "Préleveuse": "Préleveur·se",
             "Preleveur": "Préleveur·se",
             "Preleveuse": "Préleveur·se",
+            "Association": "Association(s) du prélèvement",
+            "Associations": "Association(s) du prélèvement",
+            "Association(s)": "Association(s) du prélèvement",
+            "Association prélèvement": "Association(s) du prélèvement",
+            "Association prelevement": "Association(s) du prélèvement",
+            "Associations prélèvement": "Association(s) du prélèvement",
+            "Associations prelevement": "Association(s) du prélèvement",
             "Lat": "Latitude du prélèvement",
             "Latitude": "Latitude du prélèvement",
             "Latitude GPS": "Latitude du prélèvement",
@@ -1958,6 +2312,17 @@ class MetadataCreatorWidget(QWidget):
             "Longitude GPS": "Longitude du prélèvement",
             "Longitude prélèvement": "Longitude du prélèvement",
             "Longitude prelevement": "Longitude du prélèvement",
+            "Type eau": "Type d'eau",
+            "Type d eau": "Type d'eau",
+            "Type deau": "Type d'eau",
+            "Type d'eau du prélèvement": "Type d'eau",
+            "Type d'eau du prelevement": "Type d'eau",
+            "Coefficient maree": "Coefficient de marée",
+            "Coef marée": "Coefficient de marée",
+            "Coef maree": "Coefficient de marée",
+            "Coefficient de maree": "Coefficient de marée",
+            "Heure pleine mer": "Heure de pleine mer",
+            "Pleine mer": "Heure de pleine mer",
             "Ammonium test 1": "Test ammonium 1 (grossier)",
             "Ammonium test 2": "Test ammonium 2 (précis)",
             "Test 1 ammonium": "Test ammonium 1 (grossier)",
@@ -1966,6 +2331,19 @@ class MetadataCreatorWidget(QWidget):
             "Réalisatrice test ammonium": "Test ammonium réalisé par",
             "Test ammonium realise par": "Test ammonium réalisé par",
             "pH ammonium": "pH",
+            "Analyse bactériologique": "Analyses bactériologiques",
+            "Analyses bacteriologiques": "Analyses bactériologiques",
+            "Analyse bacteriologique": "Analyses bactériologiques",
+            "Bactériologie": "Analyses bactériologiques",
+            "Bacteriologie": "Analyses bactériologiques",
+            "Jour depot": "Jour de dépôt",
+            "Jour dépôt": "Jour de dépôt",
+            "Jour de depot": "Jour de dépôt",
+            "Heure depot": "Heure du dépôt",
+            "Heure dépôt": "Heure du dépôt",
+            "Heure du depot": "Heure du dépôt",
+            "Entreprise mesure": "Entreprise de mesure",
+            "Entreprise de mesures": "Entreprise de mesure",
             "Nom de la titration": "Nom de la manip de titration",
             "Nom manip titration": "Nom de la manip de titration",
             "Coordinateur·ice": "Coordinateur",
@@ -1978,15 +2356,23 @@ class MetadataCreatorWidget(QWidget):
         rows = [[key, values.get(key, "")] for key in [
             "Nom de la manip",
             "Préleveur·se",
+            "Association(s) du prélèvement",
             "Lieu du prélèvement",
             "Latitude du prélèvement",
             "Longitude du prélèvement",
             "Date/heure du prélèvement",
+            "Type d'eau",
+            "Coefficient de marée",
+            "Heure de pleine mer",
             "Test ammonium réalisé",
             "Test ammonium réalisé par",
             "Test ammonium 1 (grossier)",
             "Test ammonium 2 (précis)",
             "pH",
+            "Analyses bactériologiques",
+            "Jour de dépôt",
+            "Heure du dépôt",
+            "Entreprise de mesure",
             "Nom de la manip de titration",
             "Lieu de la titration",
             "Date/heure de la titration",
@@ -3025,6 +3411,18 @@ class MetadataCreatorWidget(QWidget):
         if sampler_val and hasattr(self, "edit_sampler"):
             self.edit_sampler.setText(sampler_val)
 
+        associations_val = _value_for(
+            "Association(s) du prélèvement",
+            "Associations prélèvement",
+            "Associations prelevement",
+            "Association prélèvement",
+            "Association prelevement",
+            "Associations",
+            "Association",
+        )
+        if associations_val and hasattr(self, "edit_sample_associations"):
+            self.edit_sample_associations.setText(associations_val)
+
         sample_loc = _value_for("Lieu du prélèvement")
         if sample_loc and hasattr(self, "edit_sample_location"):
             self.edit_sample_location.setText(sample_loc)
@@ -3067,6 +3465,36 @@ class MetadataCreatorWidget(QWidget):
         if sample_dt and hasattr(self, "edit_sample_datetime"):
             self._set_date_time_text(self.edit_sample_datetime, sample_dt)
 
+        water_type = _value_for("Type d'eau", "Type d'eau du prélèvement", "Type d'eau du prelevement", "Type eau")
+        if water_type and hasattr(self, "combo_water_type"):
+            water_key = self._norm_text_key(water_type)
+            water_aliases = {
+                "choisir...": "Choisir...",
+                "eau douce": "Eau douce",
+                "douce": "Eau douce",
+                "eau salee": "Eau de mer",
+                "eau de mer": "Eau de mer",
+                "salee": "Eau de mer",
+                "mer": "Eau de mer",
+                "eau estuarienne": "Eau estuarienne",
+                "eau esturienne": "Eau estuarienne",
+                "estuarienne": "Eau estuarienne",
+                "esturienne": "Eau estuarienne",
+            }
+            self.combo_water_type.setCurrentText(water_aliases.get(water_key, water_type))
+
+        tide_coef = _value_for("Coefficient de marée", "Coefficient de maree", "Coefficient maree", "Coef marée", "Coef maree")
+        if tide_coef and hasattr(self, "spin_tide_coefficient"):
+            val = self._to_float(tide_coef)
+            if val is not None:
+                self.spin_tide_coefficient.setValue(max(0, min(200, int(round(val)))))
+
+        high_tide = _value_for("Heure de pleine mer", "Heure pleine mer", "Pleine mer")
+        if high_tide and hasattr(self, "edit_high_tide_time"):
+            self.edit_high_tide_time.setText(self._normalize_time_text(high_tide))
+        self._refresh_tide_fields_enabled()
+        self._refresh_water_type_style()
+
         # Ammonium
         ammonium_val = _value_for("Test ammonium réalisé")
         enabled = str(ammonium_val).strip().lower() in {"oui", "yes", "true", "1", "x"}
@@ -3083,6 +3511,31 @@ class MetadataCreatorWidget(QWidget):
             "test_2": _value_for("Test ammonium 2 (précis)", "Ammonium test 2", "Test 2 ammonium"),
             "ph": _value_for("pH", "pH ammonium"),
         }
+
+        # Analyses bactériologiques
+        bacterio_val = _value_for(
+            "Analyses bactériologiques",
+            "Analyse bactériologique",
+            "Analyses bacteriologiques",
+            "Analyse bacteriologique",
+            "Bactériologie",
+            "Bacteriologie",
+        )
+        bacterio_enabled = str(bacterio_val).strip().lower() in {"oui", "yes", "true", "1", "x"}
+        if hasattr(self, "chk_bacterio_analysis"):
+            self.chk_bacterio_analysis.blockSignals(True)
+            self.chk_bacterio_analysis.setChecked(bacterio_enabled)
+            self.chk_bacterio_analysis.blockSignals(False)
+        bacterio_day = _value_for("Jour de dépôt", "Jour de depot", "Jour dépôt", "Jour depot")
+        if bacterio_day and hasattr(self, "edit_bacterio_deposit_day"):
+            self._set_date_time_text(self.edit_bacterio_deposit_day, bacterio_day)
+        bacterio_time = _value_for("Heure du dépôt", "Heure du depot", "Heure dépôt", "Heure depot")
+        if bacterio_time and hasattr(self, "edit_bacterio_deposit_time"):
+            self.edit_bacterio_deposit_time.setText(self._normalize_time_text(bacterio_time))
+        bacterio_company = _value_for("Entreprise de mesure", "Entreprise mesure", "Entreprise de mesures")
+        if bacterio_company and hasattr(self, "edit_bacterio_company"):
+            self.edit_bacterio_company.setText(bacterio_company)
+        self._refresh_bacterio_fields_visible()
 
         # Titration (fallback anciens fichiers : Date / Lieu)
         titration_dt = _value_for("Date/heure de la titration", "Date :", "Date")
