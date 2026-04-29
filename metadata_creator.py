@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLineEdit,
     QDateEdit,
+    QDateTimeEdit,
     QFileDialog,
     QComboBox,
     QSpinBox,
@@ -34,9 +35,10 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QInputDialog,
     QMenu,
+    QTextBrowser,
 )
 
-from PySide6.QtCore import Qt, QDate
+from PySide6.QtCore import Qt, QDate, QDateTime
 from PySide6.QtGui import QColor, QBrush
 
 import metadata_model as mm
@@ -621,6 +623,47 @@ class MolesDialog(QDialog):
 
     def values(self) -> dict[str, float]:
         return {k: float(spin.value()) for k, spin in self._spins.items()}
+
+
+class AmmoniumTestDialog(QDialog):
+    """Dialogue de saisie des résultats des tests ammonium et du pH."""
+
+    def __init__(self, values: dict | None = None, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Tests ammonium")
+        values = values or {}
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.edit_operator = QLineEdit(str(values.get("operator", "") or ""), self)
+        self.edit_test_1 = QLineEdit(str(values.get("test_1", "") or ""), self)
+        self.edit_test_2 = QLineEdit(str(values.get("test_2", "") or ""), self)
+        self.edit_ph = QLineEdit(str(values.get("ph", "") or ""), self)
+
+        self.edit_operator.setPlaceholderText("Nom puis prénom")
+        self.edit_test_1.setPlaceholderText("Test 1 grossier")
+        self.edit_test_2.setPlaceholderText("Test 2 précis")
+        self.edit_ph.setPlaceholderText("pH")
+
+        form.addRow("Test réalisé par :", self.edit_operator)
+        form.addRow("Valeur du test numéro 1 (grossier) :", self.edit_test_1)
+        form.addRow("Valeur du test numéro 2 (précis) :", self.edit_test_2)
+        form.addRow("Valeur du pH :", self.edit_ph)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def values(self) -> dict[str, str]:
+        return {
+            "operator": self.edit_operator.text().strip(),
+            "test_1": self.edit_test_1.text().strip(),
+            "test_2": self.edit_test_2.text().strip(),
+            "ph": self.edit_ph.text().strip(),
+        }
 
 
 
@@ -1301,6 +1344,7 @@ class MetadataCreatorWidget(QWidget):
         self.df_map: pd.DataFrame | None = None # tableau de correspondance spectres ↔ tubes
         # Indique que la correspondance spectres↔tubes doit être revue (champs d'en-tête ou volumes modifiés)
         self.map_dirty: bool = False
+        self._metadata_dirty: bool = True
         self._protocol_states: dict = {}   # état des cases du protocole de paillasse
         # Options d'affichage pour la correspondance spectres ↔ tubes
         self._map_include_brb: bool = True
@@ -1310,77 +1354,152 @@ class MetadataCreatorWidget(QWidget):
         self._last_gaussian_fixed_stock: dict | None = None
         # Cible de contrôle pour la somme des volumes (µL) dans le tableau
         self._sum_target_uL: float = DEFAULT_VTOT_UL
+        self._spec_start_index: int = 0
+        self._ammonium_test_enabled: bool = False
+        self._ammonium_test_values: dict[str, str] = {"test_1": "", "test_2": "", "ph": "", "operator": ""}
 
         layout = QVBoxLayout(self)
+        section_title_style = "color: #2f75b5; font-weight: 800; font-size: 15px;"
 
         # Première action proposée : charger une fiche existante.
         top_actions = QHBoxLayout()
         self.btn_load_meta = QPushButton("Charger des métadonnées…", self)
+        self.btn_load_meta.setStyleSheet("background-color: #0057b8; color: white; font-weight: 700;")
         self.btn_load_meta.clicked.connect(self._on_load_metadata_clicked)
         top_actions.addWidget(self.btn_load_meta)
         top_actions.addStretch(1)
         layout.addLayout(top_actions)
 
-        # Champs d'en-tête pour la manipulation : nom, date, lieu, coordinateur, opérateur
+        # Champs d'en-tête pour la manipulation : prélèvement puis titration.
         header_layout = QVBoxLayout()
+        sample_title = QLabel("Prélèvement de l'échantillon :", self)
+        sample_title.setStyleSheet(section_title_style)
+        header_layout.addWidget(sample_title)
 
-        # Ligne 1 : nom de la manip + date (avec calendrier)
+        # Ligne 1 : préleveur + nom de la manip calculé automatiquement
         row1 = QHBoxLayout()
+        row1.addWidget(QLabel("Préleveur·se :", self))
+        self.edit_sampler = QLineEdit(self)
+        self.edit_sampler.setPlaceholderText("Nom puis prénom")
+        row1.addWidget(self.edit_sampler)
+        self.edit_sampler.textChanged.connect(self._on_manip_components_changed)
+
         row1.addWidget(QLabel("Nom de la manip :", self))
         self.edit_manip = QLineEdit(self)
-        self.edit_manip.setPlaceholderText("ex : GROUPE_20251203")
+        self.edit_manip.setReadOnly(True)
+        self.edit_manip.setPlaceholderText("généré automatiquement")
+        self.edit_manip.setFocusPolicy(Qt.NoFocus)
+        self.edit_manip.setStyleSheet(
+            "background-color: #263238; color: #ffffff; border: 1px solid #6fa8d6; "
+            "font-weight: 700; padding: 3px 6px;"
+        )
+        self.edit_manip.setToolTip(
+            "Généré depuis les initiales prénom+nom du préleveur ou de la préleveuse, "
+            "puis _AAAAMMJJ_HHhMM."
+        )
         row1.addWidget(self.edit_manip)
-        # Synchroniser automatiquement le nom de la manip avec df_map
-        self.edit_manip.textChanged.connect(self._on_manip_name_changed)
-        row1.addWidget(QLabel("Départ index spectres :", self))
-        self.spin_spec_start = QSpinBox(self)
-        self.spin_spec_start.setRange(0, 999)
-        self.spin_spec_start.setValue(0)  # par défaut : 00
-        self.spin_spec_start.setToolTip("Index de départ (0 => _00, 7 => _07).")
-        row1.addWidget(self.spin_spec_start)
-
-        # Changer l'index déclenche la mise à jour des noms
-        self.spin_spec_start.valueChanged.connect(self._on_manip_name_changed)
-
-        row1.addWidget(QLabel("Date :", self))
-        self.edit_date = QDateEdit(self)
-        self.edit_date.setCalendarPopup(True)
-        self.edit_date.setDisplayFormat("dd/MM/yyyy")
-        self.edit_date.setDate(QDate.currentDate())
-        row1.addWidget(self.edit_date)
-        self.edit_date.dateChanged.connect(self._on_header_field_changed)
 
         header_layout.addLayout(row1)
 
-        # Ligne 2 : lieu, coordinateur, opérateur
+        # Ligne 2 : date/heure + lieu du prélèvement
         row2 = QHBoxLayout()
-        row2.addWidget(QLabel("Lieu :", self))
-        self.edit_location = QLineEdit(self)
-        self.edit_location.setPlaceholderText("ex : Laboratoire / Terrain")
-        row2.addWidget(self.edit_location)
-        self.edit_location.textChanged.connect(self._on_header_field_changed)
+        row2.addWidget(QLabel("Date/heure du prélèvement :", self))
+        self.edit_sample_datetime = QDateTimeEdit(self)
+        self.edit_sample_datetime.setCalendarPopup(True)
+        self.edit_sample_datetime.setDisplayFormat("dd/MM/yyyy HH:mm")
+        self.edit_sample_datetime.setDateTime(QDateTime.currentDateTime())
+        row2.addWidget(self.edit_sample_datetime)
+        self.edit_sample_datetime.dateTimeChanged.connect(self._on_manip_components_changed)
 
-        row2.addWidget(QLabel("Coordinateur :", self))
-        self.edit_coordinator = QLineEdit(self)
-        self.edit_coordinator.setPlaceholderText("ex : Nom du coordinateur")
-        row2.addWidget(self.edit_coordinator)
-        self.edit_coordinator.textChanged.connect(self._on_header_field_changed)
-
-        row2.addWidget(QLabel("Opérateur :", self))
-        self.edit_operator = QLineEdit(self)
-        self.edit_operator.setPlaceholderText("ex : Nom de l'opérateur")
-        row2.addWidget(self.edit_operator)
-        self.edit_operator.textChanged.connect(self._on_header_field_changed)
+        row2.addWidget(QLabel("Lieu du prélèvement :", self))
+        self.edit_sample_location = QLineEdit(self)
+        self.edit_sample_location.setPlaceholderText("ex : site / point de prélèvement")
+        row2.addWidget(self.edit_sample_location)
+        self.edit_sample_location.textChanged.connect(self._on_header_field_changed)
 
         header_layout.addLayout(row2)
         layout.addLayout(header_layout)
 
-        layout.addWidget(QLabel(
-            "<b>Création des métadonnées directement dans le programme</b><br>"
-            "Utilisez les boutons ci-dessous pour créer / éditer :<ul>"
-            "<li>le tableau des volumes (avec concentrations) pour chaque tube</li>"
-            "<li>le tableau de correspondance entre les noms de spectres et les tubes</li>"
-            "</ul>"
+        measures_layout = QVBoxLayout()
+        measures_title = QLabel("Mesures effectuées :", self)
+        measures_title.setStyleSheet(section_title_style)
+        measures_layout.addWidget(measures_title)
+        row_measures = QHBoxLayout()
+        self.chk_ammonium_test = QCheckBox("Test ammonium réalisé", self)
+        self.chk_ammonium_test.toggled.connect(self._on_ammonium_test_toggled)
+        row_measures.addWidget(self.chk_ammonium_test)
+        self.btn_ammonium_test = QPushButton("Valeurs test ammonium…", self)
+        self.btn_ammonium_test.clicked.connect(self._on_ammonium_test_clicked)
+        self.btn_ammonium_test.setVisible(False)
+        row_measures.addWidget(self.btn_ammonium_test)
+        row_measures.addStretch(1)
+        measures_layout.addLayout(row_measures)
+        layout.addLayout(measures_layout)
+
+        # Compatibilité avec l'ancien nommage : ces attributs pointent désormais
+        # vers les champs de titration.
+        titration_layout = QVBoxLayout()
+        titration_title = QLabel("Information sur la titration :", self)
+        titration_title.setStyleSheet(section_title_style)
+        titration_layout.addWidget(titration_title)
+
+        row_titration_people = QHBoxLayout()
+        row_titration_people.addWidget(QLabel("Coordinateur·ice :", self))
+        self.edit_coordinator = QLineEdit(self)
+        self.edit_coordinator.setPlaceholderText("Nom puis prénom")
+        row_titration_people.addWidget(self.edit_coordinator)
+        self.edit_coordinator.textChanged.connect(self._on_manip_components_changed)
+
+        row_titration_people.addWidget(QLabel("Opérateur·ice :", self))
+        self.edit_operator = QLineEdit(self)
+        self.edit_operator.setPlaceholderText("Nom puis prénom")
+        row_titration_people.addWidget(self.edit_operator)
+        self.edit_operator.textChanged.connect(self._on_manip_components_changed)
+        titration_layout.addLayout(row_titration_people)
+
+        row_titration_place = QHBoxLayout()
+        row_titration_place.addWidget(QLabel("Lieu de la titration :", self))
+        self.edit_titration_location = QLineEdit(self)
+        self.edit_titration_location.setPlaceholderText("ex : Laboratoire / Terrain")
+        row_titration_place.addWidget(self.edit_titration_location)
+        self.edit_titration_location.textChanged.connect(self._on_header_field_changed)
+
+        row_titration_place.addWidget(QLabel("Date/heure de la titration :", self))
+        self.edit_titration_datetime = QDateTimeEdit(self)
+        self.edit_titration_datetime.setCalendarPopup(True)
+        self.edit_titration_datetime.setDisplayFormat("dd/MM/yyyy HH:mm")
+        self.edit_titration_datetime.setDateTime(QDateTime.currentDateTime())
+        row_titration_place.addWidget(self.edit_titration_datetime)
+        self.edit_titration_datetime.dateTimeChanged.connect(self._on_manip_components_changed)
+        titration_layout.addLayout(row_titration_place)
+
+        row_titration_name = QHBoxLayout()
+        row_titration_name.addWidget(QLabel("Nom de la manip de titration :", self))
+        self.edit_titration_manip = QLineEdit(self)
+        self.edit_titration_manip.setReadOnly(True)
+        self.edit_titration_manip.setPlaceholderText("généré automatiquement")
+        self.edit_titration_manip.setFocusPolicy(Qt.NoFocus)
+        self.edit_titration_manip.setMinimumWidth(460)
+        self.edit_titration_manip.setStyleSheet(
+            "background-color: #263238; color: #ffffff; border: 1px solid #6fa8d6; "
+            "font-weight: 700; padding: 3px 6px;"
+        )
+        self.edit_titration_manip.setToolTip(
+            "Généré depuis les initiales prénom+nom de l'opérateur·ice puis du/de la coordinateur·ice, "
+            "puis _AAAAMMJJ_HHhMM."
+        )
+        row_titration_name.addWidget(self.edit_titration_manip, 1)
+        titration_layout.addLayout(row_titration_name)
+
+        self.edit_location = self.edit_titration_location
+        self.edit_date = self.edit_titration_datetime
+
+        if hasattr(self, "edit_sampler") and self.edit_sampler.text().strip():
+            self._refresh_manip_name()
+        self._refresh_titration_manip_name()
+        layout.addLayout(titration_layout)
+
+        glossary_html = (
             "<b>Glossaire des solutions utilisées :</b><ul>"
             "<li><b>Echantillon</b> : Echantillon d'eau à analyser (contient les ions Cu²⁺)</li>"
             "<li><b>Solution A1</b> : Tampon NH3+ concentré (70 mM) — volume fixe par tube. "
@@ -1393,9 +1512,28 @@ class MetadataCreatorWidget(QWidget):
             "<li><b>Solution E</b> : NPs (nanoparticules SERS, volume fixe)</li>"
             "<li><b>Solution F</b> : Crosslinker (ex. spermine, agent de réticulation, volume fixe)</li>"
             "</ul>"
-            "Les tableaux sont éditables comme dans Excel mais sont stockés en interne sous forme de DataFrame pandas.",
+            "Les tableaux sont éditables comme dans Excel mais sont stockés en interne sous forme de DataFrame pandas."
+        )
+        glossary_box = QTextBrowser(self)
+        glossary_box.setHtml(glossary_html)
+        glossary_box.setOpenExternalLinks(False)
+        glossary_box.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        glossary_box.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        glossary_box.setFixedHeight(145)
+        glossary_box.setStyleSheet("QTextBrowser { padding: 4px; }")
+        layout.addWidget(glossary_box)
+
+        creation_info_label = QLabel(
+            "<b>Création des métadonnées directement dans le programme</b><br>"
+            "Utilisez les boutons ci-dessous pour créer / éditer :<ul>"
+            "<li>le tableau des volumes (avec concentrations) pour chaque tube</li>"
+            "<li>le tableau de correspondance entre les noms de spectres et les tubes</li>"
+            "</ul>",
             self,
-        ))
+        )
+        creation_info_label.setWordWrap(True)
+        creation_info_label.setContentsMargins(0, 8, 0, 0)
+        layout.addWidget(creation_info_label)
 
         # --- Sélecteur de modèle de tableau des volumes ---
         preset_layout = QHBoxLayout()
@@ -1504,9 +1642,20 @@ class MetadataCreatorWidget(QWidget):
         else:
             self.btn_export_proto.setStyleSheet(red)
 
+        # Bouton sauvegarde : rouge dès qu'une modification n'a pas été enregistrée,
+        # vert uniquement après un chargement ou un enregistrement réussi.
+        metadata_saved = not getattr(self, "_metadata_dirty", True)
+        if metadata_saved:
+            self.btn_save_meta.setStyleSheet(green)
+        else:
+            self.btn_save_meta.setStyleSheet(red)
+
         # Mettre à jour les tooltips
         self.btn_edit_comp.setToolTip("Vert = tableau des volumes défini" if comp_ready else "Rouge = à créer / éditer")
         self.btn_edit_map.setToolTip("Vert = correspondance définie" if map_ready else "Rouge = à créer / éditer")
+        self.btn_save_meta.setToolTip(
+            "Vert = métadonnées enregistrées" if metadata_saved else "Rouge = modifications à enregistrer"
+        )
         if comp_ready:
             self.btn_show_conc.setToolTip("Calculable (volumes définis)")
             self.btn_export_proto.setToolTip("Vert = feuille de protocole prête")
@@ -1516,6 +1665,214 @@ class MetadataCreatorWidget(QWidget):
 # ------------------------------------------------------------------
 # Helpers – recalcul à partir d'un tableau des concentrations édité
 # ------------------------------------------------------------------
+    def _mark_metadata_dirty(self, refresh: bool = True) -> None:
+        self._metadata_dirty = True
+        if refresh and hasattr(self, "btn_save_meta"):
+            self._refresh_button_states()
+
+    def _mark_metadata_saved(self) -> None:
+        self._metadata_dirty = False
+        if hasattr(self, "btn_save_meta"):
+            self._refresh_button_states()
+
+    @staticmethod
+    def _date_time_text(widget) -> str:
+        if widget is None:
+            return ""
+        try:
+            return widget.dateTime().toString("dd/MM/yyyy HH:mm")
+        except Exception:
+            try:
+                return widget.date().toString("dd/MM/yyyy")
+            except Exception:
+                return ""
+
+    @staticmethod
+    def _set_date_time_text(widget, text: str) -> None:
+        if widget is None:
+            return
+        txt = str(text or "").strip()
+        if not txt:
+            return
+        qdt = QDateTime.fromString(txt, "dd/MM/yyyy HH:mm")
+        if qdt.isValid():
+            widget.setDateTime(qdt)
+            return
+        qd = QDate.fromString(txt, "dd/MM/yyyy")
+        if qd.isValid():
+            try:
+                widget.setDateTime(QDateTime(qd, widget.time()))
+            except Exception:
+                widget.setDate(qd)
+
+    @staticmethod
+    def _person_initials(name: str) -> str:
+        # Saisie attendue : "Nom puis prénom".
+        # Le code manip utilise donc l'initiale du prénom puis celle du nom.
+        parts = re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ0-9-]+", str(name or ""))
+        if len(parts) >= 2:
+            return f"{parts[1][0]}{parts[0][0]}".upper()
+        if len(parts) == 1:
+            return parts[0][0].upper()
+        return ""
+
+    def _build_manip_name(self) -> str:
+        initials = self._person_initials(self.edit_sampler.text() if hasattr(self, "edit_sampler") else "")
+        dt = self.edit_sample_datetime.dateTime() if hasattr(self, "edit_sample_datetime") else QDateTime.currentDateTime()
+
+        if not initials:
+            return ""
+        return f"{initials}_{dt.toString('yyyyMMdd')}_{dt.toString('HH')}h{dt.toString('mm')}"
+
+    def _build_titration_manip_name(self) -> str:
+        oper = self._person_initials(self.edit_operator.text() if hasattr(self, "edit_operator") else "")
+        coord = self._person_initials(self.edit_coordinator.text() if hasattr(self, "edit_coordinator") else "")
+        if not oper or not coord:
+            return ""
+        dt = self.edit_titration_datetime.dateTime() if hasattr(self, "edit_titration_datetime") else QDateTime.currentDateTime()
+        return f"{oper}{coord}_{dt.toString('yyyyMMdd')}_{dt.toString('HH')}h{dt.toString('mm')}"
+
+    def _refresh_manip_name(self) -> None:
+        if not hasattr(self, "edit_manip"):
+            return
+        name = self._build_manip_name()
+        self.edit_manip.blockSignals(True)
+        try:
+            self.edit_manip.setText(name)
+        finally:
+            self.edit_manip.blockSignals(False)
+        if name:
+            self._on_manip_name_changed()
+
+    def _refresh_titration_manip_name(self) -> None:
+        if not hasattr(self, "edit_titration_manip"):
+            return
+        name = self._build_titration_manip_name()
+        self.edit_titration_manip.blockSignals(True)
+        try:
+            self.edit_titration_manip.setText(name)
+        finally:
+            self.edit_titration_manip.blockSignals(False)
+
+    def _on_manip_components_changed(self, *args) -> None:
+        self._refresh_manip_name()
+        self._refresh_titration_manip_name()
+        self._on_header_field_changed()
+
+    def _header_values(self, manip_name: str | None = None) -> dict[str, str]:
+        name = manip_name if manip_name is not None else (
+            self.edit_manip.text().strip() if hasattr(self, "edit_manip") else ""
+        )
+        titration_name = (
+            self.edit_titration_manip.text().strip() if hasattr(self, "edit_titration_manip") else ""
+        )
+        ammonium_enabled = bool(self._ammonium_test_enabled)
+        ammonium = "Oui" if ammonium_enabled else "Non"
+        return {
+            "Nom de la manip": str(name or "").strip(),
+            "Préleveur·se": self.edit_sampler.text().strip() if hasattr(self, "edit_sampler") else "",
+            "Lieu du prélèvement": self.edit_sample_location.text().strip() if hasattr(self, "edit_sample_location") else "",
+            "Date/heure du prélèvement": self._date_time_text(getattr(self, "edit_sample_datetime", None)),
+            "Test ammonium réalisé": ammonium,
+            "Test ammonium réalisé par": str(self._ammonium_test_values.get("operator", "") or "") if ammonium_enabled else "",
+            "Test ammonium 1 (grossier)": str(self._ammonium_test_values.get("test_1", "") or "") if ammonium_enabled else "",
+            "Test ammonium 2 (précis)": str(self._ammonium_test_values.get("test_2", "") or "") if ammonium_enabled else "",
+            "pH": str(self._ammonium_test_values.get("ph", "") or "") if ammonium_enabled else "",
+            "Nom de la manip de titration": str(titration_name or "").strip(),
+            "Lieu de la titration": self.edit_titration_location.text().strip() if hasattr(self, "edit_titration_location") else "",
+            "Date/heure de la titration": self._date_time_text(getattr(self, "edit_titration_datetime", None)),
+            "Coordinateur": self.edit_coordinator.text().strip() if hasattr(self, "edit_coordinator") else "",
+            "Opérateur": self.edit_operator.text().strip() if hasattr(self, "edit_operator") else "",
+        }
+
+    @staticmethod
+    def _header_storage_key(label: str) -> str:
+        key = str(label or "").strip().rstrip(":")
+        aliases = {
+            "Date": "Date/heure de la titration",
+            "Lieu": "Lieu de la titration",
+            "Préleveur/préleveuse": "Préleveur·se",
+            "Préleveur": "Préleveur·se",
+            "Préleveuse": "Préleveur·se",
+            "Preleveur": "Préleveur·se",
+            "Preleveuse": "Préleveur·se",
+            "Ammonium test 1": "Test ammonium 1 (grossier)",
+            "Ammonium test 2": "Test ammonium 2 (précis)",
+            "Test 1 ammonium": "Test ammonium 1 (grossier)",
+            "Test 2 ammonium": "Test ammonium 2 (précis)",
+            "Réalisateur test ammonium": "Test ammonium réalisé par",
+            "Réalisatrice test ammonium": "Test ammonium réalisé par",
+            "Test ammonium realise par": "Test ammonium réalisé par",
+            "pH ammonium": "pH",
+            "Nom de la titration": "Nom de la manip de titration",
+            "Nom manip titration": "Nom de la manip de titration",
+            "Coordinateur·ice": "Coordinateur",
+            "Opérateur·ice": "Opérateur",
+        }
+        return aliases.get(key, key)
+
+    def _header_rows_dataframe(self, manip_name: str | None = None) -> pd.DataFrame:
+        values = self._header_values(manip_name)
+        rows = [[key, values.get(key, "")] for key in [
+            "Nom de la manip",
+            "Préleveur·se",
+            "Lieu du prélèvement",
+            "Date/heure du prélèvement",
+            "Test ammonium réalisé",
+            "Test ammonium réalisé par",
+            "Test ammonium 1 (grossier)",
+            "Test ammonium 2 (précis)",
+            "pH",
+            "Nom de la manip de titration",
+            "Lieu de la titration",
+            "Date/heure de la titration",
+            "Coordinateur",
+            "Opérateur",
+        ]]
+        return pd.DataFrame(rows, columns=["Nom du spectre", "Tube"])
+
+    def _df_map_with_current_header(self, df: pd.DataFrame) -> pd.DataFrame:
+        if df is None or df.empty or not {"Nom du spectre", "Tube"}.issubset(df.columns):
+            return df
+        col_ns = df["Nom du spectre"].astype(str).str.strip()
+        col_tube = df["Tube"].astype(str).str.strip()
+        hdr_mask = (col_ns == "Nom du spectre") & (col_tube == "Tube")
+        mapping_rows = (
+            df.loc[df.index > hdr_mask[hdr_mask].index[-1], ["Nom du spectre", "Tube"]].copy()
+            if hdr_mask.any()
+            else df[["Nom du spectre", "Tube"]].copy()
+        )
+        blank_row = pd.DataFrame([["", ""]], columns=["Nom du spectre", "Tube"])
+        internal_header = pd.DataFrame([["Nom du spectre", "Tube"]], columns=["Nom du spectre", "Tube"])
+        return pd.concat(
+            [self._header_rows_dataframe(), blank_row, internal_header, mapping_rows.reset_index(drop=True)],
+            ignore_index=True,
+        )
+
+    def _apply_header_values_to_df_map(self, df: pd.DataFrame, manip_name: str | None = None) -> pd.DataFrame:
+        if df is None or df.empty or not {"Nom du spectre", "Tube"}.issubset(df.columns):
+            return df
+        values = self._header_values(manip_name)
+        out = df.copy()
+        for idx in out.index:
+            label = str(out.at[idx, "Nom du spectre"]).strip()
+            storage_key = self._header_storage_key(label)
+            if storage_key in values:
+                out.at[idx, "Tube"] = values[storage_key]
+        return out
+
+    def _on_ammonium_test_toggled(self, checked: bool) -> None:
+        self._ammonium_test_enabled = bool(checked)
+        self.btn_ammonium_test.setVisible(bool(checked))
+        self._on_header_field_changed()
+
+    def _on_ammonium_test_clicked(self) -> None:
+        dlg = AmmoniumTestDialog(self._ammonium_test_values, self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        self._ammonium_test_values = dlg.values()
+        self._on_header_field_changed()
+
     @staticmethod
     def _to_float(x):
         return mm.to_float(x)
@@ -1526,8 +1883,10 @@ class MetadataCreatorWidget(QWidget):
     
     def _on_header_field_changed(self, *args) -> None:
         """Marque la correspondance spectres↔tubes comme à revoir quand un champ d’en-tête change."""
+        self._mark_metadata_dirty(refresh=False)
         # On ne marque dirty que si un df_map existe déjà (sinon c'est déjà rouge)
         if self.df_map is None or self.df_map.empty:
+            self._refresh_button_states()
             return
         self.map_dirty = True
         self._refresh_button_states()
@@ -1561,64 +1920,15 @@ class MetadataCreatorWidget(QWidget):
             QMessageBox.warning(
                 self,
                 "Nom de la manip manquant",
-                "Veuillez renseigner le nom de la manip avant de créer la correspondance spectres ↔ tubes.",
+                "Veuillez renseigner le préleveur ou la préleveuse et la date/heure de prélèvement "
+                "pour générer le nom de la manip avant de créer la correspondance spectres ↔ tubes.",
             )
             return
-
-        # Date (format dd/MM/yyyy)
-        date_str = ""
-        if hasattr(self, "edit_date") and self.edit_date is not None:
-            try:
-                date_str = self.edit_date.date().toString("dd/MM/yyyy")
-            except Exception:
-                date_str = ""
-
-        # Lieu
-        location = ""
-        if hasattr(self, "edit_location") and self.edit_location is not None:
-            try:
-                location = self.edit_location.text().strip()
-            except Exception:
-                location = ""
-
-        # Coordinateur
-        coordinator = ""
-        if hasattr(self, "edit_coordinator") and self.edit_coordinator is not None:
-            try:
-                coordinator = self.edit_coordinator.text().strip()
-            except Exception:
-                coordinator = ""
-
-        # Opérateur
-        operator = ""
-        if hasattr(self, "edit_operator") and self.edit_operator is not None:
-            try:
-                operator = self.edit_operator.text().strip()
-            except Exception:
-                operator = ""
 
         # Si df_map existe, on met à jour les lignes d'en-tête pour refléter l'UI
         if self.df_map is not None and not self.df_map.empty:
             try:
-                df_tmp = self.df_map.copy()
-                col_ns_tmp = df_tmp["Nom du spectre"].astype(str).str.strip()
-                header_values = {
-                    "Nom de la manip": manip_name,
-                    "Nom de la manip :": manip_name,
-                    "Date": date_str,
-                    "Date :": date_str,
-                    "Lieu": location,
-                    "Lieu :": location,
-                    "Coordinateur": coordinator,
-                    "Coordinateur :": coordinator,
-                    "Opérateur": operator,
-                    "Opérateur :": operator,
-                }
-                for idx in df_tmp.index:
-                    label = str(df_tmp.at[idx, "Nom du spectre"]).strip()
-                    if label in header_values:
-                        df_tmp.at[idx, "Tube"] = header_values[label]
-                self.df_map = df_tmp
+                self.df_map = self._apply_header_values_to_df_map(self.df_map, manip_name)
             except Exception:
                 pass
 
@@ -1647,14 +1957,7 @@ class MetadataCreatorWidget(QWidget):
             existing_df: pd.DataFrame | None,
         ) -> tuple[pd.DataFrame, pd.DataFrame]:
             # 2) Lignes d'en-tête construites à partir de l'UI (toujours recalculées)
-            header_rows = [
-                ["Nom de la manip", manip_name],
-                ["Date", date_str],
-                ["Lieu", location],
-                ["Coordinateur", coordinator],
-                ["Opérateur", operator],
-            ]
-            df_header = pd.DataFrame(header_rows, columns=default_cols)
+            df_header = self._header_rows_dataframe(manip_name)
             blank_row = pd.DataFrame([["", ""]], columns=default_cols)
             internal_header = pd.DataFrame([["Nom du spectre", "Tube"]], columns=default_cols)
 
@@ -1666,7 +1969,7 @@ class MetadataCreatorWidget(QWidget):
                 include_control_override=include_control,
             )
 
-            start_index = int(self.spin_spec_start.value()) if hasattr(self, "spin_spec_start") else 0
+            start_index = int(self._spec_start_index)
 
             def _make_mapping_rows(labels: list[str]) -> pd.DataFrame:
                 names = [f"{manip_name}_{i:02d}" for i in range(start_index, start_index + len(labels))]
@@ -1788,6 +2091,12 @@ class MetadataCreatorWidget(QWidget):
         )
         # Options : inclure Contrôle BRB / Contrôle (dernier tube)
         opts_layout = QHBoxLayout()
+        opts_layout.addWidget(QLabel("Départ index spectres :", dlg))
+        spin_start = QSpinBox(dlg)
+        spin_start.setRange(0, 999)
+        spin_start.setValue(int(self._spec_start_index))
+        spin_start.setToolTip("Index de départ (0 => _00, 7 => _07).")
+        opts_layout.addWidget(spin_start)
         chk_brb = QCheckBox('Inclure "Contrôle BRB"', dlg)
         chk_ctrl = QCheckBox('Inclure "Contrôle" (dernier tube)', dlg)
         chk_brb.setChecked(bool(include_brb))
@@ -1801,6 +2110,7 @@ class MetadataCreatorWidget(QWidget):
             pass
 
         def _rebuild_mapping_table() -> None:
+            self._spec_start_index = int(spin_start.value())
             inc_brb = chk_brb.isChecked()
             inc_ctrl = chk_ctrl.isChecked()
             try:
@@ -1816,8 +2126,10 @@ class MetadataCreatorWidget(QWidget):
 
         chk_brb.toggled.connect(_rebuild_mapping_table)
         chk_ctrl.toggled.connect(_rebuild_mapping_table)
+        spin_start.valueChanged.connect(_rebuild_mapping_table)
         if dlg.exec() != QDialog.Accepted:
             return
+        self._spec_start_index = int(spin_start.value())
 
         # 6) Récupération du tableau édité et MISE À JOUR forcée des lignes d'en-tête
         df = dlg.to_dataframe()
@@ -1827,17 +2139,7 @@ class MetadataCreatorWidget(QWidget):
 
         # On force les valeurs des lignes d'en-tête à partir de l'UI, pour éviter
         # tout décalage : le clic sur le bouton reflète immédiatement les derniers champs saisis.
-        header_values = {
-            "Nom de la manip": manip_name,
-            "Date": date_str,
-            "Lieu": location,
-            "Coordinateur": coordinator,
-            "Opérateur": operator,
-        }
-        for idx in df.index:
-            label = str(df.at[idx, "Nom du spectre"]).strip()
-            if label in header_values:
-                df.at[idx, "Tube"] = header_values[label]
+        df = self._apply_header_values_to_df_map(df, manip_name)
 
         # Mémoriser les options BRB / Contrôle
         self._map_include_brb = bool(chk_brb.isChecked())
@@ -1845,6 +2147,7 @@ class MetadataCreatorWidget(QWidget):
 
         self.df_map = df
         self.map_dirty = False
+        self._mark_metadata_dirty(refresh=False)
         self.lbl_status_map.setText(
             f"Tableau de correspondance : {df.shape[0]} ligne(s), {df.shape[1]} colonne(s)"
         )
@@ -1913,14 +2216,10 @@ class MetadataCreatorWidget(QWidget):
     def _on_manip_name_changed(self, *args) -> None:
         """Met à jour les noms de spectres générés automatiquement.
 
-        Cette méthode est connectée à la fois à :
-        - QLineEdit.textChanged (str)
-        - QSpinBox.valueChanged (int)
-
-        Donc on IGNORE l'argument du signal et on lit directement les widgets.
+        Cette méthode est connectée à QLineEdit.textChanged (str).
         """
         manip_name = self.edit_manip.text().strip() if hasattr(self, "edit_manip") else ""
-        start_index = int(self.spin_spec_start.value()) if hasattr(self, "spin_spec_start") else 0
+        start_index = int(self._spec_start_index)
 
         if not manip_name:
             return
@@ -1928,6 +2227,7 @@ class MetadataCreatorWidget(QWidget):
         self._apply_spectrum_names_to_df_map(manip_name, start_index)
 
         self.map_dirty = True
+        self._mark_metadata_dirty(refresh=False)
         self._refresh_button_states()
 
     def _on_validate_volume_preset_clicked(self) -> None:
@@ -1955,6 +2255,7 @@ class MetadataCreatorWidget(QWidget):
             f"Le modèle '{name}' a été appliqué au tableau des volumes.\n\n"
             "Vous pouvez maintenant ouvrir 'Créer / éditer le tableau des volumes' pour l'ajuster.",
         )
+        self._mark_metadata_dirty(refresh=False)
         self._sync_df_map_with_df_comp()
         self._refresh_button_states()
 
@@ -1982,6 +2283,7 @@ class MetadataCreatorWidget(QWidget):
         header_mask = col_ns == "Nom du spectre"
         if not header_mask.any():
             self.df_map = df
+            self._mark_metadata_dirty()
             return
 
         last_header_idx = header_mask[header_mask].index[-1]
@@ -1998,6 +2300,7 @@ class MetadataCreatorWidget(QWidget):
             self.lbl_status_map.setText(
                 f"Tableau de correspondance : {df.shape[0]} ligne(s), {df.shape[1]} colonne(s)"
             )
+        self._mark_metadata_dirty()
 
     def _on_generate_volumes_clicked(self) -> None:
         """Ouvre le dialogue de génération des volumes selon une distribution gaussienne."""
@@ -2293,46 +2596,7 @@ class MetadataCreatorWidget(QWidget):
         except Exception:
             manip_name = ""
 
-        # Date (format dd/MM/yyyy)
-        date_str = ""
-        if hasattr(self, "edit_date") and self.edit_date is not None:
-            try:
-                date_str = self.edit_date.date().toString("dd/MM/yyyy")
-            except Exception:
-                date_str = ""
-
-        # Lieu
-        location = ""
-        if hasattr(self, "edit_location") and self.edit_location is not None:
-            try:
-                location = self.edit_location.text().strip()
-            except Exception:
-                location = ""
-
-        # Coordinateur
-        coordinator = ""
-        if hasattr(self, "edit_coordinator") and self.edit_coordinator is not None:
-            try:
-                coordinator = self.edit_coordinator.text().strip()
-            except Exception:
-                coordinator = ""
-
-        # Opérateur
-        operator = ""
-        if hasattr(self, "edit_operator") and self.edit_operator is not None:
-            try:
-                operator = self.edit_operator.text().strip()
-            except Exception:
-                operator = ""
-
-        header_rows = [
-            ["Nom de la manip", manip_name],
-            ["Date", date_str],
-            ["Lieu", location],
-            ["Coordinateur", coordinator],
-            ["Opérateur", operator],
-        ]
-        df_header = pd.DataFrame(header_rows, columns=default_cols)
+        df_header = self._header_rows_dataframe(manip_name)
         blank_row = pd.DataFrame([["", ""]], columns=default_cols)
         internal_header = pd.DataFrame([["Nom du spectre", "Tube"]], columns=default_cols)
 
@@ -2344,7 +2608,7 @@ class MetadataCreatorWidget(QWidget):
             include_brb_override=include_brb,
             include_control_override=include_control,
         )
-        start_index = int(self.spin_spec_start.value()) if hasattr(self, "spin_spec_start") else 0
+        start_index = int(self._spec_start_index)
 
         def _make_mapping_rows(labels: list[str]) -> pd.DataFrame:
             prefix = manip_name if manip_name else "Spectrum"
@@ -2431,6 +2695,7 @@ class MetadataCreatorWidget(QWidget):
 
         self.df_map = pd.concat([df_header, blank_row, internal_header, mapping_rows], ignore_index=True)
         self.map_dirty = bool(mark_dirty)
+        self._mark_metadata_dirty(refresh=False)
 
         if hasattr(self, "lbl_status_map"):
             self.lbl_status_map.setText(
@@ -2565,7 +2830,7 @@ class MetadataCreatorWidget(QWidget):
     def build_merged_metadata(self) -> pd.DataFrame:
         return mm.build_merged_metadata(self.df_comp, self.df_map)
     def _update_header_fields_from_df_map(self) -> None:
-        """Met à jour les champs Nom de la manip, Date, Lieu, Coordinateur, Opérateur
+        """Met à jour les champs d'en-tête
         à partir des premières lignes du tableau de correspondance df_map, si possible.
         """
         if self.df_map is None or self.df_map.empty:
@@ -2590,27 +2855,62 @@ class MetadataCreatorWidget(QWidget):
         if name_val and hasattr(self, "edit_manip"):
             self.edit_manip.setText(name_val)
 
-        # Date
-        date_val = _value_for("Date :", "Date")
-        if date_val and hasattr(self, "edit_date"):
-            qd = QDate.fromString(date_val, "dd/MM/yyyy")
-            if qd.isValid():
-                self.edit_date.setDate(qd)
+        # Prélèvement
+        sampler_val = _value_for("Préleveur·se", "Préleveur/préleveuse", "Préleveur", "Préleveuse")
+        if sampler_val and hasattr(self, "edit_sampler"):
+            self.edit_sampler.setText(sampler_val)
 
-        # Lieu
-        loc_val = _value_for("Lieu :", "Lieu")
-        if loc_val and hasattr(self, "edit_location"):
-            self.edit_location.setText(loc_val)
+        sample_loc = _value_for("Lieu du prélèvement")
+        if sample_loc and hasattr(self, "edit_sample_location"):
+            self.edit_sample_location.setText(sample_loc)
+
+        sample_dt = _value_for("Date/heure du prélèvement")
+        if sample_dt and hasattr(self, "edit_sample_datetime"):
+            self._set_date_time_text(self.edit_sample_datetime, sample_dt)
+
+        # Ammonium
+        ammonium_val = _value_for("Test ammonium réalisé")
+        enabled = str(ammonium_val).strip().lower() in {"oui", "yes", "true", "1", "x"}
+        self._ammonium_test_enabled = enabled
+        if hasattr(self, "chk_ammonium_test"):
+            self.chk_ammonium_test.blockSignals(True)
+            self.chk_ammonium_test.setChecked(enabled)
+            self.chk_ammonium_test.blockSignals(False)
+        if hasattr(self, "btn_ammonium_test"):
+            self.btn_ammonium_test.setVisible(enabled)
+        self._ammonium_test_values = {
+            "operator": _value_for("Test ammonium réalisé par", "Réalisateur test ammonium", "Réalisatrice test ammonium"),
+            "test_1": _value_for("Test ammonium 1 (grossier)", "Ammonium test 1", "Test 1 ammonium"),
+            "test_2": _value_for("Test ammonium 2 (précis)", "Ammonium test 2", "Test 2 ammonium"),
+            "ph": _value_for("pH", "pH ammonium"),
+        }
+
+        # Titration (fallback anciens fichiers : Date / Lieu)
+        titration_dt = _value_for("Date/heure de la titration", "Date :", "Date")
+        if titration_dt and hasattr(self, "edit_titration_datetime"):
+            self._set_date_time_text(self.edit_titration_datetime, titration_dt)
+
+        titration_name = _value_for("Nom de la manip de titration", "Nom de la titration", "Nom manip titration")
+        if titration_name and hasattr(self, "edit_titration_manip"):
+            self.edit_titration_manip.setText(titration_name)
+
+        titration_loc = _value_for("Lieu de la titration", "Lieu :", "Lieu")
+        if titration_loc and hasattr(self, "edit_titration_location"):
+            self.edit_titration_location.setText(titration_loc)
 
         # Coordinateur
-        coord_val = _value_for("Coordinateur :", "Coordinateur")
+        coord_val = _value_for("Coordinateur :", "Coordinateur", "Coordinateur·ice")
         if coord_val and hasattr(self, "edit_coordinator"):
             self.edit_coordinator.setText(coord_val)
 
         # Opérateur
-        oper_val = _value_for("Opérateur :", "Opérateur")
+        oper_val = _value_for("Opérateur :", "Opérateur", "Opérateur·ice")
         if oper_val and hasattr(self, "edit_operator"):
             self.edit_operator.setText(oper_val)
+
+        if hasattr(self, "edit_sampler") and self.edit_sampler.text().strip():
+            self._refresh_manip_name()
+        self._refresh_titration_manip_name()
 
     # ------------------------------------------------------------------
     # Export feuille de protocole
@@ -2625,9 +2925,18 @@ class MetadataCreatorWidget(QWidget):
             )
             return
 
+        if self.df_map is not None and not self.df_map.empty:
+            self.df_map = self._df_map_with_current_header(self.df_map)
+
+        titration_manip = (
+            self.edit_titration_manip.text().strip() if hasattr(self, "edit_titration_manip") else ""
+        )
+        if not titration_manip and hasattr(self, "edit_manip"):
+            titration_manip = self.edit_manip.text().strip()
+
         meta = {
-            "nom_manip":    self.edit_manip.text().strip()                   if hasattr(self, "edit_manip")       else "",
-            "date":         self.edit_date.date().toString("dd/MM/yyyy")     if hasattr(self, "edit_date")        else "",
+            "nom_manip":    titration_manip,
+            "date":         self._date_time_text(getattr(self, "edit_titration_datetime", None)),
             "lieu":         self.edit_location.text().strip()                if hasattr(self, "edit_location")    else "",
             "coordinateur": self.edit_coordinator.text().strip()             if hasattr(self, "edit_coordinator") else "",
             "operateur":    self.edit_operator.text().strip()                if hasattr(self, "edit_operator")    else "",
@@ -2639,7 +2948,10 @@ class MetadataCreatorWidget(QWidget):
                              df_map=self.df_map, parent=self)
         dlg.exec()
         # Mémoriser l'état des cases pour la prochaine ouverture / sauvegarde
+        previous_states = dict(self._protocol_states)
         self._protocol_states = dlg.get_states()
+        if self._protocol_states != previous_states:
+            self._mark_metadata_dirty()
 
     # ------------------------------------------------------------------
     # Sauvegarde / chargement des métadonnées complètes
@@ -2664,6 +2976,7 @@ class MetadataCreatorWidget(QWidget):
             return
 
         try:
+            self.df_map = self._df_map_with_current_header(self.df_map)
             with pd.ExcelWriter(path) as writer:
                 self.df_comp.to_excel(writer, sheet_name="Volumes", index=False)
                 self.df_map.to_excel(writer, sheet_name="Correspondance", index=False)
@@ -2686,6 +2999,7 @@ class MetadataCreatorWidget(QWidget):
             )
             return
 
+        self._mark_metadata_saved()
         QMessageBox.information(self, "Enregistrement réussi", f"Métadonnées enregistrées dans :\n{path}")
 
     def _on_load_metadata_clicked(self) -> None:
@@ -2701,9 +3015,12 @@ class MetadataCreatorWidget(QWidget):
 
         try:
             xls = pd.ExcelFile(path)
+            loaded_comp = False
+            loaded_map = False
             # Volumes
             if "Volumes" in xls.sheet_names:
                 self.df_comp = pd.read_excel(xls, sheet_name="Volumes")
+                loaded_comp = True
                 try:
                     conc_df = mm.compute_concentration_table(self.df_comp)
                     tube_cols = self._get_tube_columns(self.df_comp)
@@ -2717,6 +3034,7 @@ class MetadataCreatorWidget(QWidget):
             # Correspondance
             if "Correspondance" in xls.sheet_names:
                 self.df_map = pd.read_excel(xls, sheet_name="Correspondance")
+                loaded_map = True
                 self.lbl_status_map.setText(
                     f"Tableau de correspondance : {self.df_map.shape[0]} ligne(s), {self.df_map.shape[1]} colonne(s)"
                 )
@@ -2748,7 +3066,11 @@ class MetadataCreatorWidget(QWidget):
                         self._protocol_states[(t, ri, ti)] = chk
                     elif t == "instruction":
                         self._protocol_states[("instruction", ri, ti)] = chk
-            self._refresh_button_states()
+            if loaded_comp and loaded_map:
+                self._mark_metadata_saved()
+            else:
+                self._mark_metadata_dirty(refresh=False)
+                self._refresh_button_states()
         except Exception as e:
             QMessageBox.critical(
                 self,

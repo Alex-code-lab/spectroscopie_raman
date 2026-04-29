@@ -372,8 +372,12 @@ class MainWindow(QMainWindow):
         # Onglet Métadonnées (création directe des tableaux dans l'application)
         self.metadata_tab = QWidget(self)
         metadata_layout = QVBoxLayout(self.metadata_tab)
-        self.metadata_creator = MetadataCreatorWidget(self.metadata_tab)
-        metadata_layout.addWidget(self.metadata_creator)
+        metadata_scroll = QScrollArea(self.metadata_tab)
+        metadata_scroll.setWidgetResizable(True)
+        metadata_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.metadata_creator = MetadataCreatorWidget(metadata_scroll)
+        metadata_scroll.setWidget(self.metadata_creator)
+        metadata_layout.addWidget(metadata_scroll)
         tabs.addTab(self.metadata_tab, "Métadonnées")
 
         # Onglet Fichiers Raman

@@ -300,10 +300,18 @@ def build_merged_metadata(
     df_map["Nom du spectre"] = df_map["Nom du spectre"].astype(str).str.strip()
     df_map["Tube"] = df_map["Tube"].astype(str).str.strip()
 
+    header_info: dict[str, str] = {}
+
     # Supprimer éventuelle ligne d'en-tête interne
     header_mask = df_map["Nom du spectre"] == "Nom du spectre"
     if header_mask.any():
         last_header_idx = header_mask[header_mask].index[-1]
+        header_rows = df_map.loc[df_map.index < last_header_idx].copy()
+        for _, row in header_rows.iterrows():
+            key = str(row.get("Nom du spectre", "")).strip().rstrip(":")
+            val = str(row.get("Tube", "")).strip()
+            if key:
+                header_info[key] = val
         df_map = df_map.loc[df_map.index > last_header_idx].copy()
 
     # Retirer lignes vides
@@ -362,6 +370,9 @@ def build_merged_metadata(
                 meta[titrant] = pd.to_numeric(meta[titrant], errors="coerce")
                 meta["[titrant] (M)"] = meta[titrant]
                 meta["[titrant] (mM)"] = meta[titrant] * 1e3
+
+    for key, val in header_info.items():
+        meta[key] = val
 
     # Nettoyage final
     meta = meta[~meta["Tube"].isin(["Tube BRB", "Contrôle BRB"])].copy()
