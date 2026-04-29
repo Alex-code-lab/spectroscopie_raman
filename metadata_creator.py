@@ -38,8 +38,8 @@ from PySide6.QtWidgets import (
     QTextBrowser,
 )
 
-from PySide6.QtCore import Qt, QDate, QDateTime
-from PySide6.QtGui import QColor, QBrush
+from PySide6.QtCore import Qt, QDate, QDateTime, QUrl
+from PySide6.QtGui import QColor, QBrush, QDesktopServices
 
 import metadata_model as mm
 
@@ -1418,6 +1418,36 @@ class MetadataCreatorWidget(QWidget):
         self.edit_sample_location.textChanged.connect(self._on_header_field_changed)
 
         header_layout.addLayout(row2)
+
+        row_gps = QHBoxLayout()
+        row_gps.addWidget(QLabel("Latitude :", self))
+        self.edit_sample_lat = QLineEdit(self)
+        self.edit_sample_lat.setPlaceholderText("ex : 46.548861 ou 46°32'55.9\"N")
+        self.edit_sample_lat.setToolTip(
+            "Format standard : degrés décimaux WGS84, entre -90 et 90. "
+            "Le format degrés/minutes/secondes est accepté et converti."
+        )
+        row_gps.addWidget(self.edit_sample_lat)
+        self.edit_sample_lat.textChanged.connect(self._on_header_field_changed)
+        self.edit_sample_lat.editingFinished.connect(self._normalize_sample_gps_fields)
+
+        row_gps.addWidget(QLabel("Longitude :", self))
+        self.edit_sample_lon = QLineEdit(self)
+        self.edit_sample_lon.setPlaceholderText("ex : 0.368861 ou 0°22'07.9\"E")
+        self.edit_sample_lon.setToolTip(
+            "Format standard : degrés décimaux WGS84, entre -180 et 180. "
+            "Le format degrés/minutes/secondes est accepté et converti."
+        )
+        row_gps.addWidget(self.edit_sample_lon)
+        self.edit_sample_lon.textChanged.connect(self._on_header_field_changed)
+        self.edit_sample_lon.editingFinished.connect(self._normalize_sample_gps_fields)
+
+        self.btn_sample_map = QPushButton("Voir sur la carte…", self)
+        self.btn_sample_map.setToolTip("Ouvre le point dans OpenStreetMap avec la latitude et la longitude saisies.")
+        self.btn_sample_map.clicked.connect(self._on_view_sample_map_clicked)
+        row_gps.addWidget(self.btn_sample_map)
+        header_layout.addLayout(row_gps)
+
         layout.addLayout(header_layout)
 
         measures_layout = QVBoxLayout()
@@ -1716,6 +1746,117 @@ class MetadataCreatorWidget(QWidget):
             return parts[0][0].upper()
         return ""
 
+    @staticmethod
+    def _parse_coord_value(text: str | None) -> float | None:
+        raw = str(text or "").strip()
+        txt = raw.replace(",", ".")
+        if not txt:
+            return None
+
+        hemisphere_match = re.search(r"([NSEW])", txt, flags=re.IGNORECASE)
+        has_dms_marker = bool(re.search(r"[°º'’′\"”″]", txt))
+        if hemisphere_match or has_dms_marker:
+            numbers = re.findall(r"[-+]?\d+(?:\.\d+)?", txt)
+            if numbers:
+                deg = float(numbers[0])
+                minutes = float(numbers[1]) if len(numbers) >= 2 else 0.0
+                seconds = float(numbers[2]) if len(numbers) >= 3 else 0.0
+                sign = -1.0 if deg < 0 else 1.0
+                if hemisphere_match and hemisphere_match.group(1).upper() in ("S", "W"):
+                    sign = -1.0
+                elif hemisphere_match and hemisphere_match.group(1).upper() in ("N", "E"):
+                    sign = 1.0
+                return sign * (abs(deg) + minutes / 60.0 + seconds / 3600.0)
+
+        try:
+            return float(txt)
+        except ValueError:
+            return None
+
+    @classmethod
+    def _format_coord_value(cls, text: str | None, min_value: float, max_value: float) -> str:
+        val = cls._parse_coord_value(text)
+        if val is None or val < min_value or val > max_value:
+            return str(text or "").strip()
+        return f"{val:.6f}"
+
+    @classmethod
+    def _split_gps_pair(cls, text: str | None) -> tuple[str, str]:
+        raw = str(text or "")
+        hemisphere_chunks: list[str] = []
+        start = 0
+        for match in re.finditer(r"[NSEW]", raw, flags=re.IGNORECASE):
+            hemisphere_chunks.append(raw[start:match.end()])
+            start = match.end()
+
+        lat = ""
+        lon = ""
+        for chunk in hemisphere_chunks:
+            val = cls._parse_coord_value(chunk)
+            if val is None:
+                continue
+            hemisphere = re.search(r"([NSEW])", chunk, flags=re.IGNORECASE)
+            if hemisphere and hemisphere.group(1).upper() in ("N", "S"):
+                lat = cls._format_coord_value(str(val), -90.0, 90.0)
+            elif hemisphere and hemisphere.group(1).upper() in ("E", "W"):
+                lon = cls._format_coord_value(str(val), -180.0, 180.0)
+        if lat or lon:
+            return lat, lon
+
+        numbers = re.findall(r"[-+]?\d+(?:[,.]\d+)?", raw)
+        if len(numbers) < 2:
+            return "", ""
+        if len(numbers) >= 6 and re.search(r"[°º'’′\"”″]", raw):
+            lat_raw = f"{numbers[0]}°{numbers[1]}'{numbers[2]}\""
+            lon_raw = f"{numbers[3]}°{numbers[4]}'{numbers[5]}\""
+            lat = cls._format_coord_value(lat_raw, -90.0, 90.0)
+            lon = cls._format_coord_value(lon_raw, -180.0, 180.0)
+            return lat, lon
+        lat = cls._format_coord_value(numbers[0], -90.0, 90.0)
+        lon = cls._format_coord_value(numbers[1], -180.0, 180.0)
+        return lat, lon
+
+    def _normalize_coord_field(self, widget: QLineEdit, min_value: float, max_value: float) -> None:
+        if widget is None:
+            return
+        txt = widget.text().strip()
+        if not txt:
+            return
+        formatted = self._format_coord_value(txt, min_value, max_value)
+        if formatted != txt:
+            widget.setText(formatted)
+
+    def _normalize_sample_gps_fields(self) -> None:
+        if not hasattr(self, "edit_sample_lat") or not hasattr(self, "edit_sample_lon"):
+            return
+
+        lat_txt = self.edit_sample_lat.text().strip()
+        lon_txt = self.edit_sample_lon.text().strip()
+        for txt in (lat_txt, lon_txt):
+            pair_lat, pair_lon = self._split_gps_pair(txt)
+            if pair_lat and pair_lon:
+                self.edit_sample_lat.setText(pair_lat)
+                self.edit_sample_lon.setText(pair_lon)
+                return
+
+        self._normalize_coord_field(self.edit_sample_lat, -90.0, 90.0)
+        self._normalize_coord_field(self.edit_sample_lon, -180.0, 180.0)
+
+    def _on_view_sample_map_clicked(self) -> None:
+        lat = self._parse_coord_value(self.edit_sample_lat.text() if hasattr(self, "edit_sample_lat") else "")
+        lon = self._parse_coord_value(self.edit_sample_lon.text() if hasattr(self, "edit_sample_lon") else "")
+        if lat is None or lon is None or lat < -90 or lat > 90 or lon < -180 or lon > 180:
+            QMessageBox.warning(
+                self,
+                "Coordonnées GPS invalides",
+                "Veuillez saisir une latitude entre -90 et 90 et une longitude entre -180 et 180, "
+                "au format décimal, par exemple : 48.856600 et 2.352200.",
+            )
+            return
+        url = f"https://www.openstreetmap.org/?mlat={lat:.6f}&mlon={lon:.6f}#map=16/{lat:.6f}/{lon:.6f}"
+        if not QDesktopServices.openUrl(QUrl(url)):
+            QMessageBox.warning(self, "Carte indisponible", "Impossible d'ouvrir la carte dans le navigateur.")
+
     def _build_manip_name(self) -> str:
         initials = self._person_initials(self.edit_sampler.text() if hasattr(self, "edit_sampler") else "")
         dt = self.edit_sample_datetime.dateTime() if hasattr(self, "edit_sample_datetime") else QDateTime.currentDateTime()
@@ -1772,6 +1913,16 @@ class MetadataCreatorWidget(QWidget):
             "Nom de la manip": str(name or "").strip(),
             "Préleveur·se": self.edit_sampler.text().strip() if hasattr(self, "edit_sampler") else "",
             "Lieu du prélèvement": self.edit_sample_location.text().strip() if hasattr(self, "edit_sample_location") else "",
+            "Latitude du prélèvement": self._format_coord_value(
+                self.edit_sample_lat.text() if hasattr(self, "edit_sample_lat") else "",
+                -90.0,
+                90.0,
+            ),
+            "Longitude du prélèvement": self._format_coord_value(
+                self.edit_sample_lon.text() if hasattr(self, "edit_sample_lon") else "",
+                -180.0,
+                180.0,
+            ),
             "Date/heure du prélèvement": self._date_time_text(getattr(self, "edit_sample_datetime", None)),
             "Test ammonium réalisé": ammonium,
             "Test ammonium réalisé par": str(self._ammonium_test_values.get("operator", "") or "") if ammonium_enabled else "",
@@ -1796,6 +1947,17 @@ class MetadataCreatorWidget(QWidget):
             "Préleveuse": "Préleveur·se",
             "Preleveur": "Préleveur·se",
             "Preleveuse": "Préleveur·se",
+            "Lat": "Latitude du prélèvement",
+            "Latitude": "Latitude du prélèvement",
+            "Latitude GPS": "Latitude du prélèvement",
+            "Latitude prélèvement": "Latitude du prélèvement",
+            "Latitude prelevement": "Latitude du prélèvement",
+            "Lon": "Longitude du prélèvement",
+            "Long": "Longitude du prélèvement",
+            "Longitude": "Longitude du prélèvement",
+            "Longitude GPS": "Longitude du prélèvement",
+            "Longitude prélèvement": "Longitude du prélèvement",
+            "Longitude prelevement": "Longitude du prélèvement",
             "Ammonium test 1": "Test ammonium 1 (grossier)",
             "Ammonium test 2": "Test ammonium 2 (précis)",
             "Test 1 ammonium": "Test ammonium 1 (grossier)",
@@ -1817,6 +1979,8 @@ class MetadataCreatorWidget(QWidget):
             "Nom de la manip",
             "Préleveur·se",
             "Lieu du prélèvement",
+            "Latitude du prélèvement",
+            "Longitude du prélèvement",
             "Date/heure du prélèvement",
             "Test ammonium réalisé",
             "Test ammonium réalisé par",
@@ -2828,7 +2992,8 @@ class MetadataCreatorWidget(QWidget):
     # Méthode utilitaire optionnelle
     # ------------------------------------------------------------------
     def build_merged_metadata(self) -> pd.DataFrame:
-        return mm.build_merged_metadata(self.df_comp, self.df_map)
+        df_map = self._df_map_with_current_header(self.df_map) if self.df_map is not None else self.df_map
+        return mm.build_merged_metadata(self.df_comp, df_map)
     def _update_header_fields_from_df_map(self) -> None:
         """Met à jour les champs d'en-tête
         à partir des premières lignes du tableau de correspondance df_map, si possible.
@@ -2863,6 +3028,40 @@ class MetadataCreatorWidget(QWidget):
         sample_loc = _value_for("Lieu du prélèvement")
         if sample_loc and hasattr(self, "edit_sample_location"):
             self.edit_sample_location.setText(sample_loc)
+
+        sample_lat = _value_for(
+            "Latitude du prélèvement",
+            "Latitude prélèvement",
+            "Latitude prelevement",
+            "Latitude GPS",
+            "Latitude",
+            "Lat",
+        )
+        sample_lon = _value_for(
+            "Longitude du prélèvement",
+            "Longitude prélèvement",
+            "Longitude prelevement",
+            "Longitude GPS",
+            "Longitude",
+            "Long",
+            "Lon",
+        )
+        if not sample_lat or not sample_lon:
+            old_gps = _value_for(
+                "Coordonnées GPS du prélèvement",
+                "Coordonnées GPS",
+                "Coordonnees GPS",
+                "GPS prélèvement",
+                "GPS prelevement",
+                "GPS",
+            )
+            old_lat, old_lon = self._split_gps_pair(old_gps)
+            sample_lat = sample_lat or old_lat
+            sample_lon = sample_lon or old_lon
+        if sample_lat and hasattr(self, "edit_sample_lat"):
+            self.edit_sample_lat.setText(self._format_coord_value(sample_lat, -90.0, 90.0))
+        if sample_lon and hasattr(self, "edit_sample_lon"):
+            self.edit_sample_lon.setText(self._format_coord_value(sample_lon, -180.0, 180.0))
 
         sample_dt = _value_for("Date/heure du prélèvement")
         if sample_dt and hasattr(self, "edit_sample_datetime"):
