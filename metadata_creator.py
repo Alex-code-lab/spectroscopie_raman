@@ -1614,6 +1614,7 @@ class MetadataCreatorWidget(QWidget):
         self._reverse_geocode_cache: dict[tuple[float, float], tuple[str, str]] = {}
         self._last_reverse_geocode_key: tuple[float, float] | None = None
         self._last_reverse_geocode_at: float = 0.0
+        self._titration_name_manual: bool = False
 
         layout = QVBoxLayout(self)
         section_title_style = "color: #2f75b5; font-weight: 800; font-size: 15px;"
@@ -1986,9 +1987,14 @@ class MetadataCreatorWidget(QWidget):
         )
         self.edit_titration_manip.setToolTip(
             "Généré depuis les initiales prénom+nom de l'opérateur·ice puis du/de la coordinateur·ice, "
-            "puis _AAAAMMJJ_HHhMM."
+            "puis _AAAAMMJJ_HHhMM. Le bouton Modifier permet de saisir un nom manuel."
         )
+        self.edit_titration_manip.textChanged.connect(self._on_titration_manual_name_text_changed)
         row_titration_name.addWidget(self.edit_titration_manip, 1)
+        self.btn_toggle_titration_name_manual = QPushButton("Modifier", self)
+        self.btn_toggle_titration_name_manual.setToolTip("Saisir ou quitter le mode nom manuel pour la titration.")
+        self.btn_toggle_titration_name_manual.clicked.connect(self._on_toggle_titration_name_manual)
+        row_titration_name.addWidget(self.btn_toggle_titration_name_manual)
         titration_layout.addLayout(row_titration_name)
 
         self.edit_location = self.edit_titration_location
@@ -2401,6 +2407,9 @@ class MetadataCreatorWidget(QWidget):
             return
         qdt = QDateTime.fromString(txt, "dd/MM/yyyy HH:mm")
         if qdt.isValid():
+            if isinstance(widget, QDateEdit):
+                widget.setDate(qdt.date())
+                return
             try:
                 widget.setDateTime(qdt)
             except Exception:
@@ -2411,6 +2420,9 @@ class MetadataCreatorWidget(QWidget):
             return
         qd = QDate.fromString(txt, "dd/MM/yyyy")
         if qd.isValid():
+            if isinstance(widget, QDateEdit):
+                widget.setDate(qd)
+                return
             try:
                 widget.setDateTime(QDateTime(qd, widget.time()))
             except Exception:
@@ -2853,6 +2865,50 @@ class MetadataCreatorWidget(QWidget):
         dt = QDateTime(titration_date.date(), titration_time.time())
         return f"{oper}{coord}_{dt.toString('yyyyMMdd')}_{dt.toString('HH')}h{dt.toString('mm')}"
 
+    @staticmethod
+    def _is_yes_value(value: str | None) -> bool:
+        return str(value or "").strip().lower() in {"oui", "yes", "true", "1", "x"}
+
+    def _set_titration_name_manual_mode(self, manual: bool) -> None:
+        self._titration_name_manual = bool(manual)
+        if not hasattr(self, "edit_titration_manip"):
+            return
+        self.edit_titration_manip.setReadOnly(not manual)
+        self.edit_titration_manip.setFocusPolicy(Qt.StrongFocus if manual else Qt.NoFocus)
+        if hasattr(self, "btn_toggle_titration_name_manual"):
+            self.btn_toggle_titration_name_manual.setText("Auto" if manual else "Modifier")
+            self.btn_toggle_titration_name_manual.setToolTip(
+                "Revenir au nom généré automatiquement."
+                if manual
+                else "Saisir un nom manuel pour la titration."
+            )
+        if manual:
+            self.edit_titration_manip.setStyleSheet(
+                "background-color: rgba(92, 184, 92, 77); color: #ffffff; border: 1px solid #6fa8d6; "
+                "font-weight: 700; padding: 3px 6px;"
+            )
+        else:
+            self.edit_titration_manip.setStyleSheet(
+                "background-color: #263238; color: #ffffff; border: 1px solid #6fa8d6; "
+                "font-weight: 700; padding: 3px 6px;"
+            )
+
+    def _on_toggle_titration_name_manual(self) -> None:
+        manual = not bool(getattr(self, "_titration_name_manual", False))
+        self._set_titration_name_manual_mode(manual)
+        if manual:
+            if not self.edit_titration_manip.text().strip():
+                self.edit_titration_manip.setText(self._build_titration_manip_name())
+            self.edit_titration_manip.setFocus()
+            self.edit_titration_manip.selectAll()
+        else:
+            self._refresh_titration_manip_name(force=True)
+        self._on_titration_info_changed()
+
+    def _on_titration_manual_name_text_changed(self, *args) -> None:
+        if getattr(self, "_titration_name_manual", False):
+            self._on_titration_info_changed()
+
     def _refresh_manip_name(self) -> None:
         if not hasattr(self, "edit_manip"):
             return
@@ -2865,8 +2921,10 @@ class MetadataCreatorWidget(QWidget):
         if name:
             self._on_manip_name_changed()
 
-    def _refresh_titration_manip_name(self) -> None:
+    def _refresh_titration_manip_name(self, force: bool = False) -> None:
         if not hasattr(self, "edit_titration_manip"):
+            return
+        if getattr(self, "_titration_name_manual", False) and not force:
             return
         name = self._build_titration_manip_name()
         self.edit_titration_manip.blockSignals(True)
@@ -3028,6 +3086,9 @@ class MetadataCreatorWidget(QWidget):
             "Résultats Entérocoques intestinaux (npp/100ml)": bacterio_enterococci,
             "Titration": "Oui" if titration_done else "Non",
             "Nom de la manip de titration": str(titration_name or "").strip(),
+            "Nom de la manip de titration manuel": (
+                "Oui" if getattr(self, "_titration_name_manual", False) else "Non"
+            ),
             "Lieu de la titration": self.edit_titration_location.text().strip() if hasattr(self, "edit_titration_location") else "",
             "Date de la titration": self._titration_date_text(),
             "Heure de la titration": self._titration_time_text(),
@@ -3172,6 +3233,9 @@ class MetadataCreatorWidget(QWidget):
             "Titration faite": "Titration",
             "Nom de la titration": "Nom de la manip de titration",
             "Nom manip titration": "Nom de la manip de titration",
+            "Nom titration manuel": "Nom de la manip de titration manuel",
+            "Nom de la titration manuel": "Nom de la manip de titration manuel",
+            "Nom manip titration manuel": "Nom de la manip de titration manuel",
             "Coordinateur·ice": "Coordinateur",
             "Opérateur·ice": "Opérateur",
         }
@@ -3230,6 +3294,7 @@ class MetadataCreatorWidget(QWidget):
             "Résultats Entérocoques intestinaux (npp/100ml)",
             "Titration",
             "Nom de la manip de titration",
+            "Nom de la manip de titration manuel",
             "Lieu de la titration",
             "Date de la titration",
             "Heure de la titration",
@@ -4574,8 +4639,12 @@ class MetadataCreatorWidget(QWidget):
             self._set_time_text(self.edit_titration_time, titration_time)
 
         titration_name = _value_for("Nom de la manip de titration", "Nom de la titration", "Nom manip titration")
-        if titration_name and hasattr(self, "edit_titration_manip"):
-            self.edit_titration_manip.setText(titration_name)
+        titration_name_manual = _value_for(
+            "Nom de la manip de titration manuel",
+            "Nom de la titration manuel",
+            "Nom titration manuel",
+            "Nom manip titration manuel",
+        )
 
         titration_loc = _value_for("Lieu de la titration", "Lieu :", "Lieu")
         if titration_loc and hasattr(self, "edit_titration_location"):
@@ -4593,7 +4662,21 @@ class MetadataCreatorWidget(QWidget):
 
         if hasattr(self, "edit_sampler") and self.edit_sampler.text().strip():
             self._refresh_manip_name()
-        self._refresh_titration_manip_name()
+        expected_titration_name = self._build_titration_manip_name()
+        if titration_name:
+            manual_mode = (
+                self._is_yes_value(titration_name_manual)
+                if titration_name_manual
+                else bool(not expected_titration_name or titration_name != expected_titration_name)
+            )
+            self._set_titration_name_manual_mode(manual_mode)
+            if manual_mode:
+                self.edit_titration_manip.setText(titration_name)
+            else:
+                self._refresh_titration_manip_name(force=True)
+        else:
+            self._set_titration_name_manual_mode(False)
+            self._refresh_titration_manip_name(force=True)
 
     # ------------------------------------------------------------------
     # Export feuille de protocole
@@ -4685,8 +4768,6 @@ class MetadataCreatorWidget(QWidget):
         section_fill = PatternFill("solid", fgColor="F8CBAD")
         header_fill = PatternFill("solid", fgColor="E2F0D9")
         data_blue = PatternFill("solid", fgColor="BDD7EE")
-        data_yellow = PatternFill("solid", fgColor="FFF2CC")
-        data_gray = PatternFill("solid", fgColor="C9C0A0")
         data_cyan = PatternFill("solid", fgColor="00CFE8")
         comment_fill = PatternFill("solid", fgColor="FFE699")
         white_fill = PatternFill("solid", fgColor="FFFFFF")
@@ -4822,29 +4903,23 @@ class MetadataCreatorWidget(QWidget):
             ),
         }
 
-        for row_idx in range(7, 18):
-            for col_idx in range(1, 34):
-                cell = ws.cell(row=row_idx, column=col_idx)
-                col_letter = get_column_letter(col_idx)
-                if row_idx == 7 and col_letter in row_values:
-                    cell.value = row_values[col_letter]
-                cell.border = thick_bottom if row_idx in {7, 12, 17} else thin_border
-                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-                if col_letter in {"Y", "Z"}:
-                    cell.fill = data_cyan
-                elif col_letter == "AG":
-                    cell.fill = comment_fill if row_idx == 7 else data_yellow
-                elif row_idx in {8, 9, 10, 11, 12}:
-                    cell.fill = data_gray
-                elif col_letter in {"B", "C", "D", "I", "P", "Q", "R", "S", "T"}:
-                    cell.fill = data_blue
-                elif col_letter == "A":
-                    cell.fill = header_fill
-                else:
-                    cell.fill = data_yellow if row_idx != 7 else white_fill
-
-        for idx in range(2, 12):
-            ws.cell(row=idx + 6, column=1).value = idx
+        for col_idx in range(1, 34):
+            cell = ws.cell(row=7, column=col_idx)
+            col_letter = get_column_letter(col_idx)
+            if col_letter in row_values:
+                cell.value = row_values[col_letter]
+            cell.border = thick_bottom
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            if col_letter in {"Y", "Z"}:
+                cell.fill = data_cyan
+            elif col_letter == "AG":
+                cell.fill = comment_fill
+            elif col_letter in {"B", "C", "D", "I", "P", "Q", "R", "S", "T"}:
+                cell.fill = data_blue
+            elif col_letter == "A":
+                cell.fill = header_fill
+            else:
+                cell.fill = white_fill
 
         widths = {
             "A": 5, "B": 12, "C": 13, "D": 13, "E": 13, "F": 16, "G": 13, "H": 12,
@@ -4855,13 +4930,32 @@ class MetadataCreatorWidget(QWidget):
         }
         for col, width in widths.items():
             ws.column_dimensions[col].width = width
-        for row_idx in range(1, 18):
+        for row_idx in range(1, 8):
             ws.row_dimensions[row_idx].height = 24
         ws.row_dimensions[1].height = 18
         ws.row_dimensions[5].height = 34
         ws.row_dimensions[6].height = 34
         ws.freeze_panes = "A7"
         ws.sheet_view.zoomScale = 75
+
+    def _default_metadata_filename(self) -> str:
+        base_name = self.edit_manip.text().strip() if hasattr(self, "edit_manip") else ""
+        if not base_name:
+            base_name = "metadonnees"
+
+        suffixes = []
+        if hasattr(self, "chk_titration_done") and self.chk_titration_done.isChecked():
+            suffixes.append("T")
+        if hasattr(self, "chk_bacterio_analysis") and self.chk_bacterio_analysis.isChecked():
+            suffixes.append("AnBa")
+        if hasattr(self, "chk_ammonium_test") and self.chk_ammonium_test.isChecked():
+            suffixes.append("TAm")
+
+        filename = base_name + ("_" + "_".join(suffixes) if suffixes else "")
+        filename = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", filename)
+        filename = re.sub(r"\s+", "_", filename).strip(" ._")
+        filename = re.sub(r"_+", "_", filename).strip("_")
+        return f"{filename or 'metadonnees'}.xlsx"
 
     def _on_save_metadata_clicked(self) -> None:
         """Enregistre df_comp et df_map dans un fichier Excel."""
@@ -4877,11 +4971,13 @@ class MetadataCreatorWidget(QWidget):
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Enregistrer les métadonnées",
-            "",
+            self._default_metadata_filename(),
             "Fichier Excel (*.xlsx)"
         )
         if not path:
             return
+        if not path.lower().endswith(".xlsx"):
+            path += ".xlsx"
 
         try:
             if self.df_map is not None and isinstance(self.df_map, pd.DataFrame) and not self.df_map.empty:

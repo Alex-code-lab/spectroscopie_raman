@@ -102,261 +102,160 @@ class MainWindow(QMainWindow):
   th { background: #2a2a2a; color: #d4d4d4; font-weight: 600; }
 </style>
 
-<h2>Ramanalyze — Guide d’utilisation</h2>
+<h2>Dispositif de mesure de la qualité de l'eau par les citoyens</h2>
 
 <p>
-  Bienvenue dans <span class="key">Ramanalyze</span>, application d’analyse
-  de spectres Raman et SERS.<br>
-  Elle relie vos fichiers spectres <span class="mono">.txt</span> à des
-  <span class="accent">métadonnées expérimentales</span> (volumes, concentrations,
-  correspondance tubes), et offre des outils d’analyse quantitative et d’exploration
-  multivariée (PCA).
+  <span class="key">Ramanalyze</span> centralise la traçabilité du prélèvement,
+  les mesures terrain, les analyses complémentaires et, si elle est réalisée,
+  la titration suivie par spectroscopie Raman/SERS.
 </p>
-
-<h3>Parcours recommandé — 5 étapes</h3>
-<ol>
-  <li>
-    <span class="key">Métadonnées</span> — Remplissez le tableau des volumes,
-    la correspondance spectres ↔ tubes et utilisez la feuille de protocole.
-    Enregistrez en <span class="mono">.xlsx</span>.
-  </li>
-  <li>
-    <span class="key">Fichiers Raman</span> — Sélectionnez vos fichiers
-    <span class="mono">.txt</span> et cliquez <b>Ajouter la sélection</b>.
-  </li>
-  <li>
-    <span class="key">Spectres</span> — Vérifiez la qualité visuelle des spectres
-    (correction de baseline, légendes).
-  </li>
-  <li>
-    <span class="key">Analyse</span> — Choisissez vos pics, lancez l’analyse
-    des intensités et ratios, exportez en Excel.
-  </li>
-  <li>
-    <span class="key">Exploration</span> — Explorez la PCA pour comprendre
-    quelles bandes Raman discriminent le mieux vos échantillons.
-  </li>
-</ol>
 
 <div class="note">
   <b style="color:#ffffff">Guidage visuel :</b>
-  les boutons <span class="warn">rouges</span> signalent une action requise ;
-  les <span class="ok">verts</span> indiquent une étape validée.<br>
-  Dans l’onglet Analyse, les données sont reconstruites automatiquement au moment
-  de lancer l’analyse. Pour l’Exploration, rechargez les données après toute
-  modification des fichiers ou des métadonnées.
+  les champs <span class="warn">rouges</span> sont à renseigner, les champs
+  <span class="ok">verts</span> sont remplis. Les boutons rouges signalent une
+  étape à préparer ou à valider ; les boutons verts indiquent une étape prête.
 </div>
 
-<h3>1 — Onglet Métadonnées</h3>
+<h3>Parcours recommandé</h3>
+<ol>
+  <li><span class="key">Métadonnées</span> - créez ou rechargez la fiche terrain, puis enregistrez le fichier <span class="mono">.xlsx</span>.</li>
+  <li><span class="key">Fichiers Raman</span> - ajoutez les fichiers <span class="mono">.txt</span> si une acquisition Raman/SERS a été réalisée.</li>
+  <li><span class="key">Spectres</span> - contrôlez visuellement les spectres et la correction de baseline.</li>
+  <li><span class="key">Analyse</span> - choisissez la longueur d'onde du spectromètre, ajustez les ratios et lancez l'ajustement mathématique de la courbe.</li>
+  <li><span class="key">Exploration</span> - utilisez la PCA et les graphes de comparaison pour comprendre les variations entre spectres.</li>
+</ol>
 
-<h4>Tableau des volumes</h4>
+<h3>1 - Onglet Métadonnées</h3>
+
+<h4>Charger ou créer une fiche</h4>
 <p>
-  Chaque ligne est un réactif, chaque colonne est un tube (Tube 1, Tube 2…).
-  Les valeurs sont en µL. Le bouton <b>Générer un tableau de volume</b> ouvre
-  une génération avancée de volumes centrés autour de l’équivalence chimique.
+  Le bouton <b>Charger des métadonnées...</b> est placé en haut pour reprendre
+  une fiche existante. Sinon, remplissez les sections de haut en bas.
+  Le bouton <b>Enregistrer les métadonnées...</b> reste en bas de page et propose
+  automatiquement un nom de fichier basé sur le nom du prélèvement :
+  <span class="mono">NomPrelevement_T_AnBa_TAm.xlsx</span>.
 </p>
+<ul>
+  <li><span class="mono">_T</span> est ajouté si la titration est cochée.</li>
+  <li><span class="mono">_AnBa</span> est ajouté si les analyses bactériologiques sont cochées.</li>
+  <li><span class="mono">_TAm</span> est ajouté si le test ammonium est coché.</li>
+</ul>
 
+<h4>Prélèvement de l'échantillon</h4>
+<ul>
+  <li>Chaque préleveur·se est saisi·e au format <b>Prénom puis nom</b>, avec son association sur la même ligne.</li>
+  <li>Le bouton <b>+1 préleveur·se</b> ajoute une personne et une association supplémentaires.</li>
+  <li>La date et l'heure du prélèvement sont vides au départ ; elles passent au vert lorsqu'elles sont renseignées.</li>
+  <li>Le <b>nom du prélèvement</b> est généré automatiquement avec les initiales de tous les préleveur·ses, puis la date et l'heure.</li>
+  <li>Latitude et longitude acceptent les degrés décimaux ou les coordonnées GPS issues d'une carte.</li>
+  <li>Le bouton <b>Carte / pointer...</b> permet de placer le point sur une carte interne quand le composant web est disponible.</li>
+  <li>Si Internet est disponible, département et commune sont proposés automatiquement depuis les coordonnées GPS ; ils restent modifiables à la main.</li>
+</ul>
+
+<h4>Contexte terrain</h4>
+<ul>
+  <li><b>Type d'eau</b> reste rouge tant qu'aucun choix n'est fait.</li>
+  <li>Pour <b>eau de mer</b> ou <b>eau estuarienne</b>, le coefficient de marée et l'heure de pleine mer apparaissent.</li>
+  <li>Pour <b>eau douce</b>, le bouton <b>Débit / flux...</b> ouvre le tableau largeur, hauteur d'eau, volume, vitesse et débit.</li>
+  <li>Température de l'eau, météo, température de l'air, pluie sur 24 h et commentaire décrivent les conditions de prélèvement.</li>
+</ul>
+
+<h4>Mesures effectuées</h4>
+<ul>
+  <li><b>Test ammonium réalisé</b> ouvre une fenêtre pour le test grossier, le test précis, le pH et la personne qui réalise le test.</li>
+  <li><b>Analyses bactériologiques</b> affiche le jour de dépôt, l'heure de dépôt, l'entreprise de mesure et les résultats E. coli / entérocoques si disponibles.</li>
+  <li><b>Titration</b> est cochée uniquement si une titration est prévue ou réalisée. Elle reste en dessous des autres mesures.</li>
+</ul>
+
+<h4>Information sur la titration</h4>
+<ul>
+  <li>Coordinateur·ice et opérateur·ice sont saisi·es au format <b>Prénom puis nom</b>.</li>
+  <li>Lieu, date et heure de titration génèrent le nom de la manip de titration.</li>
+  <li>La correspondance spectres ↔ tubes repasse rouge uniquement si une information de titration est modifiée.</li>
+</ul>
+
+<h4>Tableau de volumes et protocole</h4>
+<p>
+  Le modèle actuel est la titration classique compte-gouttes. Le bouton
+  <b>Générer un tableau de volume...</b> reste disponible pour les usages avancés.
+  La feuille de protocole devient verte quand le tableau des volumes est prêt.
+</p>
 <table>
   <tr><th>Solution</th><th>Rôle</th></tr>
-  <tr><td><b>Solution A1</b></td><td>Tampon NH3+ concentré (70 mM) — volume fixe, maintient les particules de cuivre stables</td></tr>
-  <tr><td><b>Solution A2</b></td><td>Tampon NH3+ (7 mM) — volume variable, complémentaire à B (A2 + B = constante)</td></tr>
-  <tr><td><b>Solution B</b></td><td>Titrant (<span class="accent">paramètre variable</span>)</td></tr>
-  <tr><td><b>Solution C</b></td><td>Indicateur SERS (molécule rapporteur, volume fixe)</td></tr>
-  <tr><td><b>Solution D</b></td><td>PEG (agent de crowding, volume fixe)</td></tr>
-  <tr><td><b>Solution E</b></td><td>Nanoparticules SERS (volume fixe)</td></tr>
-  <tr><td><b>Solution F</b></td><td>Crosslinker (ex. spermine, volume fixe)</td></tr>
+  <tr><td><b>Solution A1</b></td><td>Tampon NH3+ concentré, volume fixe.</td></tr>
+  <tr><td><b>Solution A2</b></td><td>Tampon NH3+ dilué, complémentaire à la solution B.</td></tr>
+  <tr><td><b>Solution B</b></td><td>Titrant, volume variable d'un tube à l'autre.</td></tr>
+  <tr><td><b>Solution C</b></td><td>Indicateur SERS.</td></tr>
+  <tr><td><b>Solution D</b></td><td>PEG ou agent de crowding.</td></tr>
+  <tr><td><b>Solution E</b></td><td>Nanoparticules SERS.</td></tr>
+  <tr><td><b>Solution F</b></td><td>Crosslinker, à mélanger immédiatement tube par tube.</td></tr>
 </table>
+<p>
+  Dans le protocole guidé, les cases qui ne sont pas à l'étape courante sont
+  grisées. Les étapes actives passent en couleur. Des lignes de mélange sont
+  prévues après les solutions B, C, D et E, puis une attention spécifique est
+  affichée avant l'ajout de la solution F.
+</p>
 
 <h4>Correspondance spectres ↔ tubes</h4>
 <p>
-  Associez chaque fichier spectre à un tube. Cette correspondance est utilisée
-  pour relier les concentrations calculées à chaque spectre lors de l’assemblage.
-  Le label <span class="mono">Contrôle</span> est automatiquement mappé au
-  dernier tube (réplicat).
+  La correspondance associe les noms de spectres aux tubes. Elle utilise le nom
+  du prélèvement pour générer les noms de spectres et conserve les associations
+  déjà définies lorsque les autres métadonnées terrain sont modifiées.
 </p>
 
-<h4>Feuille de protocole de paillasse</h4>
+<h4>Fichier Excel enregistré</h4>
 <p>
-  Le bouton <span class="key">Feuille de protocole…</span> ouvre un dialogue
-  interactif de <span class="accent">suivi du pipetage</span> sur la paillasse.
-  Il affiche le tableau <span class="mono">df_comp</span> sous forme d'une grille
-  où chaque réactif est une ligne et chaque tube une colonne.
-</p>
-<p>Pour chaque tube, trois sous-colonnes sont proposées :</p>
-<ul>
-  <li><b>Volume (µL)</b> — lecture seule, rappelle la quantité à pipeter.</li>
-  <li><b>Coordinateur ☐</b> — case à cocher validée par le coordinateur.</li>
-  <li><b>Opérateur ☐</b> — case à cocher validée par l'opérateur.</li>
-</ul>
-<p>
-  Une colonne <b>Vérification solution</b> supplémentaire permet de confirmer
-  l'identité du flacon avant de commencer le pipetage d'un réactif.
-</p>
-
-<h4>Mode guidé (étape par étape)</h4>
-<p>
-  En mode guidé, <b>seule la cellule de l'étape courante est active</b> ;
-  toutes les autres sont grisées et désactivées.
-  La séquence automatique est la suivante :
-</p>
-<ol>
-  <li>Vérification de la solution (colonne « Vérif ») pour le 1<sup>er</sup> réactif.</li>
-  <li>Tube 1 — Volume confirmé + case Coordinateur + case Opérateur.</li>
-  <li>Tube 2 — idem, puis Tube 3… jusqu'au dernier tube.</li>
-  <li>Passage au réactif suivant : Vérif → Tube 1 → Tube 2 → …</li>
-</ol>
-<p>
-  Un libellé de statut vert indique l'étape en cours :
-  <span class="mono">→ Vérifier la solution : Solution A2</span> ou
-  <span class="mono">→ Solution A2 · Tube 1</span>.
-</p>
-
-<div class="note">
-  <b style="color:#ffffff">Workflow coordinateur / opérateur :</b>
-  le coordinateur coche sa case en premier pour indiquer qu'il a préparé
-  le tube, puis l'opérateur valide après vérification indépendante.
-  Les boutons <b style="color:#ffffff">Tout cocher — Coord.</b> et <b style="color:#ffffff">Tout cocher — Opér.</b>
-  permettent de valider toutes les cases d'un rôle en un clic.
-  <b style="color:#ffffff">Tout décocher</b> remet tout à zéro.
-</div>
-
-<h4>Export et rechargement du fichier unifié</h4>
-<p>
-  Le bouton <b>Exporter Excel…</b> génère un fichier <span class="mono">.xlsx</span>
-  contenant <b>4 feuilles</b> :
+  L'enregistrement est possible même sans titration. Si des cases optionnelles
+  sont cochées mais incomplètes, un avertissement signale les points à vérifier
+  sans bloquer l'enregistrement.
 </p>
 <ul>
-  <li><span class="mono">Protocole</span> — feuille visuelle mise en forme
-      (en-têtes colorés, texte pivoté, symboles ✓/☐).</li>
-  <li><span class="mono">Volumes</span> — données brutes de <span class="mono">df_comp</span>.</li>
-  <li><span class="mono">Correspondance</span> — données brutes de <span class="mono">df_map</span>.</li>
-  <li><span class="mono">EtatProtocole</span> — état de chaque case (type, r_idx, t_idx, checked).</li>
-</ul>
-<p>
-  Ce fichier unifié peut être rechargé via <b>Charger des métadonnées…</b> :
-  toutes les cases reprennent exactement l'état sauvegardé.
-  L'état est également préservé en mémoire lorsque vous fermez le dialogue,
-  et inclus automatiquement dans <b>Enregistrer les métadonnées…</b>.
-</p>
-
-<h4>Concentrations en cuvette</h4>
-<p>
-  Le bouton <b>Voir concentrations</b> affiche le tableau des concentrations
-  finales dans chaque tube, calculées à partir des volumes et des concentrations
-  stock (lecture seule).
-</p>
-
-<h4>Assemblage et sauvegarde</h4>
-<ul>
-  <li>Cliquez <b>Assembler</b> pour charger les spectres, corriger la baseline
-      et fusionner avec les métadonnées.</li>
-  <li>Vérifiez le message de succès (nombre de lignes / colonnes).</li>
-  <li>Cliquez <b>Enregistrer</b> pour sauvegarder le fichier combiné
-      (CSV ou Excel).</li>
+  <li><span class="mono">Mesures</span> - fiche terrain synthétique, avec une seule ligne de données.</li>
+  <li><span class="mono">Volumes</span> - tableau de volumes si la titration est utilisée.</li>
+  <li><span class="mono">Correspondance</span> - métadonnées et correspondance spectres ↔ tubes.</li>
+  <li><span class="mono">EtatProtocole</span> - état des cases du protocole si une feuille de protocole a été utilisée.</li>
 </ul>
 
-<h3>2 — Onglet Fichiers Raman</h3>
+<h3>2 - Onglet Fichiers Raman</h3>
 <ul>
-  <li>Double-cliquez sur un dossier pour le parcourir.</li>
-  <li>Sélectionnez un ou plusieurs fichiers <span class="mono">.txt</span>
-      (résultats Raman bruts).</li>
-  <li>Cliquez <b>Ajouter la sélection</b> — les fichiers apparaissent dans
-      la liste de droite.</li>
+  <li>Sélectionnez les fichiers <span class="mono">.txt</span> issus du spectromètre.</li>
+  <li>Cliquez <b>Ajouter la sélection</b> pour les placer dans la liste de travail.</li>
   <li>Utilisez <b>Retirer</b> ou <b>Vider la liste</b> si nécessaire.</li>
 </ul>
 
-<h3>3 — Onglet Spectres</h3>
+<h3>3 - Onglet Spectres</h3>
 <ul>
-  <li>Affiche les spectres corrigés du fichier combiné.</li>
-  <li>La légende utilise <span class="mono">Sample description</span>
-      si disponible.</li>
-  <li>Cliquez <b>Tracer avec baseline</b> pour générer la figure Plotly
-      interactive (zoom, pan, export PNG).</li>
+  <li>Affiche les spectres corrigés et permet de contrôler rapidement les profils.</li>
+  <li>La visualisation interactive permet de zoomer, comparer et exporter une figure.</li>
+  <li>Un résultat incohérent doit d'abord faire vérifier la correspondance spectres ↔ tubes et la baseline.</li>
 </ul>
 
-<h3>4 — Onglet Analyse</h3>
+<h3>4 - Onglet Analyse</h3>
 <ul>
-  <li>Choisissez un jeu de pics prédéfini :
-    <ul>
-      <li><b>532 nm</b> : 1231, 1327, 1342, 1358, 1450 cm⁻¹</li>
-      <li><b>785 nm</b> : 412, 444, 471, 547, 1561 cm⁻¹</li>
-    </ul>
-  </li>
-  <li>Réglez la <b>tolérance</b> (fenêtre de recherche autour de chaque pic,
-      défaut 2 cm⁻¹).</li>
-  <li>Cliquez <b>Analyser les pics</b> : l’application recharge automatiquement
-      les fichiers Raman sélectionnés et les métadonnées courantes, puis calcule :
-    <ul>
-      <li>l’intensité maximale dans chaque fenêtre, par spectre ;</li>
-      <li>tous les ratios entre paires de pics ;</li>
-      <li>un graphique interactif des ratios en fonction des métadonnées.</li>
-    </ul>
-  </li>
-  <li>Exportez en Excel (feuilles <span class="mono">intensites</span>
-      et <span class="mono">ratios</span>).</li>
+  <li><b>Longueur d'onde du spectromètre</b> choisit les pics adaptés au jeu spectral.</li>
+  <li><b>Ajuster le ratio de longueur d'onde</b> permet de choisir le ratio utilisé pour la quantification.</li>
+  <li><b>Ajustement mathématique de la courbe</b> lance le modèle d'ajustement sur les données disponibles.</li>
+  <li>L'export Excel contient les intensités, ratios et résultats utiles à la comparaison.</li>
 </ul>
 
-<h3>5 — Onglet Exploration (PCA)</h3>
-
-<h4>Sous-onglets disponibles</h4>
+<h3>5 - Onglet Exploration</h3>
 <table>
-  <tr><th>Sous-onglet</th><th>Ce qu’il montre</th></tr>
-  <tr><td>Spectres normalisés</td><td>Spectres après normalisation par la norme vectorielle</td></tr>
-  <tr><td>Spectres superposés</td><td>Superposition brute des spectres</td></tr>
-  <tr><td>PCA corrélée</td><td>PCA sur les intensités aux pics sélectionnés</td></tr>
-  <tr><td>PCA — Scores</td><td>Position de chaque spectre dans l’espace PCA libre (colorié par variable)</td></tr>
-  <tr><td>PCA — Loadings</td><td>Poids de chaque nombre d’onde pour chaque composante</td></tr>
-  <tr><td>PCA — Reconstruction</td><td>Reconstruction d’un spectre à partir de N composantes</td></tr>
-  <tr><td>Scatter matrix</td><td>Corrélations visuelles entre tous les pics</td></tr>
+  <tr><th>Sous-onglet</th><th>Ce qu'il montre</th></tr>
+  <tr><td>Spectres normalisés</td><td>Spectres après normalisation par la norme vectorielle.</td></tr>
+  <tr><td>Spectres superposés</td><td>Comparaison brute des spectres.</td></tr>
+  <tr><td>PCA corrélée</td><td>PCA sur les intensités aux pics sélectionnés.</td></tr>
+  <tr><td>PCA - Scores</td><td>Position des spectres dans l'espace PCA, colorée par variable.</td></tr>
+  <tr><td>PCA - Loadings</td><td>Bandes Raman qui portent chaque composante.</td></tr>
+  <tr><td>PCA - Reconstruction</td><td>Reconstruction d'un spectre à partir d'un nombre choisi de composantes.</td></tr>
 </table>
 
-<h4>Comprendre la PCA en bref</h4>
-<p>
-  Chaque spectre est un vecteur de ~1 000 intensités (une par nombre d’onde).
-  La PCA cherche les <b>directions</b> dans cet espace à 1 000 dimensions
-  qui capturent le plus de variabilité entre spectres.
-</p>
-<ul>
-  <li>
-    <b>PC1</b> = direction qui explique <i>le plus</i> de variance.
-    Pas forcément la plus chimiquement intéressante : elle peut capturer
-    une variation de ligne de base ou de puissance laser.
-  </li>
-  <li>
-    <b>PC2</b> = perpendiculaire à PC1, 2<sup>e</sup> source de variabilité.
-    C’est souvent là que l’effet chimique (concentration) apparaît.
-  </li>
-  <li>
-    <b>Loading</b> = le "spectre fantôme" d’une composante. Tracé en fonction
-    du Raman Shift, il indique quelles bandes Raman portent cette composante.
-    Interprétez-le comme un spectre normal.
-  </li>
-  <li>
-    <b>Score</b> d’un spectre = sa coordonnée sur un axe PCA.
-    Score positif élevé = le spectre ressemble fortement au pattern du loading.
-  </li>
-  <li>
-    <b>Reconstruction</b> avec N=1 : visualise ce que PC1 a capturé seule.
-    Ajoutez des composantes progressivement pour voir ce que chacune apporte.
-  </li>
-</ul>
-
 <div class="warn-box">
-  <b style="color:#ffffff">Conseil :</b> Si les points du graphe Scores PC1 vs PC2 colorés par
-  concentration ne se séparent pas selon PC1, regardez PC2 et PC3 — l’effet
-  chimique n’est pas toujours dans la première composante.
+  <b style="color:#ffffff">Points à vérifier en cas d'incohérence :</b>
+  nom du prélèvement, date/heure, coordonnées GPS, type d'eau, correspondance
+  spectres ↔ tubes, tableau de volumes, baseline et choix de longueur d'onde.
 </div>
-
-<h3>Si un résultat semble incohérent</h3>
-<ul>
-  <li>Vérifiez la correspondance spectres ↔ tubes (les bons spectres sont-ils
-      assignés aux bons tubes ?).</li>
-  <li>Vérifiez les unités des concentrations stock dans le tableau des volumes.</li>
-  <li>Dans l’onglet Analyse, relancez simplement <b>Analyser les pics</b> après
-      toute modification des fichiers ou des métadonnées.</li>
-  <li>En PCA, vérifiez que la correction de baseline est satisfaisante :
-      une mauvaise baseline peut dominer PC1 et masquer l’effet chimique.</li>
-</ul>
 """
 
         text_label = QLabel(doc_html, container)
