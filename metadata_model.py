@@ -500,8 +500,8 @@ def sers_gaussian_volumes(
     if span <= 0:
         raise ValueError("span_frac > 0 requis")
     sigma_V = span * min(
-        (Vmax_uL - Veq_uL) / zmax,
-        (Veq_uL - Vmin_uL) / zmax,
+        max(0.0, (Vmax_uL - Veq_uL)) / zmax,
+        max(0.0, (Veq_uL - Vmin_uL)) / zmax,
     )
 
     # Volumes titrant

@@ -631,7 +631,9 @@ class AnalysisTab(QWidget):
         # Calcul des ratios : paires pré-enregistrées si disponibles, sinon toutes les combinaisons
         pair_list = self._pairs if self._pairs else list(itertools.combinations(peaks, 2))
         for (a, b) in pair_list:
-            peak_intensities[f"ratio_I_{a}_I_{b}"] = peak_intensities[f"I_{a}"] / peak_intensities[f"I_{b}"]
+            col_a, col_b = f"I_{a}", f"I_{b}"
+            if col_a in peak_intensities.columns and col_b in peak_intensities.columns:
+                peak_intensities[f"ratio_I_{a}_I_{b}"] = peak_intensities[col_a] / peak_intensities[col_b]
 
         # Joindre aux métadonnées (si colonnes présentes)
         if "Spectrum name" not in peak_intensities.columns:
@@ -983,6 +985,8 @@ class AnalysisTab(QWidget):
         self._js_export_fmt   = fmt
         self.plot_view.page().runJavaScript(js)
 
+        if hasattr(self, "_js_poll") and self._js_poll.isActive():
+            self._js_poll.stop()
         self._js_poll = QTimer(self)
         self._js_poll.setInterval(300)
         self._js_poll.timeout.connect(self._poll_js_export)

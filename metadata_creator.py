@@ -1825,7 +1825,7 @@ class MetadataCreatorWidget(QWidget):
         self.spin_rainfall_24h.setDecimals(1)
         self.spin_rainfall_24h.setSuffix(" mm")
         self.spin_rainfall_24h.setSpecialValueText("non renseigné")
-        self.spin_rainfall_24h.setValue(-1.0)
+        self.spin_rainfall_24h.setValue(self.spin_rainfall_24h.minimum())
         self.spin_rainfall_24h.valueChanged.connect(self._on_header_field_changed)
         row_weather.addWidget(self.spin_rainfall_24h)
         row_weather.addStretch(1)
@@ -3055,7 +3055,7 @@ class MetadataCreatorWidget(QWidget):
             "Heure de pleine mer": high_tide_time,
             "Temps au moment de la mesure": (
                 self.combo_weather.currentText()
-                if hasattr(self, "combo_weather") and self.combo_weather.currentText() not in ("", "Choisir...")
+                if hasattr(self, "combo_weather") and _field_has_value(self.combo_weather)
                 else ""
             ),
             "Température de l'air": (
@@ -3065,7 +3065,7 @@ class MetadataCreatorWidget(QWidget):
             ),
             "Pluie dernières 24 h (mm)": (
                 str(round(self.spin_rainfall_24h.value(), 1))
-                if hasattr(self, "spin_rainfall_24h") and self.spin_rainfall_24h.value() >= 0.0
+                if hasattr(self, "spin_rainfall_24h") and _field_has_value(self.spin_rainfall_24h)
                 else ""
             ),
             "Commentaire sur les conditions": (
@@ -3238,6 +3238,26 @@ class MetadataCreatorWidget(QWidget):
             "Nom manip titration manuel": "Nom de la manip de titration manuel",
             "Coordinateur·ice": "Coordinateur",
             "Opérateur·ice": "Opérateur",
+            "Temperature de l'eau": "Température de l'eau",
+            "Temp eau": "Température de l'eau",
+            "Température eau": "Température de l'eau",
+            "Température de l eau": "Température de l'eau",
+            "Meteo": "Temps au moment de la mesure",
+            "Météo": "Temps au moment de la mesure",
+            "Temps mesure": "Temps au moment de la mesure",
+            "Temps au moment": "Temps au moment de la mesure",
+            "Temperature de l'air": "Température de l'air",
+            "Temp air": "Température de l'air",
+            "Température air": "Température de l'air",
+            "Température de l air": "Température de l'air",
+            "Pluie 24h": "Pluie dernières 24 h (mm)",
+            "Pluie dernieres 24h": "Pluie dernières 24 h (mm)",
+            "Pluie dernières 24h": "Pluie dernières 24 h (mm)",
+            "Rainfall 24h": "Pluie dernières 24 h (mm)",
+            "Pluie 24 h": "Pluie dernières 24 h (mm)",
+            "Conditions commentaire": "Commentaire sur les conditions",
+            "Commentaire conditions": "Commentaire sur les conditions",
+            "Observations conditions": "Commentaire sur les conditions",
         }
         return aliases.get(key, key)
 

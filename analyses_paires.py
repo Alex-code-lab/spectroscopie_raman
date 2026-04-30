@@ -183,8 +183,9 @@ def find_cross_manip_best(
                 if _close(entry["pic_a"], entry["pic_b"],
                           float(row["pic_a"]), float(row["pic_b"]), tolerance):
                     # Garder le meilleur |rho| trouvé dans cette manip
-                    if other_manip not in manip_rhos or row["abs_rho"] > manip_rhos[other_manip]:
-                        manip_rhos[other_manip] = float(row["abs_rho"])
+                    val = float(row["abs_rho"])
+                    if np.isfinite(val) and (other_manip not in manip_rhos or val > manip_rhos[other_manip]):
+                        manip_rhos[other_manip] = val
 
         n_m      = len(manip_rhos)
         mean_rho = float(np.mean(list(manip_rhos.values())))

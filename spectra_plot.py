@@ -499,6 +499,8 @@ class SpectraTab(QWidget):
         self._js_export_fmt   = fmt
         self.plot_view.page().runJavaScript(js)
 
+        if hasattr(self, "_js_poll") and self._js_poll.isActive():
+            self._js_poll.stop()
         self._js_poll = QTimer(self)
         self._js_poll.setInterval(300)
         self._js_poll.timeout.connect(self._poll_js_export)

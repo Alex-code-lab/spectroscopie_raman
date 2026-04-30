@@ -538,7 +538,7 @@ class PeakSelectorTab(QWidget):
         X_v      = X[valid]
         r_v      = r[valid]
         ids_v    = spec_ids[valid]
-        meta_v   = meta_per_spec.iloc[valid].reset_index(drop=True)
+        meta_v   = meta_per_spec[valid].reset_index(drop=True)
 
         # Normalisation
         X_proc = normalize_matrix(X_v, self.cmb_norm.currentIndex())
