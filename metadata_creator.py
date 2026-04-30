@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QMenu,
     QTextBrowser,
+    QTextEdit,
 )
 
 from PySide6.QtCore import QObject, Qt, QDate, QDateTime, QUrl, Slot
@@ -55,6 +56,8 @@ except Exception:
 NUM_DISPLAY_PRECISION = 12
 DEFAULT_VTOT_UL = 3090.0
 SUM_TARGET_TOL = 1e-3
+FIELD_EMPTY_STYLE = "background-color: rgba(217, 83, 79, 77);"
+FIELD_FILLED_STYLE = "background-color: rgba(92, 184, 92, 77);"
 MOLAR_UNIT_FACTORS = {
     "M": 1.0,
     "mM": 1e-3,
@@ -65,6 +68,49 @@ MOLAR_UNIT_FACTORS = {
 
 # Affichage numérique: précision et suppression de l'écriture scientifique.
 NUM_DISPLAY_PRECISION = 12
+
+
+def _field_has_value(widget) -> bool:
+    if isinstance(widget, QLineEdit):
+        return bool(widget.text().strip())
+    if isinstance(widget, QTextEdit):
+        return bool(widget.toPlainText().strip())
+    if isinstance(widget, QComboBox):
+        return str(widget.currentText()).strip().lower() not in {"", "choisir..."}
+    if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+        if widget.specialValueText() and widget.value() == widget.minimum():
+            return False
+        return True
+    if isinstance(widget, (QDateEdit, QDateTimeEdit)):
+        return True
+    return True
+
+
+def _apply_field_fill_style(widget) -> None:
+    if widget is None:
+        return
+    widget.setStyleSheet(FIELD_FILLED_STYLE if _field_has_value(widget) else FIELD_EMPTY_STYLE)
+
+
+def _install_field_fill_style(widget) -> None:
+    if widget is None:
+        return
+    _apply_field_fill_style(widget)
+    if widget.property("_fill_state_style_installed"):
+        return
+    widget.setProperty("_fill_state_style_installed", True)
+    if isinstance(widget, QLineEdit):
+        widget.textChanged.connect(lambda *_args, w=widget: _apply_field_fill_style(w))
+    elif isinstance(widget, QTextEdit):
+        widget.textChanged.connect(lambda w=widget: _apply_field_fill_style(w))
+    elif isinstance(widget, QComboBox):
+        widget.currentTextChanged.connect(lambda *_args, w=widget: _apply_field_fill_style(w))
+    elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+        widget.valueChanged.connect(lambda *_args, w=widget: _apply_field_fill_style(w))
+    elif isinstance(widget, QDateTimeEdit):
+        widget.dateTimeChanged.connect(lambda *_args, w=widget: _apply_field_fill_style(w))
+    elif isinstance(widget, QDateEdit):
+        widget.dateChanged.connect(lambda *_args, w=widget: _apply_field_fill_style(w))
 
 
 class TableEditorDialog(QDialog):
@@ -652,6 +698,8 @@ class AmmoniumTestDialog(QDialog):
         self.edit_test_1.setPlaceholderText("Test 1 grossier")
         self.edit_test_2.setPlaceholderText("Test 2 précis")
         self.edit_ph.setPlaceholderText("pH")
+        for edit in (self.edit_operator, self.edit_test_1, self.edit_test_2, self.edit_ph):
+            _install_field_fill_style(edit)
 
         form.addRow("Test réalisé par :", self.edit_operator)
         form.addRow("Valeur du test numéro 1 (grossier) :", self.edit_test_1)
@@ -671,6 +719,42 @@ class AmmoniumTestDialog(QDialog):
             "test_2": self.edit_test_2.text().strip(),
             "ph": self.edit_ph.text().strip(),
         }
+
+
+class DebitFluxDialog(QDialog):
+    """Dialogue de saisie du tableau débit / flux pour les prélèvements en eau douce."""
+
+    def __init__(self, columns: list[str], values: dict[str, str] | None = None, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Débit / flux")
+        self.resize(520, 360)
+        self._columns = list(columns)
+        values = values or {}
+
+        layout = QVBoxLayout(self)
+        title = QLabel("Débit / flux", self)
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet("font-weight: 800; font-size: 16px;")
+        layout.addWidget(title)
+
+        form = QFormLayout()
+        self._edits: dict[str, QLineEdit] = {}
+        for column in self._columns:
+            edit = QLineEdit(str(values.get(column, "") or ""), self)
+            edit.setPlaceholderText("valeur à renseigner")
+            edit.setMinimumWidth(260)
+            _install_field_fill_style(edit)
+            form.addRow(f"{column} :", edit)
+            self._edits[column] = edit
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def values(self) -> dict[str, str]:
+        return {column: edit.text().strip() for column, edit in self._edits.items()}
 
 
 class _MapPickerBridge(QObject):
@@ -1475,6 +1559,16 @@ class MetadataCreatorWidget(QWidget):
         ),
     }
 
+    DEBIT_FLUX_COLUMNS = [
+        "Largeur route",
+        "Longueur 6 arches",
+        "Hauteur eau",
+        "Volume total (m3)",
+        "Vitesse (s)",
+        "Débit (m3/s)",
+    ]
+    DEBIT_FLUX_PREFIX = "Débit / flux - "
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
 
@@ -1495,6 +1589,8 @@ class MetadataCreatorWidget(QWidget):
         self._spec_start_index: int = 0
         self._ammonium_test_enabled: bool = False
         self._ammonium_test_values: dict[str, str] = {"test_1": "", "test_2": "", "ph": "", "operator": ""}
+        self._debit_flux_values: dict[str, str] = {column: "" for column in self.DEBIT_FLUX_COLUMNS}
+        self._fillable_fields: list = []
 
         layout = QVBoxLayout(self)
         section_title_style = "color: #2f75b5; font-weight: 800; font-size: 15px;"
@@ -1618,10 +1714,67 @@ class MetadataCreatorWidget(QWidget):
         self.edit_high_tide_time.editingFinished.connect(self._normalize_high_tide_time)
         self.edit_high_tide_time.textChanged.connect(self._on_header_field_changed)
         row_water.addWidget(self.edit_high_tide_time)
+
+        row_water.addWidget(QLabel("Température de l'eau :", self))
+        self.spin_water_temperature = QDoubleSpinBox(self)
+        self.spin_water_temperature.setRange(-10.0, 50.0)
+        self.spin_water_temperature.setDecimals(1)
+        self.spin_water_temperature.setSuffix(" °C")
+        self.spin_water_temperature.setSpecialValueText("non renseigné")
+        self.spin_water_temperature.setValue(-10.0)
+        self.spin_water_temperature.valueChanged.connect(self._on_header_field_changed)
+        row_water.addWidget(self.spin_water_temperature)
+
+        self.btn_debit_flux = QPushButton("Débit / flux…", self)
+        self.btn_debit_flux.setToolTip("Ouvre le tableau débit / flux pour les prélèvements en eau douce.")
+        self.btn_debit_flux.clicked.connect(self._on_debit_flux_clicked)
+        row_water.addWidget(self.btn_debit_flux)
+
         row_water.addStretch(1)
         header_layout.addLayout(row_water)
         self._refresh_tide_fields_enabled()
         self._refresh_water_type_style()
+
+        row_weather = QHBoxLayout()
+        row_weather.addWidget(QLabel("Temps au moment de la mesure :", self))
+        self.combo_weather = QComboBox(self)
+        self.combo_weather.addItems([
+            "Choisir...", "Ensoleillé", "Nuageux", "Couvert",
+            "Petite pluie", "Pluie forte", "Orage",
+        ])
+        self.combo_weather.currentTextChanged.connect(self._on_header_field_changed)
+        row_weather.addWidget(self.combo_weather)
+
+        row_weather.addWidget(QLabel("Température de l'air :", self))
+        self.spin_air_temperature = QDoubleSpinBox(self)
+        self.spin_air_temperature.setRange(-30.0, 60.0)
+        self.spin_air_temperature.setDecimals(1)
+        self.spin_air_temperature.setSuffix(" °C")
+        self.spin_air_temperature.setSpecialValueText("non renseigné")
+        self.spin_air_temperature.setValue(-30.0)
+        self.spin_air_temperature.valueChanged.connect(self._on_header_field_changed)
+        row_weather.addWidget(self.spin_air_temperature)
+
+        row_weather.addWidget(QLabel("Pluie dernières 24 h :", self))
+        self.spin_rainfall_24h = QDoubleSpinBox(self)
+        self.spin_rainfall_24h.setRange(-1.0, 500.0)
+        self.spin_rainfall_24h.setDecimals(1)
+        self.spin_rainfall_24h.setSuffix(" mm")
+        self.spin_rainfall_24h.setSpecialValueText("non renseigné")
+        self.spin_rainfall_24h.setValue(-1.0)
+        self.spin_rainfall_24h.valueChanged.connect(self._on_header_field_changed)
+        row_weather.addWidget(self.spin_rainfall_24h)
+        row_weather.addStretch(1)
+        header_layout.addLayout(row_weather)
+
+        row_conditions = QHBoxLayout()
+        row_conditions.addWidget(QLabel("Commentaire sur les conditions :", self))
+        self.edit_conditions_comment = QTextEdit(self)
+        self.edit_conditions_comment.setPlaceholderText("Décrivez ici toute observation sur les conditions environnementales…")
+        self.edit_conditions_comment.setFixedHeight(70)
+        self.edit_conditions_comment.textChanged.connect(self._on_header_field_changed)
+        row_conditions.addWidget(self.edit_conditions_comment)
+        header_layout.addLayout(row_conditions)
 
         layout.addLayout(header_layout)
 
@@ -1670,6 +1823,26 @@ class MetadataCreatorWidget(QWidget):
         row_bacterio.addWidget(self.edit_bacterio_company)
         row_bacterio.addStretch(1)
         measures_layout.addLayout(row_bacterio)
+
+        row_bacterio_results = QHBoxLayout()
+        self.lbl_bacterio_results = QLabel("Si résultat :", self)
+        row_bacterio_results.addWidget(self.lbl_bacterio_results)
+
+        self.lbl_bacterio_ecoli = QLabel("Résultats E.Coli (npp/ml) :", self)
+        row_bacterio_results.addWidget(self.lbl_bacterio_ecoli)
+        self.edit_bacterio_ecoli = QLineEdit(self)
+        self.edit_bacterio_ecoli.setPlaceholderText("valeur")
+        self.edit_bacterio_ecoli.textChanged.connect(self._on_header_field_changed)
+        row_bacterio_results.addWidget(self.edit_bacterio_ecoli)
+
+        self.lbl_bacterio_enterococci = QLabel("Résultats Entérocoques intestinaux (npp/100ml) :", self)
+        row_bacterio_results.addWidget(self.lbl_bacterio_enterococci)
+        self.edit_bacterio_enterococci = QLineEdit(self)
+        self.edit_bacterio_enterococci.setPlaceholderText("valeur")
+        self.edit_bacterio_enterococci.textChanged.connect(self._on_header_field_changed)
+        row_bacterio_results.addWidget(self.edit_bacterio_enterococci)
+        row_bacterio_results.addStretch(1)
+        measures_layout.addLayout(row_bacterio_results)
         self._refresh_bacterio_fields_visible()
 
         layout.addLayout(measures_layout)
@@ -1836,6 +2009,42 @@ class MetadataCreatorWidget(QWidget):
         layout.addWidget(self.lbl_status_map)
 
         layout.addStretch(1)
+        self._setup_fillable_field_styles()
+
+    def _setup_fillable_field_styles(self) -> None:
+        self._fillable_fields = [
+            self.edit_sampler,
+            self.edit_sample_associations,
+            self.edit_sample_datetime,
+            self.edit_sample_location,
+            self.edit_sample_lat,
+            self.edit_sample_lon,
+            self.combo_water_type,
+            self.spin_tide_coefficient,
+            self.edit_high_tide_time,
+            self.spin_water_temperature,
+            self.combo_weather,
+            self.spin_air_temperature,
+            self.spin_rainfall_24h,
+            self.edit_conditions_comment,
+            self.edit_bacterio_deposit_day,
+            self.edit_bacterio_deposit_time,
+            self.edit_bacterio_company,
+            self.edit_bacterio_ecoli,
+            self.edit_bacterio_enterococci,
+            self.edit_coordinator,
+            self.edit_operator,
+            self.edit_titration_location,
+            self.edit_titration_datetime,
+            self.combo_volume_preset,
+        ]
+        self._refresh_fillable_fields_style()
+        for widget in self._fillable_fields:
+            _install_field_fill_style(widget)
+
+    def _refresh_fillable_fields_style(self) -> None:
+        for widget in getattr(self, "_fillable_fields", []):
+            _apply_field_fill_style(widget)
 
     def _refresh_button_states(self) -> None:
         """Met à jour la couleur des boutons selon l'état des DataFrames.
@@ -1986,6 +2195,11 @@ class MetadataCreatorWidget(QWidget):
         water_type = self._norm_text_key(self.combo_water_type.currentText())
         return water_type in {"eau de mer", "eau salee", "eau estuarienne", "eau esturienne"}
 
+    def _is_fresh_water_type(self) -> bool:
+        if not hasattr(self, "combo_water_type"):
+            return False
+        return self._norm_text_key(self.combo_water_type.currentText()) == "eau douce"
+
     def _is_water_type_selected(self) -> bool:
         if not hasattr(self, "combo_water_type"):
             return False
@@ -1994,10 +2208,7 @@ class MetadataCreatorWidget(QWidget):
     def _refresh_water_type_style(self) -> None:
         if not hasattr(self, "combo_water_type"):
             return
-        if self._is_water_type_selected():
-            self.combo_water_type.setStyleSheet("background-color: #5cb85c; color: white; font-weight: 700;")
-        else:
-            self.combo_water_type.setStyleSheet("background-color: #d9534f; color: white; font-weight: 700;")
+        _apply_field_fill_style(self.combo_water_type)
 
     def _refresh_tide_fields_enabled(self) -> None:
         visible = self._is_tidal_water_type()
@@ -2011,6 +2222,10 @@ class MetadataCreatorWidget(QWidget):
             if widget is not None:
                 widget.setVisible(visible)
                 widget.setEnabled(visible)
+        btn_debit_flux = getattr(self, "btn_debit_flux", None)
+        if btn_debit_flux is not None:
+            btn_debit_flux.setVisible(self._is_fresh_water_type())
+            btn_debit_flux.setEnabled(self._is_fresh_water_type())
 
     def _on_water_type_changed(self, *args) -> None:
         self._refresh_tide_fields_enabled()
@@ -2026,6 +2241,11 @@ class MetadataCreatorWidget(QWidget):
             "edit_bacterio_deposit_time",
             "lbl_bacterio_company",
             "edit_bacterio_company",
+            "lbl_bacterio_results",
+            "lbl_bacterio_ecoli",
+            "edit_bacterio_ecoli",
+            "lbl_bacterio_enterococci",
+            "edit_bacterio_enterococci",
         ):
             widget = getattr(self, widget_name, None)
             if widget is not None:
@@ -2230,6 +2450,8 @@ class MetadataCreatorWidget(QWidget):
         bacterio_day = ""
         bacterio_time = ""
         bacterio_company = ""
+        bacterio_ecoli = ""
+        bacterio_enterococci = ""
         if bacterio_enabled:
             bacterio_day = self._date_time_text(getattr(self, "edit_bacterio_deposit_day", None))
             bacterio_time = self._normalize_time_text(
@@ -2237,6 +2459,14 @@ class MetadataCreatorWidget(QWidget):
             )
             bacterio_company = (
                 self.edit_bacterio_company.text().strip() if hasattr(self, "edit_bacterio_company") else ""
+            )
+            bacterio_ecoli = (
+                self.edit_bacterio_ecoli.text().strip() if hasattr(self, "edit_bacterio_ecoli") else ""
+            )
+            bacterio_enterococci = (
+                self.edit_bacterio_enterococci.text().strip()
+                if hasattr(self, "edit_bacterio_enterococci")
+                else ""
             )
         tidal = self._is_tidal_water_type()
         tide_coefficient = ""
@@ -2248,6 +2478,14 @@ class MetadataCreatorWidget(QWidget):
         water_type = ""
         if hasattr(self, "combo_water_type") and self._is_water_type_selected():
             water_type = self.combo_water_type.currentText().strip()
+        debit_flux_values = {
+            f"{self.DEBIT_FLUX_PREFIX}{column}": (
+                str(self._debit_flux_values.get(column, "") or "").strip()
+                if self._is_fresh_water_type()
+                else ""
+            )
+            for column in self.DEBIT_FLUX_COLUMNS
+        }
         return {
             "Nom de la manip": str(name or "").strip(),
             "Préleveur·se": self.edit_sampler.text().strip() if hasattr(self, "edit_sampler") else "",
@@ -2265,8 +2503,34 @@ class MetadataCreatorWidget(QWidget):
             ),
             "Date/heure du prélèvement": self._date_time_text(getattr(self, "edit_sample_datetime", None)),
             "Type d'eau": water_type,
+            "Température de l'eau": (
+                str(round(self.spin_water_temperature.value(), 1))
+                if hasattr(self, "spin_water_temperature") and self.spin_water_temperature.value() > -10.0
+                else ""
+            ),
+            **debit_flux_values,
             "Coefficient de marée": tide_coefficient,
             "Heure de pleine mer": high_tide_time,
+            "Temps au moment de la mesure": (
+                self.combo_weather.currentText()
+                if hasattr(self, "combo_weather") and self.combo_weather.currentText() not in ("", "Choisir...")
+                else ""
+            ),
+            "Température de l'air": (
+                str(round(self.spin_air_temperature.value(), 1))
+                if hasattr(self, "spin_air_temperature") and self.spin_air_temperature.value() > -30.0
+                else ""
+            ),
+            "Pluie dernières 24 h (mm)": (
+                str(round(self.spin_rainfall_24h.value(), 1))
+                if hasattr(self, "spin_rainfall_24h") and self.spin_rainfall_24h.value() >= 0.0
+                else ""
+            ),
+            "Commentaire sur les conditions": (
+                self.edit_conditions_comment.toPlainText().strip()
+                if hasattr(self, "edit_conditions_comment")
+                else ""
+            ),
             "Test ammonium réalisé": ammonium,
             "Test ammonium réalisé par": str(self._ammonium_test_values.get("operator", "") or "") if ammonium_enabled else "",
             "Test ammonium 1 (grossier)": str(self._ammonium_test_values.get("test_1", "") or "") if ammonium_enabled else "",
@@ -2276,6 +2540,8 @@ class MetadataCreatorWidget(QWidget):
             "Jour de dépôt": bacterio_day,
             "Heure du dépôt": bacterio_time,
             "Entreprise de mesure": bacterio_company,
+            "Résultats E.Coli (npp/ml)": bacterio_ecoli,
+            "Résultats Entérocoques intestinaux (npp/100ml)": bacterio_enterococci,
             "Nom de la manip de titration": str(titration_name or "").strip(),
             "Lieu de la titration": self.edit_titration_location.text().strip() if hasattr(self, "edit_titration_location") else "",
             "Date/heure de la titration": self._date_time_text(getattr(self, "edit_titration_datetime", None)),
@@ -2317,6 +2583,25 @@ class MetadataCreatorWidget(QWidget):
             "Type deau": "Type d'eau",
             "Type d'eau du prélèvement": "Type d'eau",
             "Type d'eau du prelevement": "Type d'eau",
+            "Largeur route": "Débit / flux - Largeur route",
+            "Longueur 6 arches": "Débit / flux - Longueur 6 arches",
+            "Hauteur eau": "Débit / flux - Hauteur eau",
+            "Volume total (m3)": "Débit / flux - Volume total (m3)",
+            "Vitesse (s)": "Débit / flux - Vitesse (s)",
+            "Débit (m3/s)": "Débit / flux - Débit (m3/s)",
+            "Debit (m3/s)": "Débit / flux - Débit (m3/s)",
+            "Débit/flux - Largeur route": "Débit / flux - Largeur route",
+            "Débit/flux - Longueur 6 arches": "Débit / flux - Longueur 6 arches",
+            "Débit/flux - Hauteur eau": "Débit / flux - Hauteur eau",
+            "Débit/flux - Volume total (m3)": "Débit / flux - Volume total (m3)",
+            "Débit/flux - Vitesse (s)": "Débit / flux - Vitesse (s)",
+            "Débit/flux - Débit (m3/s)": "Débit / flux - Débit (m3/s)",
+            "Debit / flux - Largeur route": "Débit / flux - Largeur route",
+            "Debit / flux - Longueur 6 arches": "Débit / flux - Longueur 6 arches",
+            "Debit / flux - Hauteur eau": "Débit / flux - Hauteur eau",
+            "Debit / flux - Volume total (m3)": "Débit / flux - Volume total (m3)",
+            "Debit / flux - Vitesse (s)": "Débit / flux - Vitesse (s)",
+            "Debit / flux - Debit (m3/s)": "Débit / flux - Débit (m3/s)",
             "Coefficient maree": "Coefficient de marée",
             "Coef marée": "Coefficient de marée",
             "Coef maree": "Coefficient de marée",
@@ -2344,6 +2629,18 @@ class MetadataCreatorWidget(QWidget):
             "Heure du depot": "Heure du dépôt",
             "Entreprise mesure": "Entreprise de mesure",
             "Entreprise de mesures": "Entreprise de mesure",
+            "Résultat E.Coli": "Résultats E.Coli (npp/ml)",
+            "Résultats E.Coli": "Résultats E.Coli (npp/ml)",
+            "Resultat E.Coli": "Résultats E.Coli (npp/ml)",
+            "Resultats E.Coli": "Résultats E.Coli (npp/ml)",
+            "E.Coli": "Résultats E.Coli (npp/ml)",
+            "E. Coli": "Résultats E.Coli (npp/ml)",
+            "Résultat Entérocoques intestinaux": "Résultats Entérocoques intestinaux (npp/100ml)",
+            "Résultats Entérocoques intestinaux": "Résultats Entérocoques intestinaux (npp/100ml)",
+            "Resultat Enterocoques intestinaux": "Résultats Entérocoques intestinaux (npp/100ml)",
+            "Resultats Enterocoques intestinaux": "Résultats Entérocoques intestinaux (npp/100ml)",
+            "Entérocoques intestinaux": "Résultats Entérocoques intestinaux (npp/100ml)",
+            "Enterocoques intestinaux": "Résultats Entérocoques intestinaux (npp/100ml)",
             "Nom de la titration": "Nom de la manip de titration",
             "Nom manip titration": "Nom de la manip de titration",
             "Coordinateur·ice": "Coordinateur",
@@ -2362,8 +2659,19 @@ class MetadataCreatorWidget(QWidget):
             "Longitude du prélèvement",
             "Date/heure du prélèvement",
             "Type d'eau",
+            "Température de l'eau",
+            "Débit / flux - Largeur route",
+            "Débit / flux - Longueur 6 arches",
+            "Débit / flux - Hauteur eau",
+            "Débit / flux - Volume total (m3)",
+            "Débit / flux - Vitesse (s)",
+            "Débit / flux - Débit (m3/s)",
             "Coefficient de marée",
             "Heure de pleine mer",
+            "Temps au moment de la mesure",
+            "Température de l'air",
+            "Pluie dernières 24 h (mm)",
+            "Commentaire sur les conditions",
             "Test ammonium réalisé",
             "Test ammonium réalisé par",
             "Test ammonium 1 (grossier)",
@@ -2373,6 +2681,8 @@ class MetadataCreatorWidget(QWidget):
             "Jour de dépôt",
             "Heure du dépôt",
             "Entreprise de mesure",
+            "Résultats E.Coli (npp/ml)",
+            "Résultats Entérocoques intestinaux (npp/100ml)",
             "Nom de la manip de titration",
             "Lieu de la titration",
             "Date/heure de la titration",
@@ -2423,6 +2733,13 @@ class MetadataCreatorWidget(QWidget):
         self._ammonium_test_values = dlg.values()
         self._on_header_field_changed()
 
+    def _on_debit_flux_clicked(self) -> None:
+        dlg = DebitFluxDialog(self.DEBIT_FLUX_COLUMNS, self._debit_flux_values, self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        self._debit_flux_values = dlg.values()
+        self._on_header_field_changed()
+
     @staticmethod
     def _to_float(x):
         return mm.to_float(x)
@@ -2433,6 +2750,7 @@ class MetadataCreatorWidget(QWidget):
     
     def _on_header_field_changed(self, *args) -> None:
         """Marque la correspondance spectres↔tubes comme à revoir quand un champ d’en-tête change."""
+        self._refresh_fillable_fields_style()
         self._mark_metadata_dirty(refresh=False)
         # On ne marque dirty que si un df_map existe déjà (sinon c'est déjà rouge)
         if self.df_map is None or self.df_map.empty:
@@ -3398,7 +3716,10 @@ class MetadataCreatorWidget(QWidget):
             for label in labels:
                 mask = col_ns == label
                 if mask.any():
-                    return col_tube[mask].iloc[0].strip()
+                    value = col_tube[mask].iloc[0].strip()
+                    if value.lower() in {"nan", "nat", "none", "<na>"}:
+                        return ""
+                    return value
             return ""
 
         # Nom de la manip
@@ -3495,6 +3816,47 @@ class MetadataCreatorWidget(QWidget):
         self._refresh_tide_fields_enabled()
         self._refresh_water_type_style()
 
+        water_temp = _value_for("Température de l'eau", "Temperature de l'eau", "Temp eau")
+        if water_temp and hasattr(self, "spin_water_temperature"):
+            val = self._to_float(water_temp)
+            if val is not None:
+                self.spin_water_temperature.setValue(max(-10.0, min(50.0, val)))
+
+        self._debit_flux_values = {column: "" for column in self.DEBIT_FLUX_COLUMNS}
+        for column in self.DEBIT_FLUX_COLUMNS:
+            debit_flux_val = _value_for(
+                f"{self.DEBIT_FLUX_PREFIX}{column}",
+                f"Debit / flux - {column}",
+                f"Débit/flux - {column}",
+                column,
+            )
+            if debit_flux_val:
+                self._debit_flux_values[column] = debit_flux_val
+
+        weather = _value_for("Temps au moment de la mesure", "Meteo", "Météo")
+        if weather and hasattr(self, "combo_weather"):
+            idx = self.combo_weather.findText(weather, Qt.MatchFixedString | Qt.MatchCaseSensitive)
+            if idx < 0:
+                idx = self.combo_weather.findText(weather, Qt.MatchFixedString)
+            if idx >= 0:
+                self.combo_weather.setCurrentIndex(idx)
+
+        air_temp = _value_for("Température de l'air", "Temperature de l'air", "Temp air")
+        if air_temp and hasattr(self, "spin_air_temperature"):
+            val = self._to_float(air_temp)
+            if val is not None:
+                self.spin_air_temperature.setValue(max(-30.0, min(60.0, val)))
+
+        rainfall = _value_for("Pluie dernières 24 h (mm)", "Pluie 24h", "Pluie dernieres 24h", "Rainfall 24h")
+        if rainfall and hasattr(self, "spin_rainfall_24h"):
+            val = self._to_float(rainfall)
+            if val is not None:
+                self.spin_rainfall_24h.setValue(max(-1.0, min(500.0, val)))
+
+        conditions_comment = _value_for("Commentaire sur les conditions", "Conditions commentaire")
+        if conditions_comment and hasattr(self, "edit_conditions_comment"):
+            self.edit_conditions_comment.setPlainText(conditions_comment)
+
         # Ammonium
         ammonium_val = _value_for("Test ammonium réalisé")
         enabled = str(ammonium_val).strip().lower() in {"oui", "yes", "true", "1", "x"}
@@ -3535,6 +3897,28 @@ class MetadataCreatorWidget(QWidget):
         bacterio_company = _value_for("Entreprise de mesure", "Entreprise mesure", "Entreprise de mesures")
         if bacterio_company and hasattr(self, "edit_bacterio_company"):
             self.edit_bacterio_company.setText(bacterio_company)
+        bacterio_ecoli = _value_for(
+            "Résultats E.Coli (npp/ml)",
+            "Résultat E.Coli",
+            "Résultats E.Coli",
+            "Resultat E.Coli",
+            "Resultats E.Coli",
+            "E.Coli",
+            "E. Coli",
+        )
+        if bacterio_ecoli and hasattr(self, "edit_bacterio_ecoli"):
+            self.edit_bacterio_ecoli.setText(bacterio_ecoli)
+        bacterio_enterococci = _value_for(
+            "Résultats Entérocoques intestinaux (npp/100ml)",
+            "Résultat Entérocoques intestinaux",
+            "Résultats Entérocoques intestinaux",
+            "Resultat Enterocoques intestinaux",
+            "Resultats Enterocoques intestinaux",
+            "Entérocoques intestinaux",
+            "Enterocoques intestinaux",
+        )
+        if bacterio_enterococci and hasattr(self, "edit_bacterio_enterococci"):
+            self.edit_bacterio_enterococci.setText(bacterio_enterococci)
         self._refresh_bacterio_fields_visible()
 
         # Titration (fallback anciens fichiers : Date / Lieu)
