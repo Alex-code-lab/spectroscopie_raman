@@ -441,6 +441,8 @@ class MainWindow(QMainWindow):
             <li><b><a href="https://msc.u-paris.fr/"> Laboratoire Matière et Systèmes Complexes</a></b><br>Laboratoire de l'université de Paris.</li>
             <li><b><a href="https://www.eau-et-rivieres.org/home/"> Eau & Rivières de Bretagne</a></b><br>Association de protection de l'environnement.</li>
             <li><b><a href="https://www.campus-transition.org/fr/"> Campus de la Transition</a></b><br>Association loi 1901 de formation de l'Enseignement Superieur en vue d'une transition écologique et solidaire.</li>         
+            <li><b><a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a></b><br>Carte et données cartographiques utilisées pour le pointage et le géocodage.</li>
+            <li><b><a href="https://nominatim.org/">Nominatim</a></b><br>Service de géocodage inverse utilisé pour proposer automatiquement département et commune.</li>
         </ul>
         """
         # <p><b>Articles Scientifiques :</b></p>

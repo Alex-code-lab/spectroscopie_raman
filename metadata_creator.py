@@ -7,6 +7,10 @@ from __future__ import annotations
 import pandas as pd
 import numpy as np
 import re
+import json
+import time
+import urllib.parse
+import urllib.request
 from scipy.stats import norm
 
 
@@ -1607,6 +1611,9 @@ class MetadataCreatorWidget(QWidget):
         self._debit_flux_values: dict[str, str] = {column: "" for column in self.DEBIT_FLUX_COLUMNS}
         self._fillable_fields: list = []
         self._extra_sampler_rows: list[dict] = []
+        self._reverse_geocode_cache: dict[tuple[float, float], tuple[str, str]] = {}
+        self._last_reverse_geocode_key: tuple[float, float] | None = None
+        self._last_reverse_geocode_at: float = 0.0
 
         layout = QVBoxLayout(self)
         section_title_style = "color: #2f75b5; font-weight: 800; font-size: 15px;"
@@ -1634,6 +1641,13 @@ class MetadataCreatorWidget(QWidget):
         row1.addWidget(self.edit_sampler)
         self.edit_sampler.textChanged.connect(self._on_sample_components_changed)
 
+        row1.addWidget(QLabel("Association :", self))
+        self.edit_sampler_association = QLineEdit(self)
+        self.edit_sampler_association.setPlaceholderText("association")
+        self.edit_sampler_association.textChanged.connect(self._on_header_field_changed)
+        row1.addWidget(self.edit_sampler_association)
+        self.edit_sample_associations = self.edit_sampler_association
+
         self.btn_add_sampler = QPushButton("+1 préleveur·se", self)
         self.btn_add_sampler.setToolTip("Ajouter une personne supplémentaire au prélèvement.")
         self.btn_add_sampler.clicked.connect(self._on_add_sampler_clicked)
@@ -1645,14 +1659,6 @@ class MetadataCreatorWidget(QWidget):
 
         self.extra_samplers_layout = QVBoxLayout()
         header_layout.addLayout(self.extra_samplers_layout)
-
-        row_association = QHBoxLayout()
-        row_association.addWidget(QLabel("Association(s) du prélèvement :", self))
-        self.edit_sample_associations = QLineEdit(self)
-        self.edit_sample_associations.setPlaceholderText("ex : association A ; association B")
-        row_association.addWidget(self.edit_sample_associations)
-        self.edit_sample_associations.textChanged.connect(self._on_header_field_changed)
-        header_layout.addLayout(row_association)
 
         # Ligne 2 : date + heure + lieu du prélèvement
         row2 = QHBoxLayout()
@@ -1732,6 +1738,20 @@ class MetadataCreatorWidget(QWidget):
         self.btn_sample_map.clicked.connect(self._on_view_sample_map_clicked)
         row_gps.addWidget(self.btn_sample_map)
         header_layout.addLayout(row_gps)
+
+        row_admin = QHBoxLayout()
+        row_admin.addWidget(QLabel("Département :", self))
+        self.edit_sample_department = QLineEdit(self)
+        self.edit_sample_department.setPlaceholderText("automatique si GPS + internet")
+        self.edit_sample_department.textChanged.connect(self._on_header_field_changed)
+        row_admin.addWidget(self.edit_sample_department)
+
+        row_admin.addWidget(QLabel("Commune :", self))
+        self.edit_sample_commune = QLineEdit(self)
+        self.edit_sample_commune.setPlaceholderText("automatique si GPS + internet")
+        self.edit_sample_commune.textChanged.connect(self._on_header_field_changed)
+        row_admin.addWidget(self.edit_sample_commune)
+        header_layout.addLayout(row_admin)
 
         row_water = QHBoxLayout()
         row_water.addWidget(QLabel("Type d'eau :", self))
@@ -2084,12 +2104,14 @@ class MetadataCreatorWidget(QWidget):
     def _setup_fillable_field_styles(self) -> None:
         self._fillable_fields = [
             self.edit_sampler,
-            self.edit_sample_associations,
             self.edit_sample_date,
             self.edit_sample_time,
             self.edit_sample_location,
             self.edit_sample_lat,
             self.edit_sample_lon,
+            self.edit_sample_department,
+            self.edit_sample_commune,
+            self.edit_sampler_association,
             self.combo_water_type,
             self.spin_tide_coefficient,
             self.edit_high_tide_time,
@@ -2149,11 +2171,20 @@ class MetadataCreatorWidget(QWidget):
                 names.append(edit.text().strip())
         return names
 
+    def _sampler_associations(self) -> list[str]:
+        associations = []
+        if hasattr(self, "edit_sampler_association"):
+            associations.append(self.edit_sampler_association.text().strip())
+        for row in getattr(self, "_extra_sampler_rows", []):
+            edit = row.get("association_edit")
+            associations.append(edit.text().strip() if edit is not None else "")
+        return associations
+
     def _on_add_sampler_clicked(self) -> None:
         self._add_sampler_field()
         self._on_header_field_changed()
 
-    def _add_sampler_field(self, text: str = "") -> QLineEdit:
+    def _add_sampler_field(self, text: str = "", association: str = "") -> QLineEdit:
         index = len(self._extra_sampler_rows) + 2
         row_widget = QWidget(self)
         row_layout = QHBoxLayout(row_widget)
@@ -2164,22 +2195,38 @@ class MetadataCreatorWidget(QWidget):
         edit.setPlaceholderText("Prénom puis nom")
         edit.textChanged.connect(self._on_sample_components_changed)
         row_layout.addWidget(edit)
+
+        row_layout.addWidget(QLabel("Association :", row_widget))
+        association_edit = QLineEdit(row_widget)
+        association_edit.setPlaceholderText("association")
+        association_edit.textChanged.connect(self._on_header_field_changed)
+        row_layout.addWidget(association_edit)
+
         btn_remove = QPushButton("Retirer", row_widget)
         btn_remove.clicked.connect(lambda _checked=False, w=row_widget: self._remove_sampler_field(w))
         row_layout.addWidget(btn_remove)
         row_layout.addStretch(1)
         self.extra_samplers_layout.addWidget(row_widget)
-        self._extra_sampler_rows.append({"widget": row_widget, "label": label, "edit": edit, "button": btn_remove})
+        self._extra_sampler_rows.append({
+            "widget": row_widget,
+            "label": label,
+            "edit": edit,
+            "association_edit": association_edit,
+            "button": btn_remove,
+        })
         if hasattr(self, "_fillable_fields"):
-            self._fillable_fields.append(edit)
+            self._fillable_fields.extend([edit, association_edit])
             _install_field_fill_style(edit)
+            _install_field_fill_style(association_edit)
         edit.setText(str(text or ""))
+        association_edit.setText(str(association or ""))
         return edit
 
     def _remove_sampler_field(self, row_widget: QWidget) -> None:
-        removed_edits = [
-            row.get("edit") for row in self._extra_sampler_rows if row.get("widget") is row_widget
-        ]
+        removed_edits = []
+        for row in self._extra_sampler_rows:
+            if row.get("widget") is row_widget:
+                removed_edits.extend([row.get("edit"), row.get("association_edit")])
         self._extra_sampler_rows = [
             row for row in self._extra_sampler_rows if row.get("widget") is not row_widget
         ]
@@ -2194,7 +2241,9 @@ class MetadataCreatorWidget(QWidget):
         self._on_sample_components_changed()
 
     def _clear_extra_sampler_fields(self) -> None:
-        removed_edits = [row.get("edit") for row in getattr(self, "_extra_sampler_rows", [])]
+        removed_edits = []
+        for row in getattr(self, "_extra_sampler_rows", []):
+            removed_edits.extend([row.get("edit"), row.get("association_edit")])
         if hasattr(self, "_fillable_fields"):
             self._fillable_fields = [w for w in self._fillable_fields if w not in removed_edits]
         for row in list(getattr(self, "_extra_sampler_rows", [])):
@@ -2651,6 +2700,88 @@ class MetadataCreatorWidget(QWidget):
         if formatted != txt:
             widget.setText(formatted)
 
+    def _sample_gps_decimal_pair(self) -> tuple[float, float] | None:
+        if not hasattr(self, "edit_sample_lat") or not hasattr(self, "edit_sample_lon"):
+            return None
+        lat = self._parse_coord_value(self.edit_sample_lat.text())
+        lon = self._parse_coord_value(self.edit_sample_lon.text())
+        if lat is None or lon is None or not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+            return None
+        return round(float(lat), 6), round(float(lon), 6)
+
+    @staticmethod
+    def _admin_from_nominatim_payload(payload: dict) -> tuple[str, str]:
+        address = payload.get("address", {}) if isinstance(payload, dict) else {}
+        department = (
+            address.get("county")
+            or address.get("state_district")
+            or address.get("region")
+            or ""
+        )
+        commune = (
+            address.get("city")
+            or address.get("town")
+            or address.get("village")
+            or address.get("municipality")
+            or address.get("commune")
+            or address.get("hamlet")
+            or address.get("locality")
+            or ""
+        )
+        return str(department or "").strip(), str(commune or "").strip()
+
+    def _reverse_geocode_sample_admin(self, lat: float, lon: float) -> tuple[str, str] | None:
+        key = (round(float(lat), 6), round(float(lon), 6))
+        if key in self._reverse_geocode_cache:
+            return self._reverse_geocode_cache[key]
+
+        now = time.monotonic()
+        if self._last_reverse_geocode_key == key and now - self._last_reverse_geocode_at < 30.0:
+            return None
+        if now - self._last_reverse_geocode_at < 1.0:
+            return None
+
+        params = urllib.parse.urlencode({
+            "format": "jsonv2",
+            "addressdetails": 1,
+            "lat": f"{lat:.6f}",
+            "lon": f"{lon:.6f}",
+            "zoom": 18,
+            "accept-language": "fr",
+        })
+        request = urllib.request.Request(
+            f"https://nominatim.openstreetmap.org/reverse?{params}",
+            headers={
+                "User-Agent": "Ramanalyze/1.0 (desktop metadata geocoder)",
+                "Accept": "application/json",
+            },
+        )
+        self._last_reverse_geocode_at = now
+        self._last_reverse_geocode_key = key
+        try:
+            with urllib.request.urlopen(request, timeout=3) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except Exception:
+            return None
+
+        admin = self._admin_from_nominatim_payload(payload)
+        if any(admin):
+            self._reverse_geocode_cache[key] = admin
+        return admin
+
+    def _try_autofill_sample_admin_from_gps(self) -> None:
+        pair = self._sample_gps_decimal_pair()
+        if pair is None:
+            return
+        admin = self._reverse_geocode_sample_admin(*pair)
+        if not admin:
+            return
+        department, commune = admin
+        if department and hasattr(self, "edit_sample_department"):
+            self.edit_sample_department.setText(department)
+        if commune and hasattr(self, "edit_sample_commune"):
+            self.edit_sample_commune.setText(commune)
+
     def _normalize_sample_gps_fields(self) -> None:
         if not hasattr(self, "edit_sample_lat") or not hasattr(self, "edit_sample_lon"):
             return
@@ -2662,10 +2793,12 @@ class MetadataCreatorWidget(QWidget):
             if pair_lat and pair_lon:
                 self.edit_sample_lat.setText(pair_lat)
                 self.edit_sample_lon.setText(pair_lon)
+                self._try_autofill_sample_admin_from_gps()
                 return
 
         self._normalize_coord_field(self.edit_sample_lat, -90.0, 90.0)
         self._normalize_coord_field(self.edit_sample_lon, -180.0, 180.0)
+        self._try_autofill_sample_admin_from_gps()
 
     def _on_view_sample_map_clicked(self) -> None:
         self._normalize_sample_gps_fields()
@@ -2696,6 +2829,7 @@ class MetadataCreatorWidget(QWidget):
         new_lat, new_lon = dlg.coordinates()
         self.edit_sample_lat.setText(f"{new_lat:.6f}")
         self.edit_sample_lon.setText(f"{new_lon:.6f}")
+        self._try_autofill_sample_admin_from_gps()
         self._on_header_field_changed()
 
     def _build_manip_name(self) -> str:
@@ -2807,8 +2941,13 @@ class MetadataCreatorWidget(QWidget):
         if hasattr(self, "combo_water_type") and self._is_water_type_selected():
             water_type = self.combo_water_type.currentText().strip()
         sampler_names = self._sampler_names()
+        sampler_associations = self._sampler_associations()
         extra_sampler_values = {
             f"Préleveur·se {idx}": sampler_names[idx - 1] if len(sampler_names) >= idx else ""
+            for idx in range(2, 7)
+        }
+        extra_association_values = {
+            f"Association préleveur·se {idx}": sampler_associations[idx - 1] if len(sampler_associations) >= idx else ""
             for idx in range(2, 7)
         }
         debit_flux_values = {
@@ -2824,7 +2963,13 @@ class MetadataCreatorWidget(QWidget):
             "Préleveur·se": self.edit_sampler.text().strip() if hasattr(self, "edit_sampler") else "",
             "Préleveur·ses": " ; ".join(sampler_names),
             **extra_sampler_values,
-            "Association(s) du prélèvement": self.edit_sample_associations.text().strip() if hasattr(self, "edit_sample_associations") else "",
+            "Association préleveur·se": (
+                self.edit_sampler_association.text().strip()
+                if hasattr(self, "edit_sampler_association")
+                else ""
+            ),
+            **extra_association_values,
+            "Association(s) du prélèvement": " ; ".join(a for a in sampler_associations if a),
             "Lieu du prélèvement": self.edit_sample_location.text().strip() if hasattr(self, "edit_sample_location") else "",
             "Latitude du prélèvement": self._format_coord_value(
                 self.edit_sample_lat.text() if hasattr(self, "edit_sample_lat") else "",
@@ -2836,6 +2981,8 @@ class MetadataCreatorWidget(QWidget):
                 -180.0,
                 180.0,
             ),
+            "Département": self.edit_sample_department.text().strip() if hasattr(self, "edit_sample_department") else "",
+            "Commune": self.edit_sample_commune.text().strip() if hasattr(self, "edit_sample_commune") else "",
             "Date du prélèvement": self._sample_date_text(),
             "Heure du prélèvement": self._sample_time_text(),
             "Date/heure du prélèvement": self._sample_date_time_text(),
@@ -2911,6 +3058,17 @@ class MetadataCreatorWidget(QWidget):
             "Préleveur 3": "Préleveur·se 3",
             "Préleveuse 3": "Préleveur·se 3",
             "Preleveur 3": "Préleveur·se 3",
+            "Association 1": "Association préleveur·se",
+            "Association préleveur·se 1": "Association préleveur·se",
+            "Association preleveur 1": "Association préleveur·se",
+            "Association préleveur": "Association préleveur·se",
+            "Association preleveur": "Association préleveur·se",
+            "Association 2": "Association préleveur·se 2",
+            "Association préleveur 2": "Association préleveur·se 2",
+            "Association preleveur 2": "Association préleveur·se 2",
+            "Association 3": "Association préleveur·se 3",
+            "Association préleveur 3": "Association préleveur·se 3",
+            "Association preleveur 3": "Association préleveur·se 3",
             "Association": "Association(s) du prélèvement",
             "Associations": "Association(s) du prélèvement",
             "Association(s)": "Association(s) du prélèvement",
@@ -2929,6 +3087,11 @@ class MetadataCreatorWidget(QWidget):
             "Longitude GPS": "Longitude du prélèvement",
             "Longitude prélèvement": "Longitude du prélèvement",
             "Longitude prelevement": "Longitude du prélèvement",
+            "Departement": "Département",
+            "Département du prélèvement": "Département",
+            "Departement du prelevement": "Département",
+            "Commune du prélèvement": "Commune",
+            "Commune du prelevement": "Commune",
             "Date prélèvement": "Date du prélèvement",
             "Date prelevement": "Date du prélèvement",
             "Date de prélèvement": "Date du prélèvement",
@@ -3025,10 +3188,18 @@ class MetadataCreatorWidget(QWidget):
             "Préleveur·se 4",
             "Préleveur·se 5",
             "Préleveur·se 6",
+            "Association préleveur·se",
+            "Association préleveur·se 2",
+            "Association préleveur·se 3",
+            "Association préleveur·se 4",
+            "Association préleveur·se 5",
+            "Association préleveur·se 6",
             "Association(s) du prélèvement",
             "Lieu du prélèvement",
             "Latitude du prélèvement",
             "Longitude du prélèvement",
+            "Département",
+            "Commune",
             "Date du prélèvement",
             "Heure du prélèvement",
             "Date/heure du prélèvement",
@@ -4123,9 +4294,6 @@ class MetadataCreatorWidget(QWidget):
                 if parts and not sampler_val and hasattr(self, "edit_sampler"):
                     self.edit_sampler.setText(parts[0])
                 extra_samplers = parts[1:]
-        for extra_sampler in extra_samplers:
-            if extra_sampler:
-                self._add_sampler_field(extra_sampler)
 
         associations_val = _value_for(
             "Association(s) du prélèvement",
@@ -4136,8 +4304,37 @@ class MetadataCreatorWidget(QWidget):
             "Associations",
             "Association",
         )
-        if associations_val and hasattr(self, "edit_sample_associations"):
-            self.edit_sample_associations.setText(associations_val)
+        association_parts = [p.strip() for p in re.split(r"[;\n]+", associations_val) if p.strip()]
+        first_association = _value_for(
+            "Association préleveur·se",
+            "Association préleveur·se 1",
+            "Association préleveur 1",
+            "Association 1",
+        )
+        if not first_association and associations_val:
+            first_association = association_parts[0] if association_parts else associations_val
+        if first_association and hasattr(self, "edit_sampler_association"):
+            self.edit_sampler_association.setText(first_association)
+
+        extra_associations = [
+            _value_for(
+                f"Association préleveur·se {idx}",
+                f"Association préleveur {idx}",
+                f"Association {idx}",
+            )
+            for idx in range(2, 7)
+        ]
+        for idx in range(2, 7):
+            part_index = idx - 1
+            if not extra_associations[part_index - 1] and len(association_parts) > part_index:
+                extra_associations[part_index - 1] = association_parts[part_index]
+
+        max_extra = max(len(extra_samplers), len(extra_associations))
+        for idx in range(max_extra):
+            extra_sampler = extra_samplers[idx] if idx < len(extra_samplers) else ""
+            extra_association = extra_associations[idx] if idx < len(extra_associations) else ""
+            if extra_sampler or extra_association:
+                self._add_sampler_field(extra_sampler, extra_association)
 
         sample_loc = _value_for("Lieu du prélèvement")
         if sample_loc and hasattr(self, "edit_sample_location"):
@@ -4176,6 +4373,20 @@ class MetadataCreatorWidget(QWidget):
             self.edit_sample_lat.setText(self._format_coord_value(sample_lat, -90.0, 90.0))
         if sample_lon and hasattr(self, "edit_sample_lon"):
             self.edit_sample_lon.setText(self._format_coord_value(sample_lon, -180.0, 180.0))
+
+        department = _value_for(
+            "Département",
+            "Departement",
+            "Département du prélèvement",
+            "Departement du prelevement",
+        )
+        if department and hasattr(self, "edit_sample_department"):
+            self.edit_sample_department.setText(department)
+        commune = _value_for("Commune", "Commune du prélèvement", "Commune du prelevement")
+        if commune and hasattr(self, "edit_sample_commune"):
+            self.edit_sample_commune.setText(commune)
+        if (sample_lat and sample_lon) and (not department or not commune):
+            self._try_autofill_sample_admin_from_gps()
 
         sample_date = _value_for(
             "Date du prélèvement",
@@ -4456,9 +4667,14 @@ class MetadataCreatorWidget(QWidget):
         water_temp = values.get("Température de l'eau")
         air_temp = values.get("Température de l'air")
         sampler_names = self._sampler_names()
+        sampler_associations = self._sampler_associations()
         sampler_comments = ""
         if len(sampler_names) > 3:
-            sampler_comments = "Préleveur·ses supplémentaires : " + " ; ".join(sampler_names[3:])
+            extra_samplers = []
+            for idx, name in enumerate(sampler_names[3:], start=3):
+                association = sampler_associations[idx] if len(sampler_associations) > idx else ""
+                extra_samplers.append(f"{name} ({association})" if association else name)
+            sampler_comments = "Préleveur·ses supplémentaires : " + " ; ".join(extra_samplers)
 
         border_side = Side(style="thin", color="000000")
         thick_side = Side(style="medium", color="000000")
@@ -4496,12 +4712,12 @@ class MetadataCreatorWidget(QWidget):
                         cell.font = font
 
         # En-tête du document
-        _merge("A1:AG1", "Dispositif QUALIPLAGE initié par Eau et Rivières de Bretagne", title_fill, Font(bold=True))
+        _merge("A1:AG1", "Dispositif de mesure de la qualité de l'eau par les citoyens", title_fill, Font(bold=True))
         _merge("A2:A3", "Informations sur le lieu des mesures", info_fill, Font(bold=True))
         _merge("B2:C2", "Département :", info_fill, Font(bold=True))
-        _merge("D2:F2", "", info_fill)
+        _merge("D2:F2", values.get("Département", ""), info_fill)
         _merge("G2:H2", "Commune :", info_fill, Font(bold=True))
-        _merge("I2:K2", "", info_fill)
+        _merge("I2:K2", values.get("Commune", ""), info_fill)
         _merge("L2:M2", "Type de lieu :", info_fill, Font(bold=True))
         _merge("N2:P2", values.get("Type d'eau", ""), info_fill)
         _merge("Q2:R2", "Nom du lieu :", info_fill, Font(bold=True))
@@ -4579,11 +4795,11 @@ class MetadataCreatorWidget(QWidget):
             "H": values.get("Heure de pleine mer", ""),
             "I": sample_time,
             "J": sampler_names[0] if len(sampler_names) >= 1 else "",
-            "K": values.get("Association(s) du prélèvement", ""),
+            "K": sampler_associations[0] if len(sampler_associations) >= 1 else "",
             "L": sampler_names[1] if len(sampler_names) >= 2 else "",
-            "M": values.get("Association(s) du prélèvement", "") if len(sampler_names) >= 2 else "",
+            "M": sampler_associations[1] if len(sampler_associations) >= 2 else "",
             "N": sampler_names[2] if len(sampler_names) >= 3 else "",
-            "O": values.get("Association(s) du prélèvement", "") if len(sampler_names) >= 3 else "",
+            "O": sampler_associations[2] if len(sampler_associations) >= 3 else "",
             "P": values.get("Jour de dépôt", ""),
             "Q": values.get("Heure du dépôt", ""),
             "R": values.get("Entreprise de mesure", ""),
