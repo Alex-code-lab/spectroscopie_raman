@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QPushButton,
     QDialog,
+    QMessageBox,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QPixmap
@@ -52,6 +53,7 @@ class MainWindow(QMainWindow):
 
         # --- Onglets ---
         tabs = QTabWidget(self)
+        self.tabs = tabs
         central_layout.addWidget(tabs)
 
         # Onglet Présentation (instructions d'utilisation)
@@ -399,6 +401,8 @@ class MainWindow(QMainWindow):
         from peak_selector import PeakSelectorTab
         self.peak_selector_tab = PeakSelectorTab(self.file_picker, self.metadata_creator, self)
         tabs.addTab(self.peak_selector_tab, "Exploration")
+        self._last_tab_index = tabs.currentIndex()
+        tabs.currentChanged.connect(self._on_tab_changed)
 
         # --- Label des sources en bas ---
         self.sources_label = QLabel("L'ensemble des sources sont à retrouver <a href='#'>ici</a>.")
@@ -408,6 +412,21 @@ class MainWindow(QMainWindow):
         self.sources_label.setAlignment(Qt.AlignCenter)
         self.sources_label.linkActivated.connect(self.show_sources_popup)
         central_layout.addWidget(self.sources_label)
+
+    def _on_tab_changed(self, index: int) -> None:
+        previous_widget = self.tabs.widget(getattr(self, "_last_tab_index", index))
+        if (
+            previous_widget is self.metadata_tab
+            and hasattr(self, "metadata_creator")
+            and self.metadata_creator.has_unsaved_metadata()
+        ):
+            QMessageBox.warning(
+                self,
+                "Métadonnées non enregistrées",
+                "Les métadonnées ont été modifiées et ne sont pas encore enregistrées.\n"
+                "Vous pouvez continuer, mais pensez à enregistrer avant de quitter le logiciel.",
+            )
+        self._last_tab_index = index
 
     def show_sources_popup(self, link_str):
         """Affiche une fenêtre contextuelle contenant les sources et références de l'application."""

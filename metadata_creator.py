@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QDateEdit,
     QDateTimeEdit,
+    QTimeEdit,
     QFileDialog,
     QComboBox,
     QSpinBox,
@@ -39,7 +40,7 @@ from PySide6.QtWidgets import (
     QTextEdit,
 )
 
-from PySide6.QtCore import QObject, Qt, QDate, QDateTime, QUrl, Slot
+from PySide6.QtCore import QObject, Qt, QDate, QDateTime, QEvent, QTime, QUrl, Slot
 from PySide6.QtGui import QColor, QBrush, QDesktopServices
 
 import metadata_model as mm
@@ -58,6 +59,8 @@ DEFAULT_VTOT_UL = 3090.0
 SUM_TARGET_TOL = 1e-3
 FIELD_EMPTY_STYLE = "background-color: rgba(217, 83, 79, 77);"
 FIELD_FILLED_STYLE = "background-color: rgba(92, 184, 92, 77);"
+OPTIONAL_DATE_SENTINEL = QDate(1900, 1, 1)
+OPTIONAL_TIME_SENTINEL = QTime(0, 0)
 MOLAR_UNIT_FACTORS = {
     "M": 1.0,
     "mM": 1e-3,
@@ -81,7 +84,17 @@ def _field_has_value(widget) -> bool:
         if widget.specialValueText() and widget.value() == widget.minimum():
             return False
         return True
-    if isinstance(widget, (QDateEdit, QDateTimeEdit)):
+    if isinstance(widget, QDateEdit):
+        if widget.specialValueText() and widget.date() == widget.minimumDate():
+            return False
+        return True
+    if isinstance(widget, QTimeEdit):
+        if widget.specialValueText() and widget.time() == widget.minimumTime():
+            return False
+        return True
+    if isinstance(widget, QDateTimeEdit):
+        if widget.specialValueText() and widget.dateTime() == widget.minimumDateTime():
+            return False
         return True
     return True
 
@@ -107,10 +120,12 @@ def _install_field_fill_style(widget) -> None:
         widget.currentTextChanged.connect(lambda *_args, w=widget: _apply_field_fill_style(w))
     elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
         widget.valueChanged.connect(lambda *_args, w=widget: _apply_field_fill_style(w))
-    elif isinstance(widget, QDateTimeEdit):
-        widget.dateTimeChanged.connect(lambda *_args, w=widget: _apply_field_fill_style(w))
+    elif isinstance(widget, QTimeEdit):
+        widget.timeChanged.connect(lambda *_args, w=widget: _apply_field_fill_style(w))
     elif isinstance(widget, QDateEdit):
         widget.dateChanged.connect(lambda *_args, w=widget: _apply_field_fill_style(w))
+    elif isinstance(widget, QDateTimeEdit):
+        widget.dateTimeChanged.connect(lambda *_args, w=widget: _apply_field_fill_style(w))
 
 
 class TableEditorDialog(QDialog):
@@ -694,7 +709,7 @@ class AmmoniumTestDialog(QDialog):
         self.edit_test_2 = QLineEdit(str(values.get("test_2", "") or ""), self)
         self.edit_ph = QLineEdit(str(values.get("ph", "") or ""), self)
 
-        self.edit_operator.setPlaceholderText("Nom puis prénom")
+        self.edit_operator.setPlaceholderText("Prénom puis nom")
         self.edit_test_1.setPlaceholderText("Test 1 grossier")
         self.edit_test_2.setPlaceholderText("Test 2 précis")
         self.edit_ph.setPlaceholderText("pH")
@@ -1591,6 +1606,7 @@ class MetadataCreatorWidget(QWidget):
         self._ammonium_test_values: dict[str, str] = {"test_1": "", "test_2": "", "ph": "", "operator": ""}
         self._debit_flux_values: dict[str, str] = {column: "" for column in self.DEBIT_FLUX_COLUMNS}
         self._fillable_fields: list = []
+        self._extra_sampler_rows: list[dict] = []
 
         layout = QVBoxLayout(self)
         section_title_style = "color: #2f75b5; font-weight: 800; font-size: 15px;"
@@ -1610,30 +1626,25 @@ class MetadataCreatorWidget(QWidget):
         sample_title.setStyleSheet(section_title_style)
         header_layout.addWidget(sample_title)
 
-        # Ligne 1 : préleveur + nom de la manip calculé automatiquement
+        # Ligne 1 : préleveur(s)
         row1 = QHBoxLayout()
         row1.addWidget(QLabel("Préleveur·se :", self))
         self.edit_sampler = QLineEdit(self)
-        self.edit_sampler.setPlaceholderText("Nom puis prénom")
+        self.edit_sampler.setPlaceholderText("Prénom puis nom")
         row1.addWidget(self.edit_sampler)
-        self.edit_sampler.textChanged.connect(self._on_manip_components_changed)
+        self.edit_sampler.textChanged.connect(self._on_sample_components_changed)
 
-        row1.addWidget(QLabel("Nom de la manip :", self))
-        self.edit_manip = QLineEdit(self)
-        self.edit_manip.setReadOnly(True)
-        self.edit_manip.setPlaceholderText("généré automatiquement")
-        self.edit_manip.setFocusPolicy(Qt.NoFocus)
-        self.edit_manip.setStyleSheet(
-            "background-color: #263238; color: #ffffff; border: 1px solid #6fa8d6; "
-            "font-weight: 700; padding: 3px 6px;"
-        )
-        self.edit_manip.setToolTip(
-            "Généré depuis les initiales prénom+nom du préleveur ou de la préleveuse, "
-            "puis _AAAAMMJJ_HHhMM."
-        )
-        row1.addWidget(self.edit_manip)
+        self.btn_add_sampler = QPushButton("+1 préleveur·se", self)
+        self.btn_add_sampler.setToolTip("Ajouter une personne supplémentaire au prélèvement.")
+        self.btn_add_sampler.clicked.connect(self._on_add_sampler_clicked)
+        row1.addWidget(self.btn_add_sampler)
+
+        row1.addStretch(1)
 
         header_layout.addLayout(row1)
+
+        self.extra_samplers_layout = QVBoxLayout()
+        header_layout.addLayout(self.extra_samplers_layout)
 
         row_association = QHBoxLayout()
         row_association.addWidget(QLabel("Association(s) du prélèvement :", self))
@@ -1643,15 +1654,28 @@ class MetadataCreatorWidget(QWidget):
         self.edit_sample_associations.textChanged.connect(self._on_header_field_changed)
         header_layout.addLayout(row_association)
 
-        # Ligne 2 : date/heure + lieu du prélèvement
+        # Ligne 2 : date + heure + lieu du prélèvement
         row2 = QHBoxLayout()
-        row2.addWidget(QLabel("Date/heure du prélèvement :", self))
-        self.edit_sample_datetime = QDateTimeEdit(self)
-        self.edit_sample_datetime.setCalendarPopup(True)
-        self.edit_sample_datetime.setDisplayFormat("dd/MM/yyyy HH:mm")
-        self.edit_sample_datetime.setDateTime(QDateTime.currentDateTime())
-        row2.addWidget(self.edit_sample_datetime)
-        self.edit_sample_datetime.dateTimeChanged.connect(self._on_manip_components_changed)
+        row2.addWidget(QLabel("Date du prélèvement :", self))
+        self.edit_sample_date = QDateEdit(self)
+        self.edit_sample_date.setCalendarPopup(True)
+        self.edit_sample_date.setDisplayFormat("dd/MM/yyyy")
+        self.edit_sample_date.setMinimumDate(OPTIONAL_DATE_SENTINEL)
+        self.edit_sample_date.setSpecialValueText("à renseigner")
+        self.edit_sample_date.setDate(OPTIONAL_DATE_SENTINEL)
+        self.edit_sample_date.dateChanged.connect(self._on_sample_components_changed)
+        self._set_default_on_interaction(self.edit_sample_date, "current_date")
+        row2.addWidget(self.edit_sample_date)
+
+        row2.addWidget(QLabel("Heure du prélèvement :", self))
+        self.edit_sample_time = QTimeEdit(self)
+        self.edit_sample_time.setDisplayFormat("HH:mm")
+        self.edit_sample_time.setMinimumTime(OPTIONAL_TIME_SENTINEL)
+        self.edit_sample_time.setSpecialValueText("à renseigner")
+        self.edit_sample_time.setTime(OPTIONAL_TIME_SENTINEL)
+        self.edit_sample_time.timeChanged.connect(self._on_sample_components_changed)
+        self._set_default_on_interaction(self.edit_sample_time, "current_time")
+        row2.addWidget(self.edit_sample_time)
 
         row2.addWidget(QLabel("Lieu du prélèvement :", self))
         self.edit_sample_location = QLineEdit(self)
@@ -1660,6 +1684,23 @@ class MetadataCreatorWidget(QWidget):
         self.edit_sample_location.textChanged.connect(self._on_header_field_changed)
 
         header_layout.addLayout(row2)
+
+        row_sample_name = QHBoxLayout()
+        row_sample_name.addWidget(QLabel("Nom du prélèvement :", self))
+        self.edit_manip = QLineEdit(self)
+        self.edit_manip.setReadOnly(True)
+        self.edit_manip.setPlaceholderText("généré automatiquement")
+        self.edit_manip.setFocusPolicy(Qt.NoFocus)
+        self.edit_manip.setStyleSheet(
+            "background-color: #263238; color: #ffffff; border: 1px solid #6fa8d6; "
+            "font-weight: 700; padding: 3px 6px;"
+        )
+        self.edit_manip.setToolTip(
+            "Généré depuis les initiales prénom+nom de chaque préleveur·se, "
+            "puis _AAAAMMJJ_HHhMM."
+        )
+        row_sample_name.addWidget(self.edit_manip, 1)
+        header_layout.addLayout(row_sample_name)
 
         row_gps = QHBoxLayout()
         row_gps.addWidget(QLabel("Latitude :", self))
@@ -1721,8 +1762,9 @@ class MetadataCreatorWidget(QWidget):
         self.spin_water_temperature.setDecimals(1)
         self.spin_water_temperature.setSuffix(" °C")
         self.spin_water_temperature.setSpecialValueText("non renseigné")
-        self.spin_water_temperature.setValue(-10.0)
+        self.spin_water_temperature.setValue(self.spin_water_temperature.minimum())
         self.spin_water_temperature.valueChanged.connect(self._on_header_field_changed)
+        self._set_default_on_interaction(self.spin_water_temperature, 20.0)
         row_water.addWidget(self.spin_water_temperature)
 
         self.btn_debit_flux = QPushButton("Débit / flux…", self)
@@ -1736,7 +1778,7 @@ class MetadataCreatorWidget(QWidget):
         self._refresh_water_type_style()
 
         row_weather = QHBoxLayout()
-        row_weather.addWidget(QLabel("Temps au moment de la mesure :", self))
+        row_weather.addWidget(QLabel("Météo (contexte de prélèvement) :", self))
         self.combo_weather = QComboBox(self)
         self.combo_weather.addItems([
             "Choisir...", "Ensoleillé", "Nuageux", "Couvert",
@@ -1751,8 +1793,9 @@ class MetadataCreatorWidget(QWidget):
         self.spin_air_temperature.setDecimals(1)
         self.spin_air_temperature.setSuffix(" °C")
         self.spin_air_temperature.setSpecialValueText("non renseigné")
-        self.spin_air_temperature.setValue(-30.0)
+        self.spin_air_temperature.setValue(self.spin_air_temperature.minimum())
         self.spin_air_temperature.valueChanged.connect(self._on_header_field_changed)
+        self._set_default_on_interaction(self.spin_air_temperature, 20.0)
         row_weather.addWidget(self.spin_air_temperature)
 
         row_weather.addWidget(QLabel("Pluie dernières 24 h :", self))
@@ -1803,16 +1846,22 @@ class MetadataCreatorWidget(QWidget):
         self.edit_bacterio_deposit_day = QDateEdit(self)
         self.edit_bacterio_deposit_day.setCalendarPopup(True)
         self.edit_bacterio_deposit_day.setDisplayFormat("dd/MM/yyyy")
-        self.edit_bacterio_deposit_day.setDate(QDate.currentDate())
+        self.edit_bacterio_deposit_day.setMinimumDate(OPTIONAL_DATE_SENTINEL)
+        self.edit_bacterio_deposit_day.setSpecialValueText("à renseigner")
+        self.edit_bacterio_deposit_day.setDate(OPTIONAL_DATE_SENTINEL)
         self.edit_bacterio_deposit_day.dateChanged.connect(self._on_header_field_changed)
+        self._set_default_on_interaction(self.edit_bacterio_deposit_day, "current_date")
         row_bacterio.addWidget(self.edit_bacterio_deposit_day)
 
         self.lbl_bacterio_deposit_time = QLabel("Heure du dépôt :", self)
         row_bacterio.addWidget(self.lbl_bacterio_deposit_time)
-        self.edit_bacterio_deposit_time = QLineEdit(self)
-        self.edit_bacterio_deposit_time.setPlaceholderText("ex : 09:30")
-        self.edit_bacterio_deposit_time.editingFinished.connect(self._normalize_bacterio_deposit_time)
-        self.edit_bacterio_deposit_time.textChanged.connect(self._on_header_field_changed)
+        self.edit_bacterio_deposit_time = QTimeEdit(self)
+        self.edit_bacterio_deposit_time.setDisplayFormat("HH:mm")
+        self.edit_bacterio_deposit_time.setMinimumTime(OPTIONAL_TIME_SENTINEL)
+        self.edit_bacterio_deposit_time.setSpecialValueText("à renseigner")
+        self.edit_bacterio_deposit_time.setTime(OPTIONAL_TIME_SENTINEL)
+        self.edit_bacterio_deposit_time.timeChanged.connect(self._on_header_field_changed)
+        self._set_default_on_interaction(self.edit_bacterio_deposit_time, "current_time")
         row_bacterio.addWidget(self.edit_bacterio_deposit_time)
 
         self.lbl_bacterio_company = QLabel("Entreprise de mesure :", self)
@@ -1845,6 +1894,13 @@ class MetadataCreatorWidget(QWidget):
         measures_layout.addLayout(row_bacterio_results)
         self._refresh_bacterio_fields_visible()
 
+        row_titration_measure = QHBoxLayout()
+        self.chk_titration_done = QCheckBox("Titration", self)
+        self.chk_titration_done.toggled.connect(self._on_titration_toggled)
+        row_titration_measure.addWidget(self.chk_titration_done)
+        row_titration_measure.addStretch(1)
+        measures_layout.addLayout(row_titration_measure)
+
         layout.addLayout(measures_layout)
 
         # Compatibilité avec l'ancien nommage : ces attributs pointent désormais
@@ -1857,15 +1913,15 @@ class MetadataCreatorWidget(QWidget):
         row_titration_people = QHBoxLayout()
         row_titration_people.addWidget(QLabel("Coordinateur·ice :", self))
         self.edit_coordinator = QLineEdit(self)
-        self.edit_coordinator.setPlaceholderText("Nom puis prénom")
+        self.edit_coordinator.setPlaceholderText("Prénom puis nom")
         row_titration_people.addWidget(self.edit_coordinator)
-        self.edit_coordinator.textChanged.connect(self._on_manip_components_changed)
+        self.edit_coordinator.textChanged.connect(self._on_titration_components_changed)
 
         row_titration_people.addWidget(QLabel("Opérateur·ice :", self))
         self.edit_operator = QLineEdit(self)
-        self.edit_operator.setPlaceholderText("Nom puis prénom")
+        self.edit_operator.setPlaceholderText("Prénom puis nom")
         row_titration_people.addWidget(self.edit_operator)
-        self.edit_operator.textChanged.connect(self._on_manip_components_changed)
+        self.edit_operator.textChanged.connect(self._on_titration_components_changed)
         titration_layout.addLayout(row_titration_people)
 
         row_titration_place = QHBoxLayout()
@@ -1873,15 +1929,28 @@ class MetadataCreatorWidget(QWidget):
         self.edit_titration_location = QLineEdit(self)
         self.edit_titration_location.setPlaceholderText("ex : Laboratoire / Terrain")
         row_titration_place.addWidget(self.edit_titration_location)
-        self.edit_titration_location.textChanged.connect(self._on_header_field_changed)
+        self.edit_titration_location.textChanged.connect(self._on_titration_info_changed)
 
-        row_titration_place.addWidget(QLabel("Date/heure de la titration :", self))
-        self.edit_titration_datetime = QDateTimeEdit(self)
-        self.edit_titration_datetime.setCalendarPopup(True)
-        self.edit_titration_datetime.setDisplayFormat("dd/MM/yyyy HH:mm")
-        self.edit_titration_datetime.setDateTime(QDateTime.currentDateTime())
-        row_titration_place.addWidget(self.edit_titration_datetime)
-        self.edit_titration_datetime.dateTimeChanged.connect(self._on_manip_components_changed)
+        row_titration_place.addWidget(QLabel("Date de la titration :", self))
+        self.edit_titration_date = QDateEdit(self)
+        self.edit_titration_date.setCalendarPopup(True)
+        self.edit_titration_date.setDisplayFormat("dd/MM/yyyy")
+        self.edit_titration_date.setMinimumDate(OPTIONAL_DATE_SENTINEL)
+        self.edit_titration_date.setSpecialValueText("à renseigner")
+        self.edit_titration_date.setDate(OPTIONAL_DATE_SENTINEL)
+        self.edit_titration_date.dateChanged.connect(self._on_titration_components_changed)
+        self._set_default_on_interaction(self.edit_titration_date, "current_date")
+        row_titration_place.addWidget(self.edit_titration_date)
+
+        row_titration_place.addWidget(QLabel("Heure de la titration :", self))
+        self.edit_titration_time = QTimeEdit(self)
+        self.edit_titration_time.setDisplayFormat("HH:mm")
+        self.edit_titration_time.setMinimumTime(OPTIONAL_TIME_SENTINEL)
+        self.edit_titration_time.setSpecialValueText("à renseigner")
+        self.edit_titration_time.setTime(OPTIONAL_TIME_SENTINEL)
+        self.edit_titration_time.timeChanged.connect(self._on_titration_components_changed)
+        self._set_default_on_interaction(self.edit_titration_time, "current_time")
+        row_titration_place.addWidget(self.edit_titration_time)
         titration_layout.addLayout(row_titration_place)
 
         row_titration_name = QHBoxLayout()
@@ -1903,7 +1972,7 @@ class MetadataCreatorWidget(QWidget):
         titration_layout.addLayout(row_titration_name)
 
         self.edit_location = self.edit_titration_location
-        self.edit_date = self.edit_titration_datetime
+        self.edit_date = self.edit_titration_date
 
         if hasattr(self, "edit_sampler") and self.edit_sampler.text().strip():
             self._refresh_manip_name()
@@ -1993,12 +2062,6 @@ class MetadataCreatorWidget(QWidget):
 
         layout.addLayout(btns)
 
-        # Seconde ligne
-        btns2 = QHBoxLayout()
-        btns2.addWidget(self.btn_save_meta)
-        btns2.addStretch(1)
-        layout.addLayout(btns2)
-
         # Couleurs des boutons selon l'état (rouge si non défini, vert si prêt)
         self._refresh_button_states()
 
@@ -2009,13 +2072,21 @@ class MetadataCreatorWidget(QWidget):
         layout.addWidget(self.lbl_status_map)
 
         layout.addStretch(1)
+
+        bottom_save = QHBoxLayout()
+        bottom_save.addStretch(1)
+        bottom_save.addWidget(self.btn_save_meta)
+        bottom_save.addStretch(1)
+        layout.addLayout(bottom_save)
+
         self._setup_fillable_field_styles()
 
     def _setup_fillable_field_styles(self) -> None:
         self._fillable_fields = [
             self.edit_sampler,
             self.edit_sample_associations,
-            self.edit_sample_datetime,
+            self.edit_sample_date,
+            self.edit_sample_time,
             self.edit_sample_location,
             self.edit_sample_lat,
             self.edit_sample_lon,
@@ -2035,7 +2106,8 @@ class MetadataCreatorWidget(QWidget):
             self.edit_coordinator,
             self.edit_operator,
             self.edit_titration_location,
-            self.edit_titration_datetime,
+            self.edit_titration_date,
+            self.edit_titration_time,
             self.combo_volume_preset,
         ]
         self._refresh_fillable_fields_style()
@@ -2045,6 +2117,92 @@ class MetadataCreatorWidget(QWidget):
     def _refresh_fillable_fields_style(self) -> None:
         for widget in getattr(self, "_fillable_fields", []):
             _apply_field_fill_style(widget)
+
+    def _set_default_on_interaction(self, widget, default_value) -> None:
+        if widget is None:
+            return
+        widget.setProperty("_default_on_interaction", default_value)
+        widget.installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:
+        default_value = obj.property("_default_on_interaction") if hasattr(obj, "property") else None
+        if default_value is not None and event.type() in (QEvent.Type.FocusIn, QEvent.Type.MouseButtonPress):
+            if not _field_has_value(obj):
+                if isinstance(obj, QDateEdit):
+                    obj.setDate(QDate.currentDate())
+                elif isinstance(obj, QTimeEdit):
+                    obj.setTime(QTime.currentTime())
+                elif isinstance(obj, (QSpinBox, QDoubleSpinBox)):
+                    obj.setValue(float(default_value))
+                _apply_field_fill_style(obj)
+        return super().eventFilter(obj, event)
+
+    def _sampler_names(self) -> list[str]:
+        names = []
+        if hasattr(self, "edit_sampler"):
+            first = self.edit_sampler.text().strip()
+            if first:
+                names.append(first)
+        for row in getattr(self, "_extra_sampler_rows", []):
+            edit = row.get("edit")
+            if edit is not None and edit.text().strip():
+                names.append(edit.text().strip())
+        return names
+
+    def _on_add_sampler_clicked(self) -> None:
+        self._add_sampler_field()
+        self._on_header_field_changed()
+
+    def _add_sampler_field(self, text: str = "") -> QLineEdit:
+        index = len(self._extra_sampler_rows) + 2
+        row_widget = QWidget(self)
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        label = QLabel(f"Préleveur·se {index} :", row_widget)
+        row_layout.addWidget(label)
+        edit = QLineEdit(row_widget)
+        edit.setPlaceholderText("Prénom puis nom")
+        edit.textChanged.connect(self._on_sample_components_changed)
+        row_layout.addWidget(edit)
+        btn_remove = QPushButton("Retirer", row_widget)
+        btn_remove.clicked.connect(lambda _checked=False, w=row_widget: self._remove_sampler_field(w))
+        row_layout.addWidget(btn_remove)
+        row_layout.addStretch(1)
+        self.extra_samplers_layout.addWidget(row_widget)
+        self._extra_sampler_rows.append({"widget": row_widget, "label": label, "edit": edit, "button": btn_remove})
+        if hasattr(self, "_fillable_fields"):
+            self._fillable_fields.append(edit)
+            _install_field_fill_style(edit)
+        edit.setText(str(text or ""))
+        return edit
+
+    def _remove_sampler_field(self, row_widget: QWidget) -> None:
+        removed_edits = [
+            row.get("edit") for row in self._extra_sampler_rows if row.get("widget") is row_widget
+        ]
+        self._extra_sampler_rows = [
+            row for row in self._extra_sampler_rows if row.get("widget") is not row_widget
+        ]
+        if hasattr(self, "_fillable_fields"):
+            self._fillable_fields = [w for w in self._fillable_fields if w not in removed_edits]
+        row_widget.setParent(None)
+        row_widget.deleteLater()
+        for idx, row in enumerate(self._extra_sampler_rows, start=2):
+            label = row.get("label")
+            if label is not None:
+                label.setText(f"Préleveur·se {idx} :")
+        self._on_sample_components_changed()
+
+    def _clear_extra_sampler_fields(self) -> None:
+        removed_edits = [row.get("edit") for row in getattr(self, "_extra_sampler_rows", [])]
+        if hasattr(self, "_fillable_fields"):
+            self._fillable_fields = [w for w in self._fillable_fields if w not in removed_edits]
+        for row in list(getattr(self, "_extra_sampler_rows", [])):
+            widget = row.get("widget")
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        self._extra_sampler_rows = []
 
     def _refresh_button_states(self) -> None:
         """Met à jour la couleur des boutons selon l'état des DataFrames.
@@ -2122,10 +2280,61 @@ class MetadataCreatorWidget(QWidget):
         if hasattr(self, "btn_save_meta"):
             self._refresh_button_states()
 
+    def has_unsaved_metadata(self) -> bool:
+        return bool(getattr(self, "_metadata_dirty", True))
+
+    def _metadata_save_warnings(self) -> list[str]:
+        warnings: list[str] = []
+        titration_done = bool(self.chk_titration_done.isChecked()) if hasattr(self, "chk_titration_done") else False
+        comp_ready = self.df_comp is not None and isinstance(self.df_comp, pd.DataFrame) and not self.df_comp.empty
+
+        if not titration_done:
+            warnings.append("La case « Titration » n'est pas cochée : la feuille de protocole n'est pas validée.")
+        else:
+            if not comp_ready:
+                warnings.append("La titration est cochée, mais aucun tableau des volumes n'est défini.")
+            if not self._protocol_states:
+                warnings.append("La feuille de protocole n'a pas encore été validée.")
+
+        if self._ammonium_test_enabled:
+            missing = []
+            if not str(self._ammonium_test_values.get("operator", "") or "").strip():
+                missing.append("réalisateur·ice")
+            if not str(self._ammonium_test_values.get("test_1", "") or "").strip():
+                missing.append("test 1")
+            if not str(self._ammonium_test_values.get("test_2", "") or "").strip():
+                missing.append("test 2")
+            if not str(self._ammonium_test_values.get("ph", "") or "").strip():
+                missing.append("pH")
+            if missing:
+                warnings.append("Test ammonium coché, mais champ(s) manquant(s) : " + ", ".join(missing) + ".")
+
+        if hasattr(self, "chk_bacterio_analysis") and self.chk_bacterio_analysis.isChecked():
+            values = self._header_values()
+            required = {
+                "Jour de dépôt": values.get("Jour de dépôt", ""),
+                "Heure du dépôt": values.get("Heure du dépôt", ""),
+                "Entreprise de mesure": values.get("Entreprise de mesure", ""),
+                "Résultats E.Coli (npp/ml)": values.get("Résultats E.Coli (npp/ml)", ""),
+                "Résultats Entérocoques intestinaux (npp/100ml)": values.get(
+                    "Résultats Entérocoques intestinaux (npp/100ml)", ""
+                ),
+            }
+            missing = [label for label, value in required.items() if not str(value or "").strip()]
+            if missing:
+                warnings.append("Analyses bactériologiques cochées, mais champ(s) manquant(s) : " + ", ".join(missing) + ".")
+        return warnings
+
     @staticmethod
     def _date_time_text(widget) -> str:
         if widget is None:
             return ""
+        if isinstance(widget, QDateEdit) and widget.specialValueText() and widget.date() == widget.minimumDate():
+            return ""
+        if isinstance(widget, QDateTimeEdit) and widget.specialValueText() and widget.dateTime() == widget.minimumDateTime():
+            return ""
+        if isinstance(widget, QDateEdit):
+            return widget.date().toString("dd/MM/yyyy")
         try:
             return widget.dateTime().toString("dd/MM/yyyy HH:mm")
         except Exception:
@@ -2143,7 +2352,13 @@ class MetadataCreatorWidget(QWidget):
             return
         qdt = QDateTime.fromString(txt, "dd/MM/yyyy HH:mm")
         if qdt.isValid():
-            widget.setDateTime(qdt)
+            try:
+                widget.setDateTime(qdt)
+            except Exception:
+                try:
+                    widget.setDate(qdt.date())
+                except Exception:
+                    pass
             return
         qd = QDate.fromString(txt, "dd/MM/yyyy")
         if qd.isValid():
@@ -2151,6 +2366,42 @@ class MetadataCreatorWidget(QWidget):
                 widget.setDateTime(QDateTime(qd, widget.time()))
             except Exception:
                 widget.setDate(qd)
+
+    @staticmethod
+    def _time_text(widget) -> str:
+        if widget is None:
+            return ""
+        if isinstance(widget, QTimeEdit) and widget.specialValueText() and widget.time() == widget.minimumTime():
+            return ""
+        try:
+            return widget.time().toString("HH:mm")
+        except Exception:
+            try:
+                return str(widget.text()).strip()
+            except Exception:
+                return ""
+
+    @staticmethod
+    def _set_time_text(widget, text: str) -> None:
+        if widget is None:
+            return
+        txt = str(text or "").strip()
+        if not txt:
+            return
+        if " " in txt:
+            txt = txt.rsplit(" ", 1)[-1]
+        normalized = MetadataCreatorWidget._normalize_time_text(txt)
+        qt = QTime.fromString(normalized, "HH:mm")
+        if qt.isValid():
+            try:
+                widget.setTime(qt)
+                return
+            except Exception:
+                pass
+        try:
+            widget.setText(normalized)
+        except Exception:
+            pass
 
     @staticmethod
     def _normalize_time_text(text: str | None) -> str:
@@ -2179,15 +2430,67 @@ class MetadataCreatorWidget(QWidget):
         if normalized != txt:
             self.edit_high_tide_time.setText(normalized)
 
+    def _sample_date_text(self) -> str:
+        return self._date_time_text(getattr(self, "edit_sample_date", None))
+
+    def _sample_time_text(self) -> str:
+        return self._time_text(getattr(self, "edit_sample_time", None))
+
+    def _sample_date_time_text(self) -> str:
+        date_text = self._sample_date_text()
+        time_text = self._sample_time_text()
+        if date_text and time_text:
+            return f"{date_text} {time_text}"
+        return ""
+
+    def _titration_date_text(self) -> str:
+        return self._date_time_text(getattr(self, "edit_titration_date", None))
+
+    def _titration_time_text(self) -> str:
+        return self._time_text(getattr(self, "edit_titration_time", None))
+
+    def _titration_date_time_text(self) -> str:
+        date_text = self._titration_date_text()
+        time_text = self._titration_time_text()
+        if date_text and time_text:
+            return f"{date_text} {time_text}"
+        return ""
+
+    def _set_sample_date_time_text(self, text: str) -> None:
+        txt = str(text or "").strip()
+        if not txt:
+            return
+        if " " in txt:
+            date_part, time_part = txt.rsplit(" ", 1)
+        else:
+            date_part, time_part = txt, ""
+        if hasattr(self, "edit_sample_date"):
+            self._set_date_time_text(self.edit_sample_date, date_part)
+        if time_part and hasattr(self, "edit_sample_time"):
+            self._set_time_text(self.edit_sample_time, time_part)
+
+    def _set_titration_date_time_text(self, text: str) -> None:
+        txt = str(text or "").strip()
+        if not txt:
+            return
+        if " " in txt:
+            date_part, time_part = txt.rsplit(" ", 1)
+        else:
+            date_part, time_part = txt, ""
+        if hasattr(self, "edit_titration_date"):
+            self._set_date_time_text(self.edit_titration_date, date_part)
+        if time_part and hasattr(self, "edit_titration_time"):
+            self._set_time_text(self.edit_titration_time, time_part)
+
     def _normalize_bacterio_deposit_time(self) -> None:
         if not hasattr(self, "edit_bacterio_deposit_time"):
             return
-        txt = self.edit_bacterio_deposit_time.text().strip()
+        txt = self._time_text(self.edit_bacterio_deposit_time)
         if not txt:
             return
         normalized = self._normalize_time_text(txt)
         if normalized != txt:
-            self.edit_bacterio_deposit_time.setText(normalized)
+            self._set_time_text(self.edit_bacterio_deposit_time, normalized)
 
     def _is_tidal_water_type(self) -> bool:
         if not hasattr(self, "combo_water_type"):
@@ -2255,13 +2558,15 @@ class MetadataCreatorWidget(QWidget):
         self._refresh_bacterio_fields_visible()
         self._on_header_field_changed()
 
+    def _on_titration_toggled(self, checked: bool) -> None:
+        self._on_header_field_changed()
+
     @staticmethod
     def _person_initials(name: str) -> str:
-        # Saisie attendue : "Nom puis prénom".
-        # Le code manip utilise donc l'initiale du prénom puis celle du nom.
+        # Saisie attendue : "Prénom puis nom".
         parts = re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ0-9-]+", str(name or ""))
         if len(parts) >= 2:
-            return f"{parts[1][0]}{parts[0][0]}".upper()
+            return f"{parts[0][0]}{parts[-1][0]}".upper()
         if len(parts) == 1:
             return parts[0][0].upper()
         return ""
@@ -2394,19 +2699,24 @@ class MetadataCreatorWidget(QWidget):
         self._on_header_field_changed()
 
     def _build_manip_name(self) -> str:
-        initials = self._person_initials(self.edit_sampler.text() if hasattr(self, "edit_sampler") else "")
-        dt = self.edit_sample_datetime.dateTime() if hasattr(self, "edit_sample_datetime") else QDateTime.currentDateTime()
-
-        if not initials:
+        initials = "".join(
+            self._person_initials(name) for name in self._sampler_names()
+        )
+        sample_date = getattr(self, "edit_sample_date", None)
+        sample_time = getattr(self, "edit_sample_time", None)
+        if not initials or not _field_has_value(sample_date) or not _field_has_value(sample_time):
             return ""
+        dt = QDateTime(sample_date.date(), sample_time.time())
         return f"{initials}_{dt.toString('yyyyMMdd')}_{dt.toString('HH')}h{dt.toString('mm')}"
 
     def _build_titration_manip_name(self) -> str:
         oper = self._person_initials(self.edit_operator.text() if hasattr(self, "edit_operator") else "")
         coord = self._person_initials(self.edit_coordinator.text() if hasattr(self, "edit_coordinator") else "")
-        if not oper or not coord:
+        titration_date = getattr(self, "edit_titration_date", None)
+        titration_time = getattr(self, "edit_titration_time", None)
+        if not oper or not coord or not _field_has_value(titration_date) or not _field_has_value(titration_time):
             return ""
-        dt = self.edit_titration_datetime.dateTime() if hasattr(self, "edit_titration_datetime") else QDateTime.currentDateTime()
+        dt = QDateTime(titration_date.date(), titration_time.time())
         return f"{oper}{coord}_{dt.toString('yyyyMMdd')}_{dt.toString('HH')}h{dt.toString('mm')}"
 
     def _refresh_manip_name(self) -> None:
@@ -2431,10 +2741,29 @@ class MetadataCreatorWidget(QWidget):
         finally:
             self.edit_titration_manip.blockSignals(False)
 
-    def _on_manip_components_changed(self, *args) -> None:
+    def _on_sample_components_changed(self, *args) -> None:
         self._refresh_manip_name()
-        self._refresh_titration_manip_name()
         self._on_header_field_changed()
+
+    def _on_titration_components_changed(self, *args) -> None:
+        self._refresh_titration_manip_name()
+        self._on_titration_info_changed()
+
+    def _on_manip_components_changed(self, *args) -> None:
+        self._on_sample_components_changed(*args)
+
+    def _on_titration_info_changed(self, *args) -> None:
+        self._refresh_fillable_fields_style()
+        self._mark_metadata_dirty(refresh=False)
+        if self.df_map is not None and isinstance(self.df_map, pd.DataFrame) and not self.df_map.empty:
+            self.map_dirty = True
+        self._refresh_button_states()
+
+    def _on_header_field_changed(self, *args) -> None:
+        """Marque les métadonnées comme modifiées sans invalider la correspondance spectres ↔ tubes."""
+        self._refresh_fillable_fields_style()
+        self._mark_metadata_dirty(refresh=False)
+        self._refresh_button_states()
 
     def _header_values(self, manip_name: str | None = None) -> dict[str, str]:
         name = manip_name if manip_name is not None else (
@@ -2443,6 +2772,7 @@ class MetadataCreatorWidget(QWidget):
         titration_name = (
             self.edit_titration_manip.text().strip() if hasattr(self, "edit_titration_manip") else ""
         )
+        titration_done = bool(self.chk_titration_done.isChecked()) if hasattr(self, "chk_titration_done") else False
         ammonium_enabled = bool(self._ammonium_test_enabled)
         ammonium = "Oui" if ammonium_enabled else "Non"
         bacterio_enabled = bool(self.chk_bacterio_analysis.isChecked()) if hasattr(self, "chk_bacterio_analysis") else False
@@ -2454,9 +2784,7 @@ class MetadataCreatorWidget(QWidget):
         bacterio_enterococci = ""
         if bacterio_enabled:
             bacterio_day = self._date_time_text(getattr(self, "edit_bacterio_deposit_day", None))
-            bacterio_time = self._normalize_time_text(
-                self.edit_bacterio_deposit_time.text() if hasattr(self, "edit_bacterio_deposit_time") else ""
-            )
+            bacterio_time = self._time_text(getattr(self, "edit_bacterio_deposit_time", None))
             bacterio_company = (
                 self.edit_bacterio_company.text().strip() if hasattr(self, "edit_bacterio_company") else ""
             )
@@ -2478,6 +2806,11 @@ class MetadataCreatorWidget(QWidget):
         water_type = ""
         if hasattr(self, "combo_water_type") and self._is_water_type_selected():
             water_type = self.combo_water_type.currentText().strip()
+        sampler_names = self._sampler_names()
+        extra_sampler_values = {
+            f"Préleveur·se {idx}": sampler_names[idx - 1] if len(sampler_names) >= idx else ""
+            for idx in range(2, 7)
+        }
         debit_flux_values = {
             f"{self.DEBIT_FLUX_PREFIX}{column}": (
                 str(self._debit_flux_values.get(column, "") or "").strip()
@@ -2487,8 +2820,10 @@ class MetadataCreatorWidget(QWidget):
             for column in self.DEBIT_FLUX_COLUMNS
         }
         return {
-            "Nom de la manip": str(name or "").strip(),
+            "Nom du prélèvement": str(name or "").strip(),
             "Préleveur·se": self.edit_sampler.text().strip() if hasattr(self, "edit_sampler") else "",
+            "Préleveur·ses": " ; ".join(sampler_names),
+            **extra_sampler_values,
             "Association(s) du prélèvement": self.edit_sample_associations.text().strip() if hasattr(self, "edit_sample_associations") else "",
             "Lieu du prélèvement": self.edit_sample_location.text().strip() if hasattr(self, "edit_sample_location") else "",
             "Latitude du prélèvement": self._format_coord_value(
@@ -2501,11 +2836,13 @@ class MetadataCreatorWidget(QWidget):
                 -180.0,
                 180.0,
             ),
-            "Date/heure du prélèvement": self._date_time_text(getattr(self, "edit_sample_datetime", None)),
+            "Date du prélèvement": self._sample_date_text(),
+            "Heure du prélèvement": self._sample_time_text(),
+            "Date/heure du prélèvement": self._sample_date_time_text(),
             "Type d'eau": water_type,
             "Température de l'eau": (
                 str(round(self.spin_water_temperature.value(), 1))
-                if hasattr(self, "spin_water_temperature") and self.spin_water_temperature.value() > -10.0
+                if hasattr(self, "spin_water_temperature") and _field_has_value(self.spin_water_temperature)
                 else ""
             ),
             **debit_flux_values,
@@ -2518,7 +2855,7 @@ class MetadataCreatorWidget(QWidget):
             ),
             "Température de l'air": (
                 str(round(self.spin_air_temperature.value(), 1))
-                if hasattr(self, "spin_air_temperature") and self.spin_air_temperature.value() > -30.0
+                if hasattr(self, "spin_air_temperature") and _field_has_value(self.spin_air_temperature)
                 else ""
             ),
             "Pluie dernières 24 h (mm)": (
@@ -2542,17 +2879,22 @@ class MetadataCreatorWidget(QWidget):
             "Entreprise de mesure": bacterio_company,
             "Résultats E.Coli (npp/ml)": bacterio_ecoli,
             "Résultats Entérocoques intestinaux (npp/100ml)": bacterio_enterococci,
+            "Titration": "Oui" if titration_done else "Non",
             "Nom de la manip de titration": str(titration_name or "").strip(),
             "Lieu de la titration": self.edit_titration_location.text().strip() if hasattr(self, "edit_titration_location") else "",
-            "Date/heure de la titration": self._date_time_text(getattr(self, "edit_titration_datetime", None)),
+            "Date de la titration": self._titration_date_text(),
+            "Heure de la titration": self._titration_time_text(),
+            "Date/heure de la titration": self._titration_date_time_text(),
             "Coordinateur": self.edit_coordinator.text().strip() if hasattr(self, "edit_coordinator") else "",
             "Opérateur": self.edit_operator.text().strip() if hasattr(self, "edit_operator") else "",
         }
 
     @staticmethod
     def _header_storage_key(label: str) -> str:
-        key = str(label or "").strip().rstrip(":")
+        key = str(label or "").strip().rstrip(":").strip()
         aliases = {
+            "Nom de la manip": "Nom du prélèvement",
+            "Nom du prélèvement": "Nom du prélèvement",
             "Date": "Date/heure de la titration",
             "Lieu": "Lieu de la titration",
             "Préleveur/préleveuse": "Préleveur·se",
@@ -2560,6 +2902,15 @@ class MetadataCreatorWidget(QWidget):
             "Préleveuse": "Préleveur·se",
             "Preleveur": "Préleveur·se",
             "Preleveuse": "Préleveur·se",
+            "Préleveurs": "Préleveur·ses",
+            "Préleveur·ses": "Préleveur·ses",
+            "Preleveurs": "Préleveur·ses",
+            "Préleveur 2": "Préleveur·se 2",
+            "Préleveuse 2": "Préleveur·se 2",
+            "Preleveur 2": "Préleveur·se 2",
+            "Préleveur 3": "Préleveur·se 3",
+            "Préleveuse 3": "Préleveur·se 3",
+            "Preleveur 3": "Préleveur·se 3",
             "Association": "Association(s) du prélèvement",
             "Associations": "Association(s) du prélèvement",
             "Association(s)": "Association(s) du prélèvement",
@@ -2578,6 +2929,18 @@ class MetadataCreatorWidget(QWidget):
             "Longitude GPS": "Longitude du prélèvement",
             "Longitude prélèvement": "Longitude du prélèvement",
             "Longitude prelevement": "Longitude du prélèvement",
+            "Date prélèvement": "Date du prélèvement",
+            "Date prelevement": "Date du prélèvement",
+            "Date de prélèvement": "Date du prélèvement",
+            "Date de prelevement": "Date du prélèvement",
+            "Heure prélèvement": "Heure du prélèvement",
+            "Heure prelevement": "Heure du prélèvement",
+            "Heure de prélèvement": "Heure du prélèvement",
+            "Heure de prelevement": "Heure du prélèvement",
+            "Date titration": "Date de la titration",
+            "Date de titration": "Date de la titration",
+            "Heure titration": "Heure de la titration",
+            "Heure de titration": "Heure de la titration",
             "Type eau": "Type d'eau",
             "Type d eau": "Type d'eau",
             "Type deau": "Type d'eau",
@@ -2641,6 +3004,9 @@ class MetadataCreatorWidget(QWidget):
             "Resultats Enterocoques intestinaux": "Résultats Entérocoques intestinaux (npp/100ml)",
             "Entérocoques intestinaux": "Résultats Entérocoques intestinaux (npp/100ml)",
             "Enterocoques intestinaux": "Résultats Entérocoques intestinaux (npp/100ml)",
+            "Titration réalisée": "Titration",
+            "Titration realisee": "Titration",
+            "Titration faite": "Titration",
             "Nom de la titration": "Nom de la manip de titration",
             "Nom manip titration": "Nom de la manip de titration",
             "Coordinateur·ice": "Coordinateur",
@@ -2651,12 +3017,20 @@ class MetadataCreatorWidget(QWidget):
     def _header_rows_dataframe(self, manip_name: str | None = None) -> pd.DataFrame:
         values = self._header_values(manip_name)
         rows = [[key, values.get(key, "")] for key in [
-            "Nom de la manip",
+            "Nom du prélèvement",
             "Préleveur·se",
+            "Préleveur·ses",
+            "Préleveur·se 2",
+            "Préleveur·se 3",
+            "Préleveur·se 4",
+            "Préleveur·se 5",
+            "Préleveur·se 6",
             "Association(s) du prélèvement",
             "Lieu du prélèvement",
             "Latitude du prélèvement",
             "Longitude du prélèvement",
+            "Date du prélèvement",
+            "Heure du prélèvement",
             "Date/heure du prélèvement",
             "Type d'eau",
             "Température de l'eau",
@@ -2683,8 +3057,11 @@ class MetadataCreatorWidget(QWidget):
             "Entreprise de mesure",
             "Résultats E.Coli (npp/ml)",
             "Résultats Entérocoques intestinaux (npp/100ml)",
+            "Titration",
             "Nom de la manip de titration",
             "Lieu de la titration",
+            "Date de la titration",
+            "Heure de la titration",
             "Date/heure de la titration",
             "Coordinateur",
             "Opérateur",
@@ -2748,17 +3125,6 @@ class MetadataCreatorWidget(QWidget):
     def _normalize_tube_label(label: str) -> str:
         return mm.normalize_tube_label(label)
     
-    def _on_header_field_changed(self, *args) -> None:
-        """Marque la correspondance spectres↔tubes comme à revoir quand un champ d’en-tête change."""
-        self._refresh_fillable_fields_style()
-        self._mark_metadata_dirty(refresh=False)
-        # On ne marque dirty que si un df_map existe déjà (sinon c'est déjà rouge)
-        if self.df_map is None or self.df_map.empty:
-            self._refresh_button_states()
-            return
-        self.map_dirty = True
-        self._refresh_button_states()
-
     # ------------------------------------------------------------------
     # Gestion du tableau des volumes (avec concentrations)
     # ------------------------------------------------------------------
@@ -2767,7 +3133,7 @@ class MetadataCreatorWidget(QWidget):
         Ouvre le dialog d'édition pour la correspondance spectres ↔ tubes.
 
         Le modèle par défaut suit la structure Excel d'origine avec :
-        - 5 lignes d'en-tête (Nom de la manip, Date, Lieu, Coordinateur, Opérateur),
+        - les lignes d'en-tête (nom du prélèvement, date, lieu, coordinateur, opérateur),
         - une ligne vide,
         - une ligne d'en-tête interne "Nom du spectre" / "Tube",
         - puis les lignes de correspondance NomSpectre ↔ Tube.
@@ -2787,7 +3153,7 @@ class MetadataCreatorWidget(QWidget):
         if not manip_name:
             QMessageBox.warning(
                 self,
-                "Nom de la manip manquant",
+                "Nom du prélèvement manquant",
                 "Veuillez renseigner le préleveur ou la préleveuse et la date/heure de prélèvement "
                 "pour générer le nom de la manip avant de créer la correspondance spectres ↔ tubes.",
             )
@@ -3025,7 +3391,7 @@ class MetadataCreatorWidget(QWidget):
         """Met à jour la colonne 'Nom du spectre' dans df_map sans modifier la colonne 'Tube'.
 
         Règles :
-        - On ne touche jamais aux lignes d'en-tête (Nom de la manip, Date, etc.).
+        - On ne touche jamais aux lignes d'en-tête (nom du prélèvement, date, etc.).
         - Si une ligne interne d'en-tête "Nom du spectre" / "Tube" existe, on met à jour uniquement
         les lignes situées après cette ligne.
         - Si cette ligne n'existe pas, on met à jour uniquement les lignes qui ressemblent à un nom
@@ -3092,9 +3458,11 @@ class MetadataCreatorWidget(QWidget):
         if not manip_name:
             return
 
+        had_map = self.df_map is not None and isinstance(self.df_map, pd.DataFrame) and not self.df_map.empty
+        was_dirty = bool(self.map_dirty)
         self._apply_spectrum_names_to_df_map(manip_name, start_index)
 
-        self.map_dirty = True
+        self.map_dirty = True if not had_map else was_dirty
         self._mark_metadata_dirty(refresh=False)
         self._refresh_button_states()
 
@@ -3106,6 +3474,8 @@ class MetadataCreatorWidget(QWidget):
             return
 
         self.df_comp = self.VOLUME_PRESETS[name].copy()
+        if hasattr(self, "chk_titration_done"):
+            self.chk_titration_done.setChecked(True)
         try:
             conc_df = mm.compute_concentration_table(self.df_comp)
             tube_cols = self._get_tube_columns(self.df_comp)
@@ -3129,8 +3499,8 @@ class MetadataCreatorWidget(QWidget):
 
     def _apply_manip_name_to_df_map(self, manip_name: str) -> None:
         """
-        Applique le nom de la manip à df_map :
-        - met à jour la ligne 'Nom de la manip'
+        Applique le nom du prélèvement à df_map :
+        - met à jour la ligne 'Nom du prélèvement'
         - régénère tous les noms de spectres sous la forme NomManip_XX
         sans modifier l'affectation des tubes.
         """
@@ -3142,9 +3512,15 @@ class MetadataCreatorWidget(QWidget):
         df = self.df_map.copy()
         col_ns = df["Nom du spectre"].astype(str).str.strip()
 
-        # 1) Mettre à jour la ligne d'en-tête "Nom de la manip"
-        mask_manip = col_ns.isin(["Nom de la manip", "Nom de la manip :"])
+        # 1) Mettre à jour la ligne d'en-tête "Nom du prélèvement"
+        mask_manip = col_ns.isin([
+            "Nom du prélèvement",
+            "Nom du prélèvement :",
+            "Nom de la manip",
+            "Nom de la manip :",
+        ])
         if mask_manip.any():
+            df.loc[mask_manip, "Nom du spectre"] = "Nom du prélèvement"
             df.loc[mask_manip, "Tube"] = manip_name
 
         # 2) Trouver la ligne d'en-tête interne "Nom du spectre"
@@ -3241,6 +3617,8 @@ class MetadataCreatorWidget(QWidget):
             if extra:
                 df = df.drop(columns=extra)
             self.df_comp = df
+            if hasattr(self, "chk_titration_done"):
+                self.chk_titration_done.setChecked(True)
 
         # Copie de travail
         df = self.df_comp.copy()
@@ -3414,6 +3792,8 @@ class MetadataCreatorWidget(QWidget):
         df = df.iloc[sorted(range(len(df)), key=lambda i: _row_key(df.iloc[i]))].reset_index(drop=True)
 
         self.df_comp = df
+        if hasattr(self, "chk_titration_done"):
+            self.chk_titration_done.setChecked(True)
 
         vtot_used = meta.get("Vtot_real_uL", 0.0)
         vtot_msg = (f"V total utilisé = {vtot_used:.0f} µL\n\n" if compte_goutte else "")
@@ -3722,8 +4102,8 @@ class MetadataCreatorWidget(QWidget):
                     return value
             return ""
 
-        # Nom de la manip
-        name_val = _value_for("Nom de la manip :", "Nom de la manip")
+        # Nom du prélèvement
+        name_val = _value_for("Nom du prélèvement :", "Nom du prélèvement", "Nom de la manip :", "Nom de la manip")
         if name_val and hasattr(self, "edit_manip"):
             self.edit_manip.setText(name_val)
 
@@ -3731,6 +4111,21 @@ class MetadataCreatorWidget(QWidget):
         sampler_val = _value_for("Préleveur·se", "Préleveur/préleveuse", "Préleveur", "Préleveuse")
         if sampler_val and hasattr(self, "edit_sampler"):
             self.edit_sampler.setText(sampler_val)
+        self._clear_extra_sampler_fields()
+        extra_samplers = [
+            _value_for(f"Préleveur·se {idx}", f"Préleveur {idx}", f"Préleveuse {idx}", f"Preleveur {idx}")
+            for idx in range(2, 7)
+        ]
+        if not any(extra_samplers):
+            combined_samplers = _value_for("Préleveur·ses", "Préleveurs", "Preleveurs")
+            if combined_samplers:
+                parts = [p.strip() for p in re.split(r"[;\n]+", combined_samplers) if p.strip()]
+                if parts and not sampler_val and hasattr(self, "edit_sampler"):
+                    self.edit_sampler.setText(parts[0])
+                extra_samplers = parts[1:]
+        for extra_sampler in extra_samplers:
+            if extra_sampler:
+                self._add_sampler_field(extra_sampler)
 
         associations_val = _value_for(
             "Association(s) du prélèvement",
@@ -3782,9 +4177,32 @@ class MetadataCreatorWidget(QWidget):
         if sample_lon and hasattr(self, "edit_sample_lon"):
             self.edit_sample_lon.setText(self._format_coord_value(sample_lon, -180.0, 180.0))
 
+        sample_date = _value_for(
+            "Date du prélèvement",
+            "Date prélèvement",
+            "Date prelevement",
+            "Date de prélèvement",
+            "Date de prelevement",
+        )
+        sample_time = _value_for(
+            "Heure du prélèvement",
+            "Heure prélèvement",
+            "Heure prelevement",
+            "Heure de prélèvement",
+            "Heure de prelevement",
+        )
         sample_dt = _value_for("Date/heure du prélèvement")
-        if sample_dt and hasattr(self, "edit_sample_datetime"):
-            self._set_date_time_text(self.edit_sample_datetime, sample_dt)
+        if sample_dt and (not sample_date or not sample_time):
+            if " " in sample_dt:
+                old_date, old_time = sample_dt.rsplit(" ", 1)
+                sample_date = sample_date or old_date
+                sample_time = sample_time or old_time
+            else:
+                sample_date = sample_date or sample_dt
+        if sample_date and hasattr(self, "edit_sample_date"):
+            self._set_date_time_text(self.edit_sample_date, sample_date)
+        if sample_time and hasattr(self, "edit_sample_time"):
+            self._set_time_text(self.edit_sample_time, sample_time)
 
         water_type = _value_for("Type d'eau", "Type d'eau du prélèvement", "Type d'eau du prelevement", "Type eau")
         if water_type and hasattr(self, "combo_water_type"):
@@ -3893,7 +4311,7 @@ class MetadataCreatorWidget(QWidget):
             self._set_date_time_text(self.edit_bacterio_deposit_day, bacterio_day)
         bacterio_time = _value_for("Heure du dépôt", "Heure du depot", "Heure dépôt", "Heure depot")
         if bacterio_time and hasattr(self, "edit_bacterio_deposit_time"):
-            self.edit_bacterio_deposit_time.setText(self._normalize_time_text(bacterio_time))
+            self._set_time_text(self.edit_bacterio_deposit_time, bacterio_time)
         bacterio_company = _value_for("Entreprise de mesure", "Entreprise mesure", "Entreprise de mesures")
         if bacterio_company and hasattr(self, "edit_bacterio_company"):
             self.edit_bacterio_company.setText(bacterio_company)
@@ -3921,10 +4339,28 @@ class MetadataCreatorWidget(QWidget):
             self.edit_bacterio_enterococci.setText(bacterio_enterococci)
         self._refresh_bacterio_fields_visible()
 
+        titration_val = _value_for("Titration", "Titration réalisée", "Titration realisee", "Titration faite")
+        if titration_val and hasattr(self, "chk_titration_done"):
+            titration_checked = str(titration_val).strip().lower() in {"oui", "yes", "true", "1", "x"}
+            self.chk_titration_done.blockSignals(True)
+            self.chk_titration_done.setChecked(titration_checked)
+            self.chk_titration_done.blockSignals(False)
+
         # Titration (fallback anciens fichiers : Date / Lieu)
+        titration_date = _value_for("Date de la titration", "Date titration", "Date de titration")
+        titration_time = _value_for("Heure de la titration", "Heure titration", "Heure de titration")
         titration_dt = _value_for("Date/heure de la titration", "Date :", "Date")
-        if titration_dt and hasattr(self, "edit_titration_datetime"):
-            self._set_date_time_text(self.edit_titration_datetime, titration_dt)
+        if titration_dt and (not titration_date or not titration_time):
+            if " " in titration_dt:
+                old_date, old_time = titration_dt.rsplit(" ", 1)
+                titration_date = titration_date or old_date
+                titration_time = titration_time or old_time
+            else:
+                titration_date = titration_date or titration_dt
+        if titration_date and hasattr(self, "edit_titration_date"):
+            self._set_date_time_text(self.edit_titration_date, titration_date)
+        if titration_time and hasattr(self, "edit_titration_time"):
+            self._set_time_text(self.edit_titration_time, titration_time)
 
         titration_name = _value_for("Nom de la manip de titration", "Nom de la titration", "Nom manip titration")
         if titration_name and hasattr(self, "edit_titration_manip"):
@@ -3972,7 +4408,7 @@ class MetadataCreatorWidget(QWidget):
 
         meta = {
             "nom_manip":    titration_manip,
-            "date":         self._date_time_text(getattr(self, "edit_titration_datetime", None)),
+            "date":         self._titration_date_time_text(),
             "lieu":         self.edit_location.text().strip()                if hasattr(self, "edit_location")    else "",
             "coordinateur": self.edit_coordinator.text().strip()             if hasattr(self, "edit_coordinator") else "",
             "operateur":    self.edit_operator.text().strip()                if hasattr(self, "edit_operator")    else "",
@@ -3992,15 +4428,235 @@ class MetadataCreatorWidget(QWidget):
     # ------------------------------------------------------------------
     # Sauvegarde / chargement des métadonnées complètes
     # ------------------------------------------------------------------
+    def _write_measure_summary_sheet(self, workbook) -> None:
+        """Ajoute une feuille terrain lisible en première page du fichier Excel."""
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+        from openpyxl.utils import get_column_letter
+
+        if "Mesures" in workbook.sheetnames:
+            del workbook["Mesures"]
+        ws = workbook.create_sheet("Mesures", 0)
+
+        values = self._header_values()
+
+        def _split_date_time(text: str) -> tuple[str, str]:
+            txt = str(text or "").strip()
+            if " " not in txt:
+                return txt, ""
+            date_part, time_part = txt.rsplit(" ", 1)
+            return date_part, time_part
+
+        sample_date = values.get("Date du prélèvement", "")
+        sample_time = values.get("Heure du prélèvement", "")
+        if not sample_date or not sample_time:
+            old_sample_date, old_sample_time = _split_date_time(values.get("Date/heure du prélèvement", ""))
+            sample_date = sample_date or old_sample_date
+            sample_time = sample_time or old_sample_time
+        weather_text = str(values.get("Temps au moment de la mesure", "") or "")
+        water_temp = values.get("Température de l'eau")
+        air_temp = values.get("Température de l'air")
+        sampler_names = self._sampler_names()
+        sampler_comments = ""
+        if len(sampler_names) > 3:
+            sampler_comments = "Préleveur·ses supplémentaires : " + " ; ".join(sampler_names[3:])
+
+        border_side = Side(style="thin", color="000000")
+        thick_side = Side(style="medium", color="000000")
+        thin_border = Border(left=border_side, right=border_side, top=border_side, bottom=border_side)
+        thick_bottom = Border(left=border_side, right=border_side, top=border_side, bottom=thick_side)
+        title_fill = PatternFill("solid", fgColor="C6E0B4")
+        info_fill = PatternFill("solid", fgColor="D9E2F3")
+        section_fill = PatternFill("solid", fgColor="F8CBAD")
+        header_fill = PatternFill("solid", fgColor="E2F0D9")
+        data_blue = PatternFill("solid", fgColor="BDD7EE")
+        data_yellow = PatternFill("solid", fgColor="FFF2CC")
+        data_gray = PatternFill("solid", fgColor="C9C0A0")
+        data_cyan = PatternFill("solid", fgColor="00CFE8")
+        comment_fill = PatternFill("solid", fgColor="FFE699")
+        white_fill = PatternFill("solid", fgColor="FFFFFF")
+
+        def _merge(cell_range: str, text: str = "", fill=None, font=None) -> None:
+            ws.merge_cells(cell_range)
+            cell = ws[cell_range.split(":")[0]]
+            cell.value = text
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            if fill is not None:
+                cell.fill = fill
+            if font is not None:
+                cell.font = font
+
+        def _style_range(cell_range: str, fill=None, font=None, border=thin_border) -> None:
+            for row in ws[cell_range]:
+                for cell in row:
+                    cell.border = border
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                    if fill is not None:
+                        cell.fill = fill
+                    if font is not None:
+                        cell.font = font
+
+        # En-tête du document
+        _merge("A1:AG1", "Dispositif QUALIPLAGE initié par Eau et Rivières de Bretagne", title_fill, Font(bold=True))
+        _merge("A2:A3", "Informations sur le lieu des mesures", info_fill, Font(bold=True))
+        _merge("B2:C2", "Département :", info_fill, Font(bold=True))
+        _merge("D2:F2", "", info_fill)
+        _merge("G2:H2", "Commune :", info_fill, Font(bold=True))
+        _merge("I2:K2", "", info_fill)
+        _merge("L2:M2", "Type de lieu :", info_fill, Font(bold=True))
+        _merge("N2:P2", values.get("Type d'eau", ""), info_fill)
+        _merge("Q2:R2", "Nom du lieu :", info_fill, Font(bold=True))
+        _merge("S2:AG2", values.get("Lieu du prélèvement", ""), info_fill)
+        _merge("B3:D3", "Bénévoles engagé·es :", info_fill, Font(bold=True))
+        _merge("E3:J3", values.get("Préleveur·ses", values.get("Préleveur·se", "")), info_fill)
+        _merge("K3:N3", "De (ou des) l'association(s) :", info_fill, Font(bold=True))
+        _merge("O3:AG3", values.get("Association(s) du prélèvement", ""), info_fill)
+
+        _merge("A4:AG4", "Les mesures", section_fill, Font(bold=True))
+
+        # En-têtes du tableau.
+        two_row_headers = {
+            "A5:A6": "n°",
+            "B5:B6": "Point",
+            "E5:E6": "Nature de l'eau\n(douce ou salée)",
+            "F5:F6": "Date",
+            "G5:G6": "Coefficient de marée\n(si eau de mer)",
+            "H5:H6": "Heure pleine mer",
+            "I5:I6": "Heure du prélèvement",
+            "J5:J6": "Préleveur 1",
+            "K5:K6": "Association",
+            "L5:L6": "Préleveur 2",
+            "M5:M6": "Association",
+            "N5:N6": "Préleveur 3",
+            "O5:O6": "Association",
+            "P5:P6": "Jour de dépôt",
+            "Q5:Q6": "Heure du dépôt",
+            "R5:R6": "Entreprise de mesure",
+            "S5:S6": "Analyse E. coli\nMettre un X si mesure faite",
+            "T5:T6": "Analyse Entérocoques intestinaux\nMettre un X si mesure faite",
+            "U5:U6": "Météo\n(contexte de prélèvement)",
+            "V5:V6": "T° eau\n(°C)",
+            "W5:W6": "T° air\n(°C)",
+            "X5:X6": "Pluviométrie de la station de référence\n(mm/24h)",
+            "Y5:Y6": "Résultats E. coli\n(npp/ml)",
+            "Z5:Z6": "Résultats Entérocoques intestinaux\n(npp/100ml)",
+            "AG5:AG6": "Commentaires",
+        }
+        for cell_range, text in two_row_headers.items():
+            fill = comment_fill if cell_range == "AG5:AG6" else header_fill
+            if cell_range in {"Y5:Y6", "Z5:Z6"}:
+                fill = data_cyan
+            _merge(cell_range, text, fill, Font(bold=True, size=9))
+
+        _merge("C5:D5", "Point GPS", header_fill, Font(bold=True, size=9))
+        ws["C6"] = "Lat"
+        ws["D6"] = "Lon"
+        _merge("AA5:AF5", "Débit / flux", header_fill, Font(bold=True, size=9))
+        for cell, text in {
+            "AA6": "Largeur route",
+            "AB6": "Longueur 6 arches",
+            "AC6": "Hauteur eau",
+            "AD6": "Volume total (m3)",
+            "AE6": "Vitesse (s)",
+            "AF6": "Débit (m3/s)",
+        }.items():
+            ws[cell] = text
+
+        _style_range("A1:AG6", border=thin_border)
+        for cell in ws[6]:
+            if cell.column not in (25, 26, 33):
+                cell.fill = header_fill
+            cell.font = Font(bold=True, size=9)
+
+        bacterio_done = values.get("Analyses bactériologiques") == "Oui"
+        row_values = {
+            "A": 1,
+            "B": values.get("Lieu du prélèvement", ""),
+            "C": values.get("Latitude du prélèvement", ""),
+            "D": values.get("Longitude du prélèvement", ""),
+            "E": values.get("Type d'eau", ""),
+            "F": sample_date,
+            "G": values.get("Coefficient de marée", ""),
+            "H": values.get("Heure de pleine mer", ""),
+            "I": sample_time,
+            "J": sampler_names[0] if len(sampler_names) >= 1 else "",
+            "K": values.get("Association(s) du prélèvement", ""),
+            "L": sampler_names[1] if len(sampler_names) >= 2 else "",
+            "M": values.get("Association(s) du prélèvement", "") if len(sampler_names) >= 2 else "",
+            "N": sampler_names[2] if len(sampler_names) >= 3 else "",
+            "O": values.get("Association(s) du prélèvement", "") if len(sampler_names) >= 3 else "",
+            "P": values.get("Jour de dépôt", ""),
+            "Q": values.get("Heure du dépôt", ""),
+            "R": values.get("Entreprise de mesure", ""),
+            "S": "X" if bacterio_done else "",
+            "T": "X" if bacterio_done else "",
+            "U": weather_text,
+            "V": water_temp,
+            "W": air_temp,
+            "X": values.get("Pluie dernières 24 h (mm)", ""),
+            "Y": values.get("Résultats E.Coli (npp/ml)", ""),
+            "Z": values.get("Résultats Entérocoques intestinaux (npp/100ml)", ""),
+            "AA": values.get("Débit / flux - Largeur route", ""),
+            "AB": values.get("Débit / flux - Longueur 6 arches", ""),
+            "AC": values.get("Débit / flux - Hauteur eau", ""),
+            "AD": values.get("Débit / flux - Volume total (m3)", ""),
+            "AE": values.get("Débit / flux - Vitesse (s)", ""),
+            "AF": values.get("Débit / flux - Débit (m3/s)", ""),
+            "AG": " ; ".join(
+                part for part in (values.get("Commentaire sur les conditions", ""), sampler_comments) if part
+            ),
+        }
+
+        for row_idx in range(7, 18):
+            for col_idx in range(1, 34):
+                cell = ws.cell(row=row_idx, column=col_idx)
+                col_letter = get_column_letter(col_idx)
+                if row_idx == 7 and col_letter in row_values:
+                    cell.value = row_values[col_letter]
+                cell.border = thick_bottom if row_idx in {7, 12, 17} else thin_border
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                if col_letter in {"Y", "Z"}:
+                    cell.fill = data_cyan
+                elif col_letter == "AG":
+                    cell.fill = comment_fill if row_idx == 7 else data_yellow
+                elif row_idx in {8, 9, 10, 11, 12}:
+                    cell.fill = data_gray
+                elif col_letter in {"B", "C", "D", "I", "P", "Q", "R", "S", "T"}:
+                    cell.fill = data_blue
+                elif col_letter == "A":
+                    cell.fill = header_fill
+                else:
+                    cell.fill = data_yellow if row_idx != 7 else white_fill
+
+        for idx in range(2, 12):
+            ws.cell(row=idx + 6, column=1).value = idx
+
+        widths = {
+            "A": 5, "B": 12, "C": 13, "D": 13, "E": 13, "F": 16, "G": 13, "H": 12,
+            "I": 13, "J": 13, "K": 13, "L": 13, "M": 13, "N": 13, "O": 13,
+            "P": 13, "Q": 13, "R": 14, "S": 13, "T": 14, "U": 14, "V": 14,
+            "W": 14, "X": 15, "Y": 13, "Z": 14, "AA": 12, "AB": 13, "AC": 12,
+            "AD": 13, "AE": 10, "AF": 11, "AG": 26,
+        }
+        for col, width in widths.items():
+            ws.column_dimensions[col].width = width
+        for row_idx in range(1, 18):
+            ws.row_dimensions[row_idx].height = 24
+        ws.row_dimensions[1].height = 18
+        ws.row_dimensions[5].height = 34
+        ws.row_dimensions[6].height = 34
+        ws.freeze_panes = "A7"
+        ws.sheet_view.zoomScale = 75
+
     def _on_save_metadata_clicked(self) -> None:
         """Enregistre df_comp et df_map dans un fichier Excel."""
-        if self.df_comp is None or self.df_map is None:
+        warnings = self._metadata_save_warnings()
+        if warnings:
             QMessageBox.warning(
                 self,
-                "Métadonnées incomplètes",
-                "Impossible d'enregistrer : le tableau des volumes ou la correspondance spectres ↔ tubes n'est pas encore défini.",
+                "Points à vérifier",
+                "L'enregistrement va continuer, mais certains points ne sont pas complets :\n\n"
+                + "\n".join(f"• {warning}" for warning in warnings),
             )
-            return
 
         path, _ = QFileDialog.getSaveFileName(
             self,
@@ -4012,10 +4668,17 @@ class MetadataCreatorWidget(QWidget):
             return
 
         try:
-            self.df_map = self._df_map_with_current_header(self.df_map)
-            with pd.ExcelWriter(path) as writer:
-                self.df_comp.to_excel(writer, sheet_name="Volumes", index=False)
-                self.df_map.to_excel(writer, sheet_name="Correspondance", index=False)
+            if self.df_map is not None and isinstance(self.df_map, pd.DataFrame) and not self.df_map.empty:
+                df_map_to_save = self._df_map_with_current_header(self.df_map)
+            else:
+                df_map_to_save = self._header_rows_dataframe()
+            if self.df_comp is not None and isinstance(self.df_comp, pd.DataFrame):
+                df_comp_to_save = self.df_comp
+            else:
+                df_comp_to_save = pd.DataFrame()
+            with pd.ExcelWriter(path, engine="openpyxl") as writer:
+                df_comp_to_save.to_excel(writer, sheet_name="Volumes", index=False)
+                df_map_to_save.to_excel(writer, sheet_name="Correspondance", index=False)
                 # État du protocole de paillasse
                 if self._protocol_states:
                     rows = []
@@ -4027,6 +4690,7 @@ class MetadataCreatorWidget(QWidget):
                         else:
                             rows.append({"type": key[0], "r_idx": key[1], "t_idx": key[2], "checked": int(val)})
                     pd.DataFrame(rows).to_excel(writer, sheet_name="EtatProtocole", index=False)
+                self._write_measure_summary_sheet(writer.book)
         except Exception as e:
             QMessageBox.critical(
                 self,
@@ -4057,6 +4721,8 @@ class MetadataCreatorWidget(QWidget):
             if "Volumes" in xls.sheet_names:
                 self.df_comp = pd.read_excel(xls, sheet_name="Volumes")
                 loaded_comp = True
+                if hasattr(self, "chk_titration_done") and not self.df_comp.empty:
+                    self.chk_titration_done.setChecked(True)
                 try:
                     conc_df = mm.compute_concentration_table(self.df_comp)
                     tube_cols = self._get_tube_columns(self.df_comp)
@@ -4375,6 +5041,8 @@ class MetadataCreatorWidget(QWidget):
             df["Réactif"] = df["Réactif"].astype(str).str.strip()
 
         self.df_comp = df
+        if hasattr(self, "chk_titration_done"):
+            self.chk_titration_done.setChecked(True)
         self.lbl_status_comp.setText(
             f"Tableau des volumes : {df.shape[0]} ligne(s), {df.shape[1]} colonne(s)"
         )
