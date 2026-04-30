@@ -11,6 +11,7 @@ import pandas as pd
 import plotly.express as px
 from scipy.optimize import curve_fit
 import plotly.graph_objects as go
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QMessageBox, QTableWidget, QTableWidgetItem, QSpacerItem, QSizePolicy,
@@ -23,6 +24,8 @@ from plotly_downloads import install_plotly_download_handler, load_plotly_html, 
 from data_processing import load_combined_df
 
 class AnalysisTab(QWidget):
+    analysis_status_changed = Signal(bool)
+
     """
     Onglet Analyse – utilise le fichier combiné créé dans l'onglet Métadonnées
     pour extraire les intensités au voisinage de pics d'intérêt et calculer
@@ -43,6 +46,7 @@ class AnalysisTab(QWidget):
         self._ratios_long: Optional[pd.DataFrame] = None
         # Indique que l'analyse doit être (re)lancée (données ou paramètres modifiés)
         self._analysis_dirty: bool = True
+        self._analysis_done = False
         self._sigmoid_params = None   # (A, B, k, x_eq)
         self._sigmoid_cov = None
         self._sigmoid_results = {}  # ratio_name -> {"params": popt, "cov": pcov}
@@ -455,9 +459,16 @@ class AnalysisTab(QWidget):
                 "Rouge = lancez ou relancez l'analyse ; les données seront chargées automatiquement"
             )
         )
+        if getattr(self, "_analysis_done", None) != analysis_ready:
+            self._analysis_done = analysis_ready
+            self.analysis_status_changed.emit(analysis_ready)
 
     def _on_analysis_param_changed(self, *args) -> None:
         """Marque l'analyse comme à relancer si un paramètre change."""
+        self._analysis_dirty = True
+        self._refresh_button_states()
+
+    def mark_analysis_stale(self) -> None:
         self._analysis_dirty = True
         self._refresh_button_states()
 

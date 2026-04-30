@@ -44,7 +44,7 @@ from PySide6.QtWidgets import (
     QTextEdit,
 )
 
-from PySide6.QtCore import QObject, Qt, QDate, QDateTime, QEvent, QTime, QUrl, Slot
+from PySide6.QtCore import QObject, Qt, QDate, QDateTime, QEvent, QTime, QUrl, Slot, Signal
 from PySide6.QtGui import QColor, QBrush, QDesktopServices
 
 import metadata_model as mm
@@ -907,7 +907,6 @@ class MapPickerDialog(QDialog):
         )
 
 
-
 class GaussianVolumesDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1476,7 +1475,11 @@ class GaussianVolumesDialog(QDialog):
         _apply_anchored("Solution F", "_n_nmol_F",
                         self.spin_conc_F, self.combo_unit_F, self.spin_VF)
     
+
 class MetadataCreatorWidget(QWidget):
+    titration_visibility_changed = Signal(bool)
+    metadata_saved_status_changed = Signal(bool)
+
     """Remplaçant de MetadataPicker pour créer les métadonnées directement dans l'application.
 
     Cette version ne lit plus de fichiers Excel : elle permet de construire
@@ -2449,11 +2452,13 @@ class MetadataCreatorWidget(QWidget):
         self._metadata_dirty = True
         if refresh and hasattr(self, "btn_save_meta"):
             self._refresh_button_states()
+        self.metadata_saved_status_changed.emit(False)
 
     def _mark_metadata_saved(self) -> None:
         self._metadata_dirty = False
         if hasattr(self, "btn_save_meta"):
             self._refresh_button_states()
+        self.metadata_saved_status_changed.emit(True)
 
     def has_unsaved_metadata(self) -> bool:
         return bool(getattr(self, "_metadata_dirty", True))
@@ -2743,6 +2748,9 @@ class MetadataCreatorWidget(QWidget):
             widget = getattr(self, attr, None)
             if widget is not None:
                 widget.setVisible(visible)
+        if getattr(self, "_last_titration_visibility", None) != visible:
+            self._last_titration_visibility = visible
+            self.titration_visibility_changed.emit(visible)
 
     def _on_titration_toggled(self, checked: bool) -> None:
         self._refresh_titration_fields_visible()

@@ -1,5 +1,5 @@
 import os
-from PySide6.QtCore import Qt, QModelIndex, QSortFilterProxyModel, QDir
+from PySide6.QtCore import Qt, QModelIndex, QSortFilterProxyModel, QDir, Signal
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -35,6 +35,8 @@ class TxtAndDirsFilter(QSortFilterProxyModel):
 
 
 class FilePickerWidget(QWidget):
+    selection_changed = Signal(bool)
+
     """Widget de sélection de fichiers .txt avec navigation par double-clic.
 
     - Double-clic sur un dossier : entrer dans le dossier
@@ -98,6 +100,7 @@ class FilePickerWidget(QWidget):
         nav_layout = QVBoxLayout()
         nav_layout.addWidget(self.view, 1)
         self.btn_add = QPushButton("Ajouter la sélection", self)
+        self.btn_add.setStyleSheet("background-color: #0057b8; color: white; font-weight: 700;")
         self.btn_add.clicked.connect(self._add_from_view)
         nav_layout.addWidget(self.btn_add)
 
@@ -176,6 +179,7 @@ class FilePickerWidget(QWidget):
     def _notify_count(self):
         n = len(self.selected_files)
         self.info.setText(f"{n} fichier(s) prêt(s) à tracer")
+        self.selection_changed.emit(n > 0)
 
     def clear_selected(self):
         self.selected_files.clear()

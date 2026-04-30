@@ -3,6 +3,7 @@ import os
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
+    QTabBar,
     QTabWidget,
     QWidget,
     QVBoxLayout,
@@ -12,9 +13,12 @@ from PySide6.QtWidgets import (
     QPushButton,
     QDialog,
     QMessageBox,
+    QStyle,
+    QStyleOptionTab,
+    QStylePainter,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QColor, QIcon, QPalette, QPixmap
 
 # S'assurer que les imports de modules frères fonctionnent quel que soit l'endroit
 # d'où on lance le script.
@@ -31,6 +35,57 @@ from file_picker import FilePickerWidget
 from spectra_plot import SpectraTab
 from analysis_tab import AnalysisTab
 from metadata_creator import MetadataCreatorWidget
+
+
+class WorkflowStatusTabBar(QTabBar):
+    """QTabBar avec fond rouge/vert pour certains onglets de workflow."""
+
+    _SELECTED_TAB_COLOR = "#007aff"
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._status_colors: dict[int, str] = {}
+
+    def set_tab_status_color(self, index: int, color_hex: str | None) -> None:
+        if color_hex:
+            self._status_colors[index] = color_hex
+        else:
+            self._status_colors.pop(index, None)
+        if 0 <= index < self.count():
+            self.update(self.tabRect(index))
+
+    def paintEvent(self, event) -> None:
+        painter = QStylePainter(self)
+
+        for index in range(self.count()):
+            option = QStyleOptionTab()
+            self.initStyleOption(option, index)
+            color_hex = self._status_colors.get(index)
+            if not color_hex:
+                if option.state & QStyle.StateFlag.State_Selected:
+                    self._draw_colored_tab(painter, option, QColor(self._SELECTED_TAB_COLOR))
+                else:
+                    painter.drawControl(QStyle.ControlElement.CE_TabBarTab, option)
+                continue
+
+            color = QColor(color_hex)
+            if option.state & QStyle.StateFlag.State_Selected:
+                color = color.lighter(110)
+
+            self._draw_colored_tab(painter, option, color)
+
+    def _draw_colored_tab(self, painter: QStylePainter, option: QStyleOptionTab, color: QColor) -> None:
+        rect = option.rect.adjusted(1, 1, -1, -1)
+        painter.save()
+        painter.setPen(color.darker(125))
+        painter.setBrush(color)
+        painter.drawRoundedRect(rect, 4, 4)
+        painter.restore()
+
+        option.palette.setColor(QPalette.ColorRole.WindowText, QColor("#ffffff"))
+        option.palette.setColor(QPalette.ColorRole.ButtonText, QColor("#ffffff"))
+        option.palette.setColor(QPalette.ColorRole.Text, QColor("#ffffff"))
+        painter.drawControl(QStyle.ControlElement.CE_TabBarTabLabel, option)
 
 
 class MainWindow(QMainWindow):
@@ -53,6 +108,7 @@ class MainWindow(QMainWindow):
 
         # --- Onglets ---
         tabs = QTabWidget(self)
+        tabs.setTabBar(WorkflowStatusTabBar(tabs))
         self.tabs = tabs
         central_layout.addWidget(tabs)
 
@@ -314,6 +370,31 @@ class MainWindow(QMainWindow):
         from peak_selector import PeakSelectorTab
         self.peak_selector_tab = PeakSelectorTab(self.file_picker, self.metadata_creator, self)
         tabs.addTab(self.peak_selector_tab, "Exploration")
+        self._copper_titration_tabs = [
+            self.file_tab,
+            self.spectra_tab,
+            self.analysis_tab,
+            self.peak_selector_tab,
+        ]
+        self.metadata_creator.titration_visibility_changed.connect(
+            self._refresh_copper_titration_tabs_visible
+        )
+        self.metadata_creator.metadata_saved_status_changed.connect(
+            self._on_metadata_status_changed
+        )
+        self._tab_status = {
+            self.metadata_tab: not self.metadata_creator.has_unsaved_metadata(),
+            self.file_tab: False,
+            self.spectra_tab: False,
+            self.analysis_tab: False,
+        }
+        self.file_picker.selection_changed.connect(self._on_file_selection_changed)
+        self.spectra_tab.plot_status_changed.connect(self._on_spectra_status_changed)
+        self.analysis_tab.analysis_status_changed.connect(self._on_analysis_status_changed)
+        self._refresh_workflow_tab_statuses()
+        self._refresh_copper_titration_tabs_visible(
+            self.metadata_creator.chk_titration_done.isChecked()
+        )
         self._last_tab_index = tabs.currentIndex()
         tabs.currentChanged.connect(self._on_tab_changed)
 
@@ -325,6 +406,66 @@ class MainWindow(QMainWindow):
         self.sources_label.setAlignment(Qt.AlignCenter)
         self.sources_label.linkActivated.connect(self.show_sources_popup)
         central_layout.addWidget(self.sources_label)
+
+    def _set_workflow_tab_status(self, widget: QWidget, ready: bool) -> None:
+        idx = self.tabs.indexOf(widget)
+        if idx < 0:
+            return
+        color = "#5cb85c" if ready else "#d9534f"
+        tab_bar = self.tabs.tabBar()
+        if hasattr(tab_bar, "set_tab_status_color"):
+            tab_bar.set_tab_status_color(idx, color)
+        else:
+            tab_bar.setTabTextColor(idx, QColor("#ffffff"))
+        self.tabs.setTabIcon(idx, QIcon())
+
+    def _refresh_workflow_tab_statuses(self) -> None:
+        for widget, ready in getattr(self, "_tab_status", {}).items():
+            self._set_workflow_tab_status(widget, ready)
+
+    def _on_metadata_status_changed(self, saved: bool) -> None:
+        self._tab_status[self.metadata_tab] = bool(saved)
+        self._set_workflow_tab_status(self.metadata_tab, bool(saved))
+
+    def _on_file_selection_changed(self, has_files: bool) -> None:
+        self._tab_status[self.file_tab] = bool(has_files)
+        self._set_workflow_tab_status(self.file_tab, bool(has_files))
+        if hasattr(self, "spectra_tab"):
+            self.spectra_tab.mark_plot_stale()
+        self._on_spectra_status_changed(False)
+        if hasattr(self, "analysis_tab"):
+            self.analysis_tab.mark_analysis_stale()
+        self._on_analysis_status_changed(False)
+
+    def _on_spectra_status_changed(self, plotted: bool) -> None:
+        self._tab_status[self.spectra_tab] = bool(plotted)
+        self._set_workflow_tab_status(self.spectra_tab, bool(plotted))
+        if not plotted and hasattr(self, "analysis_tab"):
+            self.analysis_tab.mark_analysis_stale()
+            self._on_analysis_status_changed(False)
+
+    def _on_analysis_status_changed(self, analyzed: bool) -> None:
+        self._tab_status[self.analysis_tab] = bool(analyzed)
+        self._set_workflow_tab_status(self.analysis_tab, bool(analyzed))
+
+    def _refresh_copper_titration_tabs_visible(self, visible: bool) -> None:
+        """Affiche les onglets utiles uniquement à la titration du cuivre."""
+        visible = bool(visible)
+        titration_tabs = getattr(self, "_copper_titration_tabs", [])
+
+        if not visible and self.tabs.currentWidget() in titration_tabs:
+            metadata_index = self.tabs.indexOf(self.metadata_tab)
+            if metadata_index >= 0:
+                self.tabs.setCurrentIndex(metadata_index)
+
+        for widget in titration_tabs:
+            idx = self.tabs.indexOf(widget)
+            if idx < 0:
+                continue
+            self.tabs.setTabVisible(idx, visible)
+
+        self._refresh_workflow_tab_statuses()
+        self._last_tab_index = self.tabs.currentIndex()
 
     def _on_tab_changed(self, index: int) -> None:
         previous_widget = self.tabs.widget(getattr(self, "_last_tab_index", index))

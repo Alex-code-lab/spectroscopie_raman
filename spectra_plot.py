@@ -1,7 +1,7 @@
 import os
 import math
 import pandas as pd
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -26,6 +26,8 @@ from data_processing import load_spectrum_file, build_combined_dataframe_from_ui
 from plotly_downloads import install_plotly_download_handler, load_plotly_html, sanitize_filename, save_fig_with_current_zoom, set_plotly_filename
 
 class SpectraTab(QWidget):
+    plot_status_changed = Signal(bool)
+
     def __init__(self, file_picker, metadata_creator, parent=None):
         super().__init__(parent)
         self.file_picker = file_picker
@@ -33,6 +35,7 @@ class SpectraTab(QWidget):
 
         # Dernière figure Plotly affichée (pour export PNG)
         self._last_fig = None
+        self._plot_done = False
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Tracer les spectres sélectionnés"))
@@ -91,9 +94,10 @@ class SpectraTab(QWidget):
 
         layout.addLayout(axes)
 
-        self.btn_plot = QPushButton("Tracer avec baseline")
+        self.btn_plot = QPushButton("Tracer les spectres")
         self.btn_plot.clicked.connect(self.plot_selected_with_baseline)
         layout.addWidget(self.btn_plot)
+        self._set_plot_button_done(False)
         self.btn_export_png = QPushButton("Exporter le graphique…")
         self.btn_export_png.clicked.connect(self._export_figure)
         layout.addWidget(self.btn_export_png)
@@ -103,6 +107,23 @@ class SpectraTab(QWidget):
         self.plot_view = QWebEngineView(self)
         install_plotly_download_handler(self.plot_view)
         layout.addWidget(self.plot_view, 1)
+
+    def _set_plot_button_done(self, done: bool) -> None:
+        if not hasattr(self, "btn_plot"):
+            return
+        done = bool(done)
+        if done:
+            self.btn_plot.setStyleSheet("background-color: #5cb85c; color: white; font-weight: 600;")
+            self.btn_plot.setToolTip("Spectres tracés")
+        else:
+            self.btn_plot.setStyleSheet("background-color: #d9534f; color: white; font-weight: 600;")
+            self.btn_plot.setToolTip("Rouge = spectres à tracer")
+        if getattr(self, "_plot_done", None) != done:
+            self._plot_done = done
+            self.plot_status_changed.emit(done)
+
+    def mark_plot_stale(self) -> None:
+        self._set_plot_button_done(False)
 
     def _reset_axes(self):
         """Remet les axes en autoscale."""
@@ -129,6 +150,7 @@ class SpectraTab(QWidget):
         Fallback : lit directement les fichiers .txt sélectionnés.
         """
 
+        self._set_plot_button_done(False)
 
         try:
             # 1) On tente de construire un fichier combiné à partir des métadonnées créées dans l'onglet Métadonnées
@@ -261,6 +283,7 @@ class SpectraTab(QWidget):
                 set_plotly_filename(self.plot_view, file_base)
                 config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "Spectres"}}
                 load_plotly_html(self.plot_view, fig.to_html(include_plotlyjs=True, config=config))
+                self._set_plot_button_done(True)
                 return
 
             except Exception as e:
@@ -350,6 +373,7 @@ class SpectraTab(QWidget):
         set_plotly_filename(self.plot_view, file_base)
         config = {"toImageButtonOptions": {"filename": sanitize_filename(file_base) or "Spectres"}}
         load_plotly_html(self.plot_view, fig.to_html(include_plotlyjs=True, config=config))
+        self._set_plot_button_done(True)
 
     # Presets de taille partagés avec l'onglet Analyse
     _EXPORT_PRESETS: dict[str, tuple[int, int]] = {
