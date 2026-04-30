@@ -1847,15 +1847,126 @@ class MetadataCreatorWidget(QWidget):
         measures_title.setStyleSheet(section_title_style)
         measures_layout.addWidget(measures_title)
         row_measures = QHBoxLayout()
-        self.chk_ammonium_test = QCheckBox("Test ammonium réalisé", self)
+        self.chk_ammonium_test = QCheckBox("Test ammonium", self)
         self.chk_ammonium_test.toggled.connect(self._on_ammonium_test_toggled)
         row_measures.addWidget(self.chk_ammonium_test)
-        self.btn_ammonium_test = QPushButton("Valeurs test ammonium…", self)
-        self.btn_ammonium_test.clicked.connect(self._on_ammonium_test_clicked)
-        self.btn_ammonium_test.setVisible(False)
-        row_measures.addWidget(self.btn_ammonium_test)
+        self.lbl_ammonium_operator = QLabel("Réalisé par :", self)
+        self.lbl_ammonium_operator.setVisible(False)
+        row_measures.addWidget(self.lbl_ammonium_operator)
+        self.edit_ammonium_operator = QLineEdit(self)
+        self.edit_ammonium_operator.setPlaceholderText("Prénom puis nom")
+        self.edit_ammonium_operator.setVisible(False)
+        self.edit_ammonium_operator.textChanged.connect(self._on_header_field_changed)
+        row_measures.addWidget(self.edit_ammonium_operator)
+        self.lbl_ammonium_test1 = QLabel("Test 1 (grossier) :", self)
+        self.lbl_ammonium_test1.setVisible(False)
+        row_measures.addWidget(self.lbl_ammonium_test1)
+        self.edit_ammonium_test1 = QLineEdit(self)
+        self.edit_ammonium_test1.setPlaceholderText("valeur")
+        self.edit_ammonium_test1.setMaximumWidth(80)
+        self.edit_ammonium_test1.setVisible(False)
+        self.edit_ammonium_test1.textChanged.connect(self._on_header_field_changed)
+        row_measures.addWidget(self.edit_ammonium_test1)
+        self.lbl_ammonium_test2 = QLabel("Test 2 (précis) :", self)
+        self.lbl_ammonium_test2.setVisible(False)
+        row_measures.addWidget(self.lbl_ammonium_test2)
+        self.edit_ammonium_test2 = QLineEdit(self)
+        self.edit_ammonium_test2.setPlaceholderText("valeur")
+        self.edit_ammonium_test2.setMaximumWidth(80)
+        self.edit_ammonium_test2.setVisible(False)
+        self.edit_ammonium_test2.textChanged.connect(self._on_header_field_changed)
+        row_measures.addWidget(self.edit_ammonium_test2)
+        self.lbl_ammonium_ph = QLabel("pH :", self)
+        self.lbl_ammonium_ph.setVisible(False)
+        row_measures.addWidget(self.lbl_ammonium_ph)
+        self.edit_ammonium_ph = QLineEdit(self)
+        self.edit_ammonium_ph.setPlaceholderText("valeur")
+        self.edit_ammonium_ph.setMaximumWidth(60)
+        self.edit_ammonium_ph.setVisible(False)
+        self.edit_ammonium_ph.textChanged.connect(self._on_header_field_changed)
+        row_measures.addWidget(self.edit_ammonium_ph)
         row_measures.addStretch(1)
         measures_layout.addLayout(row_measures)
+
+        # Turbidité
+        row_turbidity = QHBoxLayout()
+        self.chk_turbidity = QCheckBox("Turbidité mesurée", self)
+        self.chk_turbidity.toggled.connect(self._on_turbidity_toggled)
+        row_turbidity.addWidget(self.chk_turbidity)
+        self.lbl_turbidity_val = QLabel("Valeur :", self)
+        self.lbl_turbidity_val.setVisible(False)
+        row_turbidity.addWidget(self.lbl_turbidity_val)
+        self.spin_turbidity = QDoubleSpinBox(self)
+        self.spin_turbidity.setRange(0.0, 10000.0)
+        self.spin_turbidity.setDecimals(1)
+        self.spin_turbidity.setSuffix(" NTU")
+        self.spin_turbidity.setSpecialValueText("non renseigné")
+        self.spin_turbidity.setValue(self.spin_turbidity.minimum())
+        self.spin_turbidity.setVisible(False)
+        self.spin_turbidity.valueChanged.connect(self._on_header_field_changed)
+        row_turbidity.addWidget(self.spin_turbidity)
+        row_turbidity.addStretch(1)
+        measures_layout.addLayout(row_turbidity)
+
+        # Conductivité
+        row_conductivity = QHBoxLayout()
+        self.chk_conductivity = QCheckBox("Conductivité mesurée", self)
+        self.chk_conductivity.toggled.connect(self._on_conductivity_toggled)
+        row_conductivity.addWidget(self.chk_conductivity)
+        self.lbl_conductivity_val = QLabel("Valeur :", self)
+        self.lbl_conductivity_val.setVisible(False)
+        row_conductivity.addWidget(self.lbl_conductivity_val)
+        self.spin_conductivity = QDoubleSpinBox(self)
+        self.spin_conductivity.setRange(0.0, 200000.0)
+        self.spin_conductivity.setDecimals(1)
+        self.spin_conductivity.setSuffix(" µS/cm")
+        self.spin_conductivity.setSpecialValueText("non renseigné")
+        self.spin_conductivity.setValue(self.spin_conductivity.minimum())
+        self.spin_conductivity.setVisible(False)
+        self.spin_conductivity.valueChanged.connect(self._on_header_field_changed)
+        row_conductivity.addWidget(self.spin_conductivity)
+        row_conductivity.addStretch(1)
+        measures_layout.addLayout(row_conductivity)
+
+        # pH de l'eau
+        row_ph_water = QHBoxLayout()
+        self.chk_ph_water = QCheckBox("pH de l'eau mesuré", self)
+        self.chk_ph_water.toggled.connect(self._on_ph_water_toggled)
+        row_ph_water.addWidget(self.chk_ph_water)
+        self.lbl_ph_water_val = QLabel("Valeur :", self)
+        self.lbl_ph_water_val.setVisible(False)
+        row_ph_water.addWidget(self.lbl_ph_water_val)
+        self.spin_ph_water = QDoubleSpinBox(self)
+        self.spin_ph_water.setRange(0.0, 14.0)
+        self.spin_ph_water.setDecimals(2)
+        self.spin_ph_water.setSpecialValueText("non renseigné")
+        self.spin_ph_water.setValue(self.spin_ph_water.minimum())
+        self.spin_ph_water.setVisible(False)
+        self.spin_ph_water.valueChanged.connect(self._on_header_field_changed)
+        row_ph_water.addWidget(self.spin_ph_water)
+        row_ph_water.addStretch(1)
+        measures_layout.addLayout(row_ph_water)
+
+        # Oxygène dissous
+        row_dissolved_o2 = QHBoxLayout()
+        self.chk_dissolved_o2 = QCheckBox("Oxygène dissous mesuré", self)
+        self.chk_dissolved_o2.toggled.connect(self._on_dissolved_o2_toggled)
+        row_dissolved_o2.addWidget(self.chk_dissolved_o2)
+        self.lbl_dissolved_o2_val = QLabel("Valeur :", self)
+        self.lbl_dissolved_o2_val.setVisible(False)
+        row_dissolved_o2.addWidget(self.lbl_dissolved_o2_val)
+        self.spin_dissolved_o2 = QDoubleSpinBox(self)
+        self.spin_dissolved_o2.setRange(0.0, 30.0)
+        self.spin_dissolved_o2.setDecimals(2)
+        self.spin_dissolved_o2.setSuffix(" mg/L")
+        self.spin_dissolved_o2.setSpecialValueText("non renseigné")
+        self.spin_dissolved_o2.setValue(self.spin_dissolved_o2.minimum())
+        self.spin_dissolved_o2.setVisible(False)
+        self.spin_dissolved_o2.valueChanged.connect(self._on_header_field_changed)
+        row_dissolved_o2.addWidget(self.spin_dissolved_o2)
+        row_dissolved_o2.addStretch(1)
+        measures_layout.addLayout(row_dissolved_o2)
+
 
         row_bacterio = QHBoxLayout()
         self.chk_bacterio_analysis = QCheckBox("Analyses bactériologiques", self)
@@ -1916,7 +2027,7 @@ class MetadataCreatorWidget(QWidget):
         self._refresh_bacterio_fields_visible()
 
         row_titration_measure = QHBoxLayout()
-        self.chk_titration_done = QCheckBox("Titration", self)
+        self.chk_titration_done = QCheckBox("Titration du cuivre", self)
         self.chk_titration_done.toggled.connect(self._on_titration_toggled)
         row_titration_measure.addWidget(self.chk_titration_done)
         row_titration_measure.addStretch(1)
@@ -2344,7 +2455,7 @@ class MetadataCreatorWidget(QWidget):
         comp_ready = self.df_comp is not None and isinstance(self.df_comp, pd.DataFrame) and not self.df_comp.empty
 
         if not titration_done:
-            warnings.append("La case « Titration » n'est pas cochée : la feuille de protocole n'est pas validée.")
+            warnings.append("La case « Titration du cuivre » n'est pas cochée : la feuille de protocole n'est pas validée.")
         else:
             if not comp_ready:
                 warnings.append("La titration est cochée, mais aucun tableau des volumes n'est défini.")
@@ -2353,13 +2464,13 @@ class MetadataCreatorWidget(QWidget):
 
         if self._ammonium_test_enabled:
             missing = []
-            if not str(self._ammonium_test_values.get("operator", "") or "").strip():
+            if not getattr(self, "edit_ammonium_operator", None) or not self.edit_ammonium_operator.text().strip():
                 missing.append("réalisateur·ice")
-            if not str(self._ammonium_test_values.get("test_1", "") or "").strip():
+            if not getattr(self, "edit_ammonium_test1", None) or not self.edit_ammonium_test1.text().strip():
                 missing.append("test 1")
-            if not str(self._ammonium_test_values.get("test_2", "") or "").strip():
+            if not getattr(self, "edit_ammonium_test2", None) or not self.edit_ammonium_test2.text().strip():
                 missing.append("test 2")
-            if not str(self._ammonium_test_values.get("ph", "") or "").strip():
+            if not getattr(self, "edit_ammonium_ph", None) or not self.edit_ammonium_ph.text().strip():
                 missing.append("pH")
             if missing:
                 warnings.append("Test ammonium coché, mais champ(s) manquant(s) : " + ", ".join(missing) + ".")
@@ -3074,17 +3185,49 @@ class MetadataCreatorWidget(QWidget):
                 else ""
             ),
             "Test ammonium réalisé": ammonium,
-            "Test ammonium réalisé par": str(self._ammonium_test_values.get("operator", "") or "") if ammonium_enabled else "",
-            "Test ammonium 1 (grossier)": str(self._ammonium_test_values.get("test_1", "") or "") if ammonium_enabled else "",
-            "Test ammonium 2 (précis)": str(self._ammonium_test_values.get("test_2", "") or "") if ammonium_enabled else "",
-            "pH": str(self._ammonium_test_values.get("ph", "") or "") if ammonium_enabled else "",
+            "Test ammonium réalisé par": (
+                self.edit_ammonium_operator.text().strip() if hasattr(self, "edit_ammonium_operator") else ""
+            ) if ammonium_enabled else "",
+            "Test ammonium 1 (grossier)": (
+                self.edit_ammonium_test1.text().strip() if hasattr(self, "edit_ammonium_test1") else ""
+            ) if ammonium_enabled else "",
+            "Test ammonium 2 (précis)": (
+                self.edit_ammonium_test2.text().strip() if hasattr(self, "edit_ammonium_test2") else ""
+            ) if ammonium_enabled else "",
+            "pH (ammonium)": (
+                self.edit_ammonium_ph.text().strip() if hasattr(self, "edit_ammonium_ph") else ""
+            ) if ammonium_enabled else "",
+            "Turbidité (NTU)": (
+                str(round(self.spin_turbidity.value(), 1))
+                if hasattr(self, "chk_turbidity") and self.chk_turbidity.isChecked()
+                and hasattr(self, "spin_turbidity") and _field_has_value(self.spin_turbidity)
+                else ""
+            ),
+            "Conductivité (µS/cm)": (
+                str(round(self.spin_conductivity.value(), 1))
+                if hasattr(self, "chk_conductivity") and self.chk_conductivity.isChecked()
+                and hasattr(self, "spin_conductivity") and _field_has_value(self.spin_conductivity)
+                else ""
+            ),
+            "pH de l'eau": (
+                str(round(self.spin_ph_water.value(), 2))
+                if hasattr(self, "chk_ph_water") and self.chk_ph_water.isChecked()
+                and hasattr(self, "spin_ph_water") and _field_has_value(self.spin_ph_water)
+                else ""
+            ),
+            "Oxygène dissous (mg/L)": (
+                str(round(self.spin_dissolved_o2.value(), 2))
+                if hasattr(self, "chk_dissolved_o2") and self.chk_dissolved_o2.isChecked()
+                and hasattr(self, "spin_dissolved_o2") and _field_has_value(self.spin_dissolved_o2)
+                else ""
+            ),
             "Analyses bactériologiques": bacterio,
             "Jour de dépôt": bacterio_day,
             "Heure du dépôt": bacterio_time,
             "Entreprise de mesure": bacterio_company,
             "Résultats E.Coli (npp/ml)": bacterio_ecoli,
             "Résultats Entérocoques intestinaux (npp/100ml)": bacterio_enterococci,
-            "Titration": "Oui" if titration_done else "Non",
+            "Titration du cuivre": "Oui" if titration_done else "Non",
             "Nom de la manip de titration": str(titration_name or "").strip(),
             "Nom de la manip de titration manuel": (
                 "Oui" if getattr(self, "_titration_name_manual", False) else "Non"
@@ -3202,7 +3345,21 @@ class MetadataCreatorWidget(QWidget):
             "Réalisateur test ammonium": "Test ammonium réalisé par",
             "Réalisatrice test ammonium": "Test ammonium réalisé par",
             "Test ammonium realise par": "Test ammonium réalisé par",
-            "pH ammonium": "pH",
+            "pH ammonium": "pH (ammonium)",
+            "pH": "pH (ammonium)",
+            "Turbidite": "Turbidité (NTU)",
+            "Turbidité": "Turbidité (NTU)",
+            "Turbidity": "Turbidité (NTU)",
+            "Conductivite": "Conductivité (µS/cm)",
+            "Conductivité": "Conductivité (µS/cm)",
+            "Conductivity": "Conductivité (µS/cm)",
+            "pH eau": "pH de l'eau",
+            "pH de l eau": "pH de l'eau",
+            "pH water": "pH de l'eau",
+            "Oxygene dissous": "Oxygène dissous (mg/L)",
+            "Oxygène dissous": "Oxygène dissous (mg/L)",
+            "O2 dissous": "Oxygène dissous (mg/L)",
+            "Dissolved O2": "Oxygène dissous (mg/L)",
             "Analyse bactériologique": "Analyses bactériologiques",
             "Analyses bacteriologiques": "Analyses bactériologiques",
             "Analyse bacteriologique": "Analyses bactériologiques",
@@ -3228,9 +3385,10 @@ class MetadataCreatorWidget(QWidget):
             "Resultats Enterocoques intestinaux": "Résultats Entérocoques intestinaux (npp/100ml)",
             "Entérocoques intestinaux": "Résultats Entérocoques intestinaux (npp/100ml)",
             "Enterocoques intestinaux": "Résultats Entérocoques intestinaux (npp/100ml)",
-            "Titration réalisée": "Titration",
-            "Titration realisee": "Titration",
-            "Titration faite": "Titration",
+            "Titration": "Titration du cuivre",
+            "Titration réalisée": "Titration du cuivre",
+            "Titration realisee": "Titration du cuivre",
+            "Titration faite": "Titration du cuivre",
             "Nom de la titration": "Nom de la manip de titration",
             "Nom manip titration": "Nom de la manip de titration",
             "Nom titration manuel": "Nom de la manip de titration manuel",
@@ -3263,65 +3421,7 @@ class MetadataCreatorWidget(QWidget):
 
     def _header_rows_dataframe(self, manip_name: str | None = None) -> pd.DataFrame:
         values = self._header_values(manip_name)
-        rows = [[key, values.get(key, "")] for key in [
-            "Nom du prélèvement",
-            "Préleveur·se",
-            "Préleveur·ses",
-            "Préleveur·se 2",
-            "Préleveur·se 3",
-            "Préleveur·se 4",
-            "Préleveur·se 5",
-            "Préleveur·se 6",
-            "Association préleveur·se",
-            "Association préleveur·se 2",
-            "Association préleveur·se 3",
-            "Association préleveur·se 4",
-            "Association préleveur·se 5",
-            "Association préleveur·se 6",
-            "Association(s) du prélèvement",
-            "Lieu du prélèvement",
-            "Latitude du prélèvement",
-            "Longitude du prélèvement",
-            "Département",
-            "Commune",
-            "Date du prélèvement",
-            "Heure du prélèvement",
-            "Date/heure du prélèvement",
-            "Type d'eau",
-            "Température de l'eau",
-            "Débit / flux - Largeur route",
-            "Débit / flux - Longueur 6 arches",
-            "Débit / flux - Hauteur eau",
-            "Débit / flux - Volume total (m3)",
-            "Débit / flux - Vitesse (s)",
-            "Débit / flux - Débit (m3/s)",
-            "Coefficient de marée",
-            "Heure de pleine mer",
-            "Temps au moment de la mesure",
-            "Température de l'air",
-            "Pluie dernières 24 h (mm)",
-            "Commentaire sur les conditions",
-            "Test ammonium réalisé",
-            "Test ammonium réalisé par",
-            "Test ammonium 1 (grossier)",
-            "Test ammonium 2 (précis)",
-            "pH",
-            "Analyses bactériologiques",
-            "Jour de dépôt",
-            "Heure du dépôt",
-            "Entreprise de mesure",
-            "Résultats E.Coli (npp/ml)",
-            "Résultats Entérocoques intestinaux (npp/100ml)",
-            "Titration",
-            "Nom de la manip de titration",
-            "Nom de la manip de titration manuel",
-            "Lieu de la titration",
-            "Date de la titration",
-            "Heure de la titration",
-            "Date/heure de la titration",
-            "Coordinateur",
-            "Opérateur",
-        ]]
+        rows = [[label, value] for label, value in values.items()]
         return pd.DataFrame(rows, columns=["Nom du spectre", "Tube"])
 
     def _df_map_with_current_header(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -3342,6 +3442,171 @@ class MetadataCreatorWidget(QWidget):
             ignore_index=True,
         )
 
+    @staticmethod
+    def _clean_loaded_volume_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+        if not isinstance(df, pd.DataFrame):
+            return pd.DataFrame()
+        out = df.dropna(how="all").copy()
+        if out.empty:
+            return out
+        unnamed = out.columns.astype(str).str.match(r"^Unnamed")
+        if unnamed.any():
+            out = out.loc[:, ~unnamed]
+        return out
+
+    def _header_values_from_measure_summary_sheet(self, xls: pd.ExcelFile) -> dict[str, str]:
+        """Relit les champs principaux depuis la feuille terrain lisible.
+
+        Cette feuille n'est pas le stockage principal, mais elle permet de
+        récupérer les fichiers enregistrés pendant la période où l'en-tête
+        rechargeable de la feuille Correspondance était incomplet.
+        """
+        if "Mesures" not in xls.sheet_names:
+            return {}
+        try:
+            raw = pd.read_excel(xls, sheet_name="Mesures", header=None, dtype=object)
+        except Exception:
+            return {}
+
+        def _cell(row: int, col: int) -> str:
+            try:
+                value = raw.iat[row - 1, col - 1]
+            except Exception:
+                return ""
+            if value is None:
+                return ""
+            try:
+                if pd.isna(value):
+                    return ""
+            except Exception:
+                pass
+            if isinstance(value, pd.Timestamp):
+                if value.time().hour == 0 and value.time().minute == 0 and value.time().second == 0:
+                    return value.strftime("%d/%m/%Y")
+                return value.strftime("%d/%m/%Y %H:%M")
+            text = str(value).strip()
+            return "" if text.lower() in {"nan", "nat", "none", "<na>"} else text
+
+        sampler_values = [_cell(7, 10), _cell(7, 12), _cell(7, 14)]
+        association_values = [_cell(7, 11), _cell(7, 13), _cell(7, 15)]
+        if not any(sampler_values):
+            sampler_values = [p.strip() for p in re.split(r"[;\n]+", _cell(3, 5)) if p.strip()]
+        if not any(association_values):
+            association_values = [p.strip() for p in re.split(r"[;\n]+", _cell(3, 15)) if p.strip()]
+
+        bacterio_markers = [_cell(7, 19), _cell(7, 20), _cell(7, 25), _cell(7, 26)]
+        bacterio_done = any(str(v).strip() for v in bacterio_markers)
+
+        values: dict[str, str] = {
+            "Département": _cell(2, 4),
+            "Commune": _cell(2, 9),
+            "Lieu du prélèvement": _cell(7, 2) or _cell(2, 19),
+            "Latitude du prélèvement": _cell(7, 3),
+            "Longitude du prélèvement": _cell(7, 4),
+            "Type d'eau": _cell(7, 5) or _cell(2, 14),
+            "Date du prélèvement": _cell(7, 6),
+            "Coefficient de marée": _cell(7, 7),
+            "Heure de pleine mer": _cell(7, 8),
+            "Heure du prélèvement": _cell(7, 9),
+            "Analyses bactériologiques": "Oui" if bacterio_done else "",
+            "Jour de dépôt": _cell(7, 16),
+            "Heure du dépôt": _cell(7, 17),
+            "Entreprise de mesure": _cell(7, 18),
+            "Temps au moment de la mesure": _cell(7, 21),
+            "Température de l'eau": _cell(7, 22),
+            "Température de l'air": _cell(7, 23),
+            "Pluie dernières 24 h (mm)": _cell(7, 24),
+            "Résultats E.Coli (npp/ml)": _cell(7, 25),
+            "Résultats Entérocoques intestinaux (npp/100ml)": _cell(7, 26),
+            "Débit / flux - Largeur route": _cell(7, 27),
+            "Débit / flux - Longueur 6 arches": _cell(7, 28),
+            "Débit / flux - Hauteur eau": _cell(7, 29),
+            "Débit / flux - Volume total (m3)": _cell(7, 30),
+            "Débit / flux - Vitesse (s)": _cell(7, 31),
+            "Débit / flux - Débit (m3/s)": _cell(7, 32),
+            "Commentaire sur les conditions": _cell(7, 33),
+        }
+
+        sampler_values = [v for v in sampler_values if str(v).strip()]
+        association_values = [v for v in association_values if str(v).strip()]
+        if sampler_values:
+            values["Préleveur·se"] = sampler_values[0]
+            values["Préleveur·ses"] = " ; ".join(sampler_values)
+            for idx, sampler in enumerate(sampler_values[1:6], start=2):
+                values[f"Préleveur·se {idx}"] = sampler
+        if association_values:
+            values["Association préleveur·se"] = association_values[0]
+            values["Association(s) du prélèvement"] = " ; ".join(association_values)
+            for idx, association in enumerate(association_values[1:6], start=2):
+                values[f"Association préleveur·se {idx}"] = association
+
+        return {label: value for label, value in values.items() if str(value or "").strip()}
+
+    def _merge_header_values_into_df_map(self, df: pd.DataFrame, values: dict[str, str]) -> pd.DataFrame:
+        if not values:
+            return df
+        default_cols = ["Nom du spectre", "Tube"]
+        clean_values = {
+            self._header_storage_key(label): (label, str(value).strip())
+            for label, value in values.items()
+            if str(value or "").strip()
+        }
+        if not clean_values:
+            return df
+
+        def _clean_cell(value) -> str:
+            if value is None:
+                return ""
+            try:
+                if pd.isna(value):
+                    return ""
+            except Exception:
+                pass
+            text = str(value).strip()
+            return "" if text.lower() in {"nan", "nat", "none", "<na>"} else text
+
+        if df is None or df.empty or not set(default_cols).issubset(df.columns):
+            rows = [[label, value] for label, value in values.items() if str(value or "").strip()]
+            return pd.DataFrame(rows, columns=default_cols)
+
+        col_ns = df["Nom du spectre"].map(_clean_cell)
+        col_tube = df["Tube"].map(_clean_cell)
+        hdr_mask = (col_ns == "Nom du spectre") & (col_tube == "Tube")
+        if hdr_mask.any():
+            first_hdr_idx = hdr_mask[hdr_mask].index[0]
+            header_rows = df.loc[df.index < first_hdr_idx, default_cols].copy()
+            mapping_rows = df.loc[df.index > first_hdr_idx, default_cols].copy()
+        else:
+            header_rows = df[default_cols].copy()
+            mapping_rows = pd.DataFrame(columns=default_cols)
+
+        merged_rows: list[list[str]] = []
+        seen_keys: set[str] = set()
+        for _, row in header_rows.iterrows():
+            label = _clean_cell(row.get("Nom du spectre", ""))
+            current_value = _clean_cell(row.get("Tube", ""))
+            if not label:
+                continue
+            key = self._header_storage_key(label)
+            if key in clean_values and not current_value:
+                current_value = clean_values[key][1]
+            merged_rows.append([label, current_value])
+            seen_keys.add(key)
+
+        for key, (label, value) in clean_values.items():
+            if key not in seen_keys:
+                merged_rows.append([label, value])
+
+        merged_header = pd.DataFrame(merged_rows, columns=default_cols)
+        if hdr_mask.any() or not mapping_rows.empty:
+            blank_row = pd.DataFrame([["", ""]], columns=default_cols)
+            internal_header = pd.DataFrame([["Nom du spectre", "Tube"]], columns=default_cols)
+            return pd.concat(
+                [merged_header, blank_row, internal_header, mapping_rows.reset_index(drop=True)],
+                ignore_index=True,
+            )
+        return merged_header
+
     def _apply_header_values_to_df_map(self, df: pd.DataFrame, manip_name: str | None = None) -> pd.DataFrame:
         if df is None or df.empty or not {"Nom du spectre", "Tube"}.issubset(df.columns):
             return df
@@ -3356,15 +3621,45 @@ class MetadataCreatorWidget(QWidget):
 
     def _on_ammonium_test_toggled(self, checked: bool) -> None:
         self._ammonium_test_enabled = bool(checked)
-        self.btn_ammonium_test.setVisible(bool(checked))
+        for attr in (
+            "lbl_ammonium_operator", "edit_ammonium_operator",
+            "lbl_ammonium_test1", "edit_ammonium_test1",
+            "lbl_ammonium_test2", "edit_ammonium_test2",
+            "lbl_ammonium_ph", "edit_ammonium_ph",
+        ):
+            w = getattr(self, attr, None)
+            if w is not None:
+                w.setVisible(bool(checked))
         self._on_header_field_changed()
 
-    def _on_ammonium_test_clicked(self) -> None:
-        dlg = AmmoniumTestDialog(self._ammonium_test_values, self)
-        if dlg.exec() != QDialog.Accepted:
-            return
-        self._ammonium_test_values = dlg.values()
+    def _on_turbidity_toggled(self, checked: bool) -> None:
+        for attr in ("lbl_turbidity_val", "spin_turbidity"):
+            w = getattr(self, attr, None)
+            if w is not None:
+                w.setVisible(bool(checked))
         self._on_header_field_changed()
+
+    def _on_conductivity_toggled(self, checked: bool) -> None:
+        for attr in ("lbl_conductivity_val", "spin_conductivity"):
+            w = getattr(self, attr, None)
+            if w is not None:
+                w.setVisible(bool(checked))
+        self._on_header_field_changed()
+
+    def _on_ph_water_toggled(self, checked: bool) -> None:
+        for attr in ("lbl_ph_water_val", "spin_ph_water"):
+            w = getattr(self, attr, None)
+            if w is not None:
+                w.setVisible(bool(checked))
+        self._on_header_field_changed()
+
+    def _on_dissolved_o2_toggled(self, checked: bool) -> None:
+        for attr in ("lbl_dissolved_o2_val", "spin_dissolved_o2"):
+            w = getattr(self, attr, None)
+            if w is not None:
+                w.setVisible(bool(checked))
+        self._on_header_field_changed()
+
 
     def _on_debit_flux_clicked(self) -> None:
         dlg = DebitFluxDialog(self.DEBIT_FLUX_COLUMNS, self._debit_flux_values, self)
@@ -4344,18 +4639,47 @@ class MetadataCreatorWidget(QWidget):
             return
 
         df = self.df_map
-        col_ns = df["Nom du spectre"].astype(str).str.strip()
-        col_tube = df["Tube"].astype(str)
+
+        def _clean_cell(value) -> str:
+            if value is None:
+                return ""
+            try:
+                if pd.isna(value):
+                    return ""
+            except Exception:
+                pass
+            text = str(value).strip()
+            return "" if text.lower() in {"nan", "nat", "none", "<na>"} else text
+
+        col_ns_all = df["Nom du spectre"].map(_clean_cell)
+        col_tube_all = df["Tube"].map(_clean_cell)
+        hdr_mask = (col_ns_all == "Nom du spectre") & (col_tube_all == "Tube")
+        if hdr_mask.any():
+            header_df = df.loc[df.index < hdr_mask[hdr_mask].index[0], ["Nom du spectre", "Tube"]]
+        else:
+            header_df = df[["Nom du spectre", "Tube"]]
+
+        value_by_label: dict[str, str] = {}
+        value_by_key: dict[str, str] = {}
+        for _, row in header_df.iterrows():
+            label = _clean_cell(row.get("Nom du spectre", ""))
+            value = _clean_cell(row.get("Tube", ""))
+            if not label:
+                continue
+            storage_key = self._header_storage_key(label)
+            if label not in value_by_label or (not value_by_label[label] and value):
+                value_by_label[label] = value
+            if storage_key not in value_by_key or (not value_by_key[storage_key] and value):
+                value_by_key[storage_key] = value
 
         def _value_for(*labels: str) -> str:
             """Cherche la valeur pour n'importe laquelle des variantes de label."""
             for label in labels:
-                mask = col_ns == label
-                if mask.any():
-                    value = col_tube[mask].iloc[0].strip()
-                    if value.lower() in {"nan", "nat", "none", "<na>"}:
-                        return ""
-                    return value
+                for key in (label, str(label or "").strip().rstrip(":").strip(), self._header_storage_key(label)):
+                    if key in value_by_label:
+                        return value_by_label[key]
+                    if key in value_by_key:
+                        return value_by_key[key]
             return ""
 
         # Nom du prélèvement
@@ -4579,14 +4903,46 @@ class MetadataCreatorWidget(QWidget):
             self.chk_ammonium_test.blockSignals(True)
             self.chk_ammonium_test.setChecked(enabled)
             self.chk_ammonium_test.blockSignals(False)
-        if hasattr(self, "btn_ammonium_test"):
-            self.btn_ammonium_test.setVisible(enabled)
-        self._ammonium_test_values = {
-            "operator": _value_for("Test ammonium réalisé par", "Réalisateur test ammonium", "Réalisatrice test ammonium"),
-            "test_1": _value_for("Test ammonium 1 (grossier)", "Ammonium test 1", "Test 1 ammonium"),
-            "test_2": _value_for("Test ammonium 2 (précis)", "Ammonium test 2", "Test 2 ammonium"),
-            "ph": _value_for("pH", "pH ammonium"),
-        }
+        self._on_ammonium_test_toggled(enabled)
+        ammonium_operator = _value_for("Test ammonium réalisé par", "Réalisateur test ammonium", "Réalisatrice test ammonium")
+        if ammonium_operator and hasattr(self, "edit_ammonium_operator"):
+            self.edit_ammonium_operator.setText(ammonium_operator)
+        ammonium_t1 = _value_for("Test ammonium 1 (grossier)", "Ammonium test 1", "Test 1 ammonium")
+        if ammonium_t1 and hasattr(self, "edit_ammonium_test1"):
+            self.edit_ammonium_test1.setText(ammonium_t1)
+        ammonium_t2 = _value_for("Test ammonium 2 (précis)", "Ammonium test 2", "Test 2 ammonium")
+        if ammonium_t2 and hasattr(self, "edit_ammonium_test2"):
+            self.edit_ammonium_test2.setText(ammonium_t2)
+        ammonium_ph = _value_for("pH (ammonium)", "pH ammonium", "pH")
+        if ammonium_ph and hasattr(self, "edit_ammonium_ph"):
+            self.edit_ammonium_ph.setText(ammonium_ph)
+
+        # Paramètres terrain
+        def _load_check_spin(check_attr, spin_attr, toggled_fn, *keys):
+            val = _value_for(*keys)
+            if not val:
+                return
+            f = self._to_float(val)
+            if f is None:
+                return
+            chk = getattr(self, check_attr, None)
+            spin = getattr(self, spin_attr, None)
+            if chk is None or spin is None:
+                return
+            chk.blockSignals(True)
+            chk.setChecked(True)
+            chk.blockSignals(False)
+            toggled_fn(True)
+            spin.setValue(max(spin.minimum() + 0.01, min(spin.maximum(), f)))
+
+        _load_check_spin("chk_turbidity", "spin_turbidity", self._on_turbidity_toggled,
+                         "Turbidité (NTU)", "Turbidite", "Turbidity")
+        _load_check_spin("chk_conductivity", "spin_conductivity", self._on_conductivity_toggled,
+                         "Conductivité (µS/cm)", "Conductivite", "Conductivity")
+        _load_check_spin("chk_ph_water", "spin_ph_water", self._on_ph_water_toggled,
+                         "pH de l'eau", "pH eau")
+        _load_check_spin("chk_dissolved_o2", "spin_dissolved_o2", self._on_dissolved_o2_toggled,
+                         "Oxygène dissous (mg/L)", "Oxygene dissous", "O2 dissous")
 
         # Analyses bactériologiques
         bacterio_val = _value_for(
@@ -4635,7 +4991,7 @@ class MetadataCreatorWidget(QWidget):
             self.edit_bacterio_enterococci.setText(bacterio_enterococci)
         self._refresh_bacterio_fields_visible()
 
-        titration_val = _value_for("Titration", "Titration réalisée", "Titration realisee", "Titration faite")
+        titration_val = _value_for("Titration du cuivre", "Titration", "Titration réalisée", "Titration realisee", "Titration faite")
         if titration_val and hasattr(self, "chk_titration_done"):
             titration_checked = str(titration_val).strip().lower() in {"oui", "yes", "true", "1", "x"}
             self.chk_titration_done.blockSignals(True)
@@ -4698,16 +5054,32 @@ class MetadataCreatorWidget(QWidget):
             self._set_titration_name_manual_mode(False)
             self._refresh_titration_manip_name(force=True)
 
+        self._refresh_tide_fields_enabled()
+        self._refresh_water_type_style()
+        self._refresh_bacterio_fields_visible()
+        self._refresh_fillable_fields_style()
+        self._refresh_button_states()
+
     # ------------------------------------------------------------------
     # Export feuille de protocole
     # ------------------------------------------------------------------
     def _on_export_protocol_clicked(self) -> None:
         """Ouvre le dialogue de suivi interactif du protocole de paillasse."""
+        if isinstance(self.df_comp, pd.DataFrame):
+            self.df_comp = self._clean_loaded_volume_dataframe(self.df_comp)
         if self.df_comp is None or self.df_comp.empty:
             QMessageBox.warning(
                 self,
                 "Tableau des volumes manquant",
                 "Veuillez d'abord définir le tableau des volumes avant d'ouvrir le protocole.",
+            )
+            return
+        if "Réactif" not in self.df_comp.columns or not self._get_tube_columns(self.df_comp):
+            QMessageBox.warning(
+                self,
+                "Tableau des volumes invalide",
+                "Le tableau des volumes chargé ne contient pas les colonnes attendues "
+                "('Réactif' et 'Tube N').",
             )
             return
 
@@ -4728,11 +5100,35 @@ class MetadataCreatorWidget(QWidget):
             "operateur":    self.edit_operator.text().strip()                if hasattr(self, "edit_operator")    else "",
         }
 
-        from protocol_dialog import ProtocolDialog
-        dlg = ProtocolDialog(self.df_comp, meta,
-                             initial_states=self._protocol_states,
-                             df_map=self.df_map, parent=self)
-        dlg.exec()
+        parent_window = self.window() or self
+        try:
+            from protocol_dialog import ProtocolDialog
+            dlg = ProtocolDialog(
+                self.df_comp,
+                meta,
+                initial_states=self._protocol_states,
+                df_map=self.df_map,
+                parent=parent_window,
+            )
+            dlg.setWindowFlag(Qt.Window, True)
+            dlg.setWindowModality(Qt.ApplicationModal)
+            try:
+                parent_geo = parent_window.frameGeometry()
+                dlg.move(parent_geo.center() - dlg.rect().center())
+            except Exception:
+                pass
+            dlg.show()
+            dlg.raise_()
+            dlg.activateWindow()
+            dlg.exec()
+        except Exception as e:
+            QMessageBox.critical(
+                parent_window,
+                "Erreur d'ouverture du protocole",
+                "La feuille de protocole n'a pas pu s'ouvrir.\n\n"
+                f"{type(e).__name__} : {e}",
+            )
+            return
         # Mémoriser l'état des cases pour la prochaine ouverture / sauvegarde
         previous_states = dict(self._protocol_states)
         self._protocol_states = dlg.get_states()
@@ -4970,6 +5366,14 @@ class MetadataCreatorWidget(QWidget):
             suffixes.append("AnBa")
         if hasattr(self, "chk_ammonium_test") and self.chk_ammonium_test.isChecked():
             suffixes.append("TAm")
+        if hasattr(self, "chk_turbidity") and self.chk_turbidity.isChecked():
+            suffixes.append("Tur")
+        if hasattr(self, "chk_conductivity") and self.chk_conductivity.isChecked():
+            suffixes.append("Cond")
+        if hasattr(self, "chk_ph_water") and self.chk_ph_water.isChecked():
+            suffixes.append("pH")
+        if hasattr(self, "chk_dissolved_o2") and self.chk_dissolved_o2.isChecked():
+            suffixes.append("Ox")
 
         filename = base_name + ("_" + "_".join(suffixes) if suffixes else "")
         filename = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", filename)
@@ -5049,10 +5453,12 @@ class MetadataCreatorWidget(QWidget):
             xls = pd.ExcelFile(path)
             loaded_comp = False
             loaded_map = False
+            loaded_metadata = False
+            summary_values = self._header_values_from_measure_summary_sheet(xls)
             # Volumes
             if "Volumes" in xls.sheet_names:
-                self.df_comp = pd.read_excel(xls, sheet_name="Volumes")
-                loaded_comp = True
+                self.df_comp = self._clean_loaded_volume_dataframe(pd.read_excel(xls, sheet_name="Volumes"))
+                loaded_comp = self.df_comp is not None and isinstance(self.df_comp, pd.DataFrame) and not self.df_comp.empty
                 if hasattr(self, "chk_titration_done") and not self.df_comp.empty:
                     self.chk_titration_done.setChecked(True)
                 try:
@@ -5067,14 +5473,56 @@ class MetadataCreatorWidget(QWidget):
                 )
             # Correspondance
             if "Correspondance" in xls.sheet_names:
-                self.df_map = pd.read_excel(xls, sheet_name="Correspondance")
-                loaded_map = True
+                loaded_df_map = pd.read_excel(xls, sheet_name="Correspondance")
+                if {"Nom du spectre", "Tube"}.issubset(loaded_df_map.columns):
+                    self.df_map = loaded_df_map
+                    if summary_values:
+                        self.df_map = self._merge_header_values_into_df_map(self.df_map, summary_values)
+                    loaded_map = True
+                    loaded_metadata = True
+                    self.lbl_status_map.setText(
+                        f"Tableau de correspondance : {self.df_map.shape[0]} ligne(s), {self.df_map.shape[1]} colonne(s)"
+                    )
+                    # Mettre à jour les champs d'en-tête d'après df_map
+                    self._update_header_fields_from_df_map()
+                    self.map_dirty = False
+                elif summary_values:
+                    self.df_map = self._merge_header_values_into_df_map(pd.DataFrame(), summary_values)
+                    loaded_metadata = True
+                    self.lbl_status_map.setText(
+                        "Métadonnées terrain restaurées depuis la feuille Mesures ; correspondance invalide"
+                    )
+                    self._update_header_fields_from_df_map()
+                    self.map_dirty = True
+                    QMessageBox.warning(
+                        self,
+                        "Correspondance invalide",
+                        "La feuille 'Correspondance' ne contient pas les colonnes attendues.\n"
+                        "Les champs disponibles ont été restaurés depuis la feuille 'Mesures', "
+                        "mais la correspondance spectres ↔ tubes devra être recréée.",
+                    )
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Correspondance invalide",
+                        "La feuille 'Correspondance' ne contient pas les colonnes attendues "
+                        "('Nom du spectre' et 'Tube').",
+                    )
+            elif summary_values:
+                self.df_map = self._merge_header_values_into_df_map(pd.DataFrame(), summary_values)
+                loaded_metadata = True
                 self.lbl_status_map.setText(
-                    f"Tableau de correspondance : {self.df_map.shape[0]} ligne(s), {self.df_map.shape[1]} colonne(s)"
+                    "Métadonnées terrain restaurées depuis la feuille Mesures ; correspondance absente"
                 )
-                # Mettre à jour les champs d'en-tête d'après df_map
                 self._update_header_fields_from_df_map()
-                self.map_dirty = False
+                self.map_dirty = True
+                QMessageBox.warning(
+                    self,
+                    "Feuille manquante",
+                    "La feuille 'Correspondance' est absente du fichier Excel chargé.\n"
+                    "Les champs disponibles ont été restaurés depuis la feuille 'Mesures', "
+                    "mais la correspondance spectres ↔ tubes devra être recréée.",
+                )
             else:
                 QMessageBox.warning(
                     self,
@@ -5104,6 +5552,9 @@ class MetadataCreatorWidget(QWidget):
                 self._mark_metadata_saved()
             else:
                 self._mark_metadata_dirty(refresh=False)
+                self._refresh_button_states()
+            if loaded_metadata:
+                self._refresh_fillable_fields_style()
                 self._refresh_button_states()
         except Exception as e:
             QMessageBox.critical(

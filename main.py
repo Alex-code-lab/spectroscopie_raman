@@ -137,10 +137,24 @@ class MainWindow(QMainWindow):
   <span class="mono">NomPrelevement_T_AnBa_TAm.xlsx</span>.
 </p>
 <ul>
-  <li><span class="mono">_T</span> est ajouté si la titration est cochée.</li>
+  <li><span class="mono">_T</span> est ajouté si la titration du cuivre est cochée.</li>
   <li><span class="mono">_AnBa</span> est ajouté si les analyses bactériologiques sont cochées.</li>
   <li><span class="mono">_TAm</span> est ajouté si le test ammonium est coché.</li>
+  <li><span class="mono">_Tur</span> est ajouté si la turbidité est mesurée.</li>
+  <li><span class="mono">_Cond</span> est ajouté si la conductivité est mesurée.</li>
+  <li><span class="mono">_pH</span> est ajouté si le pH de l'eau est mesuré.</li>
+  <li><span class="mono">_Ox</span> est ajouté si l'oxygène dissous est mesuré.</li>
 </ul>
+
+<div class="note">
+  <b style="color:#ffffff">Nom du prélèvement — identifiant de l'échantillon :</b>
+  Le champ <span class="key">Nom du prélèvement</span> est l'identifiant central de toute la session.
+  Il est généré automatiquement à partir des initiales du·de la préleveur·se et de la date/heure,
+  mais peut être modifié librement. <b>C'est ce nom qui apparaîtra dans tous les exports et
+  dans la correspondance spectres ↔ tubes — assurez-vous qu'il est unique et explicite
+  avant d'enregistrer</b> (ex. : <span class="mono">DJ_2026-04-30_14h00</span>).
+  Traitez-le comme le code-barres de votre échantillon.
+</div>
 
 <h4>Prélèvement de l'échantillon</h4>
 <ul>
@@ -326,6 +340,22 @@ class MainWindow(QMainWindow):
                 "Vous pouvez continuer, mais pensez à enregistrer avant de quitter le logiciel.",
             )
         self._last_tab_index = index
+
+    def closeEvent(self, event):
+        mc = getattr(self, "metadata_creator", None)
+        if mc is not None and mc.has_unsaved_metadata():
+            reply = QMessageBox.question(
+                self,
+                "Quitter sans sauvegarder ?",
+                "Des métadonnées ont été modifiées et ne sont pas encore enregistrées.\n"
+                "Voulez-vous vraiment quitter ?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                event.ignore()
+                return
+        event.accept()
 
     def show_sources_popup(self, link_str):
         """Affiche une fenêtre contextuelle contenant les sources et références de l'application."""

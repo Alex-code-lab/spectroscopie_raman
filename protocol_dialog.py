@@ -154,7 +154,6 @@ class ProtocolDialog(QDialog):
         self._table.setShowGrid(True)
         self._build_headers()
         self._build_data()
-        self._apply_initial_states()
         root.addWidget(self._table)
 
         # Zone Notes
@@ -167,6 +166,7 @@ class ProtocolDialog(QDialog):
         gb_layout.addWidget(self._notes_edit)
         root.addWidget(gb_notes)
 
+        self._apply_initial_states()
         self._build_buttons(root)
 
         # Premier affichage
