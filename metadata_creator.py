@@ -2114,7 +2114,14 @@ class MetadataCreatorWidget(QWidget):
         if hasattr(self, "edit_sampler") and self.edit_sampler.text().strip():
             self._refresh_manip_name()
         self._refresh_titration_manip_name()
-        layout.addLayout(titration_layout)
+        self.titration_details_widget = QWidget(self)
+        self.titration_details_widget.setLayout(titration_layout)
+        layout.addWidget(self.titration_details_widget)
+
+        self.titration_workflow_widget = QWidget(self)
+        titration_workflow_layout = QVBoxLayout(self.titration_workflow_widget)
+        titration_workflow_layout.setContentsMargins(0, 0, 0, 0)
+        titration_workflow_layout.setSpacing(6)
 
         glossary_html = (
             "<b>Glossaire des solutions utilisées :</b><ul>"
@@ -2138,7 +2145,7 @@ class MetadataCreatorWidget(QWidget):
         glossary_box.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         glossary_box.setFixedHeight(145)
         glossary_box.setStyleSheet("QTextBrowser { padding: 4px; }")
-        layout.addWidget(glossary_box)
+        titration_workflow_layout.addWidget(glossary_box)
 
         creation_info_label = QLabel(
             "<b>Création des métadonnées directement dans le programme</b><br>"
@@ -2150,7 +2157,7 @@ class MetadataCreatorWidget(QWidget):
         )
         creation_info_label.setWordWrap(True)
         creation_info_label.setContentsMargins(0, 8, 0, 0)
-        layout.addWidget(creation_info_label)
+        titration_workflow_layout.addWidget(creation_info_label)
 
         # --- Sélecteur de modèle de tableau des volumes ---
         preset_layout = QHBoxLayout()
@@ -2176,7 +2183,7 @@ class MetadataCreatorWidget(QWidget):
         self.btn_generate_volumes.setToolTip("Option avancée : générer un nouveau tableau de volumes paramétrable.")
         self.btn_generate_volumes.clicked.connect(self._on_generate_volumes_clicked)
         preset_layout.addWidget(self.btn_generate_volumes)
-        layout.addLayout(preset_layout)
+        titration_workflow_layout.addLayout(preset_layout)
 
         # --- Boutons pour ouvrir les éditeurs de tableaux ---
         btns = QHBoxLayout()
@@ -2197,7 +2204,7 @@ class MetadataCreatorWidget(QWidget):
         btns.addWidget(self.btn_edit_map)
         btns.addWidget(self.btn_show_conc)
 
-        layout.addLayout(btns)
+        titration_workflow_layout.addLayout(btns)
 
         # Couleurs des boutons selon l'état (rouge si non défini, vert si prêt)
         self._refresh_button_states()
@@ -2205,8 +2212,9 @@ class MetadataCreatorWidget(QWidget):
         # --- État ---
         self.lbl_status_comp = QLabel("Tableau des volumes : non défini", self)
         self.lbl_status_map = QLabel("Tableau de correspondance : non défini", self)
-        layout.addWidget(self.lbl_status_comp)
-        layout.addWidget(self.lbl_status_map)
+        titration_workflow_layout.addWidget(self.lbl_status_comp)
+        titration_workflow_layout.addWidget(self.lbl_status_map)
+        layout.addWidget(self.titration_workflow_widget)
 
         layout.addStretch(1)
 
@@ -2217,6 +2225,7 @@ class MetadataCreatorWidget(QWidget):
         layout.addLayout(bottom_save)
 
         self._setup_fillable_field_styles()
+        self._refresh_titration_fields_visible()
 
     def _setup_fillable_field_styles(self) -> None:
         self._fillable_fields = [
@@ -2454,9 +2463,7 @@ class MetadataCreatorWidget(QWidget):
         titration_done = bool(self.chk_titration_done.isChecked()) if hasattr(self, "chk_titration_done") else False
         comp_ready = self.df_comp is not None and isinstance(self.df_comp, pd.DataFrame) and not self.df_comp.empty
 
-        if not titration_done:
-            warnings.append("La case « Titration du cuivre » n'est pas cochée : la feuille de protocole n'est pas validée.")
-        else:
+        if titration_done:
             if not comp_ready:
                 warnings.append("La titration est cochée, mais aucun tableau des volumes n'est défini.")
             if not self._protocol_states:
@@ -2730,7 +2737,15 @@ class MetadataCreatorWidget(QWidget):
         self._refresh_bacterio_fields_visible()
         self._on_header_field_changed()
 
+    def _refresh_titration_fields_visible(self) -> None:
+        visible = bool(self.chk_titration_done.isChecked()) if hasattr(self, "chk_titration_done") else False
+        for attr in ("titration_details_widget", "titration_workflow_widget"):
+            widget = getattr(self, attr, None)
+            if widget is not None:
+                widget.setVisible(visible)
+
     def _on_titration_toggled(self, checked: bool) -> None:
+        self._refresh_titration_fields_visible()
         self._on_header_field_changed()
 
     @staticmethod
@@ -3076,6 +3091,8 @@ class MetadataCreatorWidget(QWidget):
             self.edit_titration_manip.text().strip() if hasattr(self, "edit_titration_manip") else ""
         )
         titration_done = bool(self.chk_titration_done.isChecked()) if hasattr(self, "chk_titration_done") else False
+        if not titration_done:
+            titration_name = ""
         ammonium_enabled = bool(self._ammonium_test_enabled)
         ammonium = "Oui" if ammonium_enabled else "Non"
         bacterio_enabled = bool(self.chk_bacterio_analysis.isChecked()) if hasattr(self, "chk_bacterio_analysis") else False
@@ -3228,16 +3245,28 @@ class MetadataCreatorWidget(QWidget):
             "Résultats E.Coli (npp/ml)": bacterio_ecoli,
             "Résultats Entérocoques intestinaux (npp/100ml)": bacterio_enterococci,
             "Titration du cuivre": "Oui" if titration_done else "Non",
-            "Nom de la manip de titration": str(titration_name or "").strip(),
+            "Nom de la manip de titration": str(titration_name or "").strip() if titration_done else "",
             "Nom de la manip de titration manuel": (
-                "Oui" if getattr(self, "_titration_name_manual", False) else "Non"
+                "Oui" if titration_done and getattr(self, "_titration_name_manual", False) else "Non"
             ),
-            "Lieu de la titration": self.edit_titration_location.text().strip() if hasattr(self, "edit_titration_location") else "",
-            "Date de la titration": self._titration_date_text(),
-            "Heure de la titration": self._titration_time_text(),
-            "Date/heure de la titration": self._titration_date_time_text(),
-            "Coordinateur": self.edit_coordinator.text().strip() if hasattr(self, "edit_coordinator") else "",
-            "Opérateur": self.edit_operator.text().strip() if hasattr(self, "edit_operator") else "",
+            "Lieu de la titration": (
+                self.edit_titration_location.text().strip()
+                if titration_done and hasattr(self, "edit_titration_location")
+                else ""
+            ),
+            "Date de la titration": self._titration_date_text() if titration_done else "",
+            "Heure de la titration": self._titration_time_text() if titration_done else "",
+            "Date/heure de la titration": self._titration_date_time_text() if titration_done else "",
+            "Coordinateur": (
+                self.edit_coordinator.text().strip()
+                if titration_done and hasattr(self, "edit_coordinator")
+                else ""
+            ),
+            "Opérateur": (
+                self.edit_operator.text().strip()
+                if titration_done and hasattr(self, "edit_operator")
+                else ""
+            ),
         }
 
     @staticmethod
@@ -5057,6 +5086,7 @@ class MetadataCreatorWidget(QWidget):
         self._refresh_tide_fields_enabled()
         self._refresh_water_type_style()
         self._refresh_bacterio_fields_visible()
+        self._refresh_titration_fields_visible()
         self._refresh_fillable_fields_style()
         self._refresh_button_states()
 
