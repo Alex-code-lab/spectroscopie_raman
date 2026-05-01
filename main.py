@@ -40,11 +40,24 @@ from metadata_creator import MetadataCreatorWidget
 class WorkflowStatusTabBar(QTabBar):
     """QTabBar avec fond rouge/vert pour certains onglets de workflow."""
 
-    _SELECTED_TAB_COLOR = "#007aff"
+    _ACTIVE_EXTRA_WIDTH = 16
+    _ACTIVE_EXTRA_HEIGHT = 5
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._status_colors: dict[int, str] = {}
+        self.currentChanged.connect(self._refresh_active_tab)
+
+    def tabSizeHint(self, index: int):
+        size = super().tabSizeHint(index)
+        if index == self.currentIndex():
+            size.setWidth(size.width() + self._ACTIVE_EXTRA_WIDTH)
+            size.setHeight(size.height() + self._ACTIVE_EXTRA_HEIGHT)
+        return size
+
+    def _refresh_active_tab(self, index: int) -> None:
+        self.updateGeometry()
+        self.update()
 
     def set_tab_status_color(self, index: int, color_hex: str | None) -> None:
         if color_hex:
@@ -62,10 +75,7 @@ class WorkflowStatusTabBar(QTabBar):
             self.initStyleOption(option, index)
             color_hex = self._status_colors.get(index)
             if not color_hex:
-                if option.state & QStyle.StateFlag.State_Selected:
-                    self._draw_colored_tab(painter, option, QColor(self._SELECTED_TAB_COLOR))
-                else:
-                    painter.drawControl(QStyle.ControlElement.CE_TabBarTab, option)
+                painter.drawControl(QStyle.ControlElement.CE_TabBarTab, option)
                 continue
 
             color = QColor(color_hex)
