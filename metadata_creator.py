@@ -65,6 +65,13 @@ FIELD_EMPTY_STYLE = "background-color: rgba(217, 83, 79, 77);"
 FIELD_FILLED_STYLE = "background-color: rgba(92, 184, 92, 77);"
 OPTIONAL_DATE_SENTINEL = QDate(1900, 1, 1)
 OPTIONAL_TIME_SENTINEL = QTime(0, 0)
+SHEET_MEASURES = "Mesures"
+SHEET_TITRATION_VOLUMES = "Titration-volumes"
+SHEET_TITRATION_CORRESPONDENCE = "Titration-correspondance"
+SHEET_TITRATION_PROTOCOL_STATE = "Titration-EtatProtocole"
+SHEET_TITRATION_VOLUMES_ALIASES = (SHEET_TITRATION_VOLUMES, "Volumes")
+SHEET_TITRATION_CORRESPONDENCE_ALIASES = (SHEET_TITRATION_CORRESPONDENCE, "Correspondance")
+SHEET_TITRATION_PROTOCOL_STATE_ALIASES = (SHEET_TITRATION_PROTOCOL_STATE, "EtatProtocole")
 MOLAR_UNIT_FACTORS = {
     "M": 1.0,
     "mM": 1e-3,
@@ -130,6 +137,13 @@ def _install_field_fill_style(widget) -> None:
         widget.dateChanged.connect(lambda *_args, w=widget: _apply_field_fill_style(w))
     elif isinstance(widget, QDateTimeEdit):
         widget.dateTimeChanged.connect(lambda *_args, w=widget: _apply_field_fill_style(w))
+
+
+def _first_existing_sheet(sheet_names: list[str], candidates: tuple[str, ...]) -> str | None:
+    for name in candidates:
+        if name in sheet_names:
+            return name
+    return None
 
 
 class TableEditorDialog(QDialog):
@@ -3498,10 +3512,10 @@ class MetadataCreatorWidget(QWidget):
         récupérer les fichiers enregistrés pendant la période où l'en-tête
         rechargeable de la feuille Correspondance était incomplet.
         """
-        if "Mesures" not in xls.sheet_names:
+        if SHEET_MEASURES not in xls.sheet_names:
             return {}
         try:
-            raw = pd.read_excel(xls, sheet_name="Mesures", header=None, dtype=object)
+            raw = pd.read_excel(xls, sheet_name=SHEET_MEASURES, header=None, dtype=object)
         except Exception:
             return {}
 
@@ -5181,9 +5195,9 @@ class MetadataCreatorWidget(QWidget):
         from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
         from openpyxl.utils import get_column_letter
 
-        if "Mesures" in workbook.sheetnames:
-            del workbook["Mesures"]
-        ws = workbook.create_sheet("Mesures", 0)
+        if SHEET_MEASURES in workbook.sheetnames:
+            del workbook[SHEET_MEASURES]
+        ws = workbook.create_sheet(SHEET_MEASURES, 0)
 
         values = self._header_values()
 
@@ -5451,8 +5465,8 @@ class MetadataCreatorWidget(QWidget):
             else:
                 df_comp_to_save = pd.DataFrame()
             with pd.ExcelWriter(path, engine="openpyxl") as writer:
-                df_comp_to_save.to_excel(writer, sheet_name="Volumes", index=False)
-                df_map_to_save.to_excel(writer, sheet_name="Correspondance", index=False)
+                df_comp_to_save.to_excel(writer, sheet_name=SHEET_TITRATION_VOLUMES, index=False)
+                df_map_to_save.to_excel(writer, sheet_name=SHEET_TITRATION_CORRESPONDENCE, index=False)
                 # État du protocole de paillasse
                 if self._protocol_states:
                     rows = []
@@ -5463,7 +5477,7 @@ class MetadataCreatorWidget(QWidget):
                             rows.append({"type": "verif", "r_idx": key[1], "t_idx": -1, "checked": int(val)})
                         else:
                             rows.append({"type": key[0], "r_idx": key[1], "t_idx": key[2], "checked": int(val)})
-                    pd.DataFrame(rows).to_excel(writer, sheet_name="EtatProtocole", index=False)
+                    pd.DataFrame(rows).to_excel(writer, sheet_name=SHEET_TITRATION_PROTOCOL_STATE, index=False)
                 self._write_measure_summary_sheet(writer.book)
         except Exception as e:
             QMessageBox.critical(
@@ -5494,8 +5508,9 @@ class MetadataCreatorWidget(QWidget):
             loaded_metadata = False
             summary_values = self._header_values_from_measure_summary_sheet(xls)
             # Volumes
-            if "Volumes" in xls.sheet_names:
-                self.df_comp = self._clean_loaded_volume_dataframe(pd.read_excel(xls, sheet_name="Volumes"))
+            volumes_sheet = _first_existing_sheet(xls.sheet_names, SHEET_TITRATION_VOLUMES_ALIASES)
+            if volumes_sheet:
+                self.df_comp = self._clean_loaded_volume_dataframe(pd.read_excel(xls, sheet_name=volumes_sheet))
                 loaded_comp = self.df_comp is not None and isinstance(self.df_comp, pd.DataFrame) and not self.df_comp.empty
                 if hasattr(self, "chk_titration_done") and not self.df_comp.empty:
                     self.chk_titration_done.setChecked(True)
@@ -5510,8 +5525,12 @@ class MetadataCreatorWidget(QWidget):
                     f"Tableau des volumes : {self.df_comp.shape[0]} ligne(s), {self.df_comp.shape[1]} colonne(s)"
                 )
             # Correspondance
-            if "Correspondance" in xls.sheet_names:
-                loaded_df_map = pd.read_excel(xls, sheet_name="Correspondance")
+            correspondence_sheet = _first_existing_sheet(
+                xls.sheet_names,
+                SHEET_TITRATION_CORRESPONDENCE_ALIASES,
+            )
+            if correspondence_sheet:
+                loaded_df_map = pd.read_excel(xls, sheet_name=correspondence_sheet)
                 if {"Nom du spectre", "Tube"}.issubset(loaded_df_map.columns):
                     self.df_map = loaded_df_map
                     if summary_values:
@@ -5535,7 +5554,7 @@ class MetadataCreatorWidget(QWidget):
                     QMessageBox.warning(
                         self,
                         "Correspondance invalide",
-                        "La feuille 'Correspondance' ne contient pas les colonnes attendues.\n"
+                        f"La feuille '{correspondence_sheet}' ne contient pas les colonnes attendues.\n"
                         "Les champs disponibles ont été restaurés depuis la feuille 'Mesures', "
                         "mais la correspondance spectres ↔ tubes devra être recréée.",
                     )
@@ -5543,7 +5562,7 @@ class MetadataCreatorWidget(QWidget):
                     QMessageBox.warning(
                         self,
                         "Correspondance invalide",
-                        "La feuille 'Correspondance' ne contient pas les colonnes attendues "
+                        f"La feuille '{correspondence_sheet}' ne contient pas les colonnes attendues "
                         "('Nom du spectre' et 'Tube').",
                     )
             elif summary_values:
@@ -5557,7 +5576,7 @@ class MetadataCreatorWidget(QWidget):
                 QMessageBox.warning(
                     self,
                     "Feuille manquante",
-                    "La feuille 'Correspondance' est absente du fichier Excel chargé.\n"
+                    f"La feuille '{SHEET_TITRATION_CORRESPONDENCE}' est absente du fichier Excel chargé.\n"
                     "Les champs disponibles ont été restaurés depuis la feuille 'Mesures', "
                     "mais la correspondance spectres ↔ tubes devra être recréée.",
                 )
@@ -5565,13 +5584,14 @@ class MetadataCreatorWidget(QWidget):
                 QMessageBox.warning(
                     self,
                     "Feuille manquante",
-                    "La feuille 'Correspondance' est absente du fichier Excel chargé.\n"
+                    f"La feuille '{SHEET_TITRATION_CORRESPONDENCE}' est absente du fichier Excel chargé.\n"
                     "Le tableau de correspondance n'a pas pu être restauré.",
                 )
             # État du protocole de paillasse
             self._protocol_states = {}
-            if "EtatProtocole" in xls.sheet_names:
-                df_proto = pd.read_excel(xls, sheet_name="EtatProtocole")
+            protocol_sheet = _first_existing_sheet(xls.sheet_names, SHEET_TITRATION_PROTOCOL_STATE_ALIASES)
+            if protocol_sheet:
+                df_proto = pd.read_excel(xls, sheet_name=protocol_sheet)
                 for _, r in df_proto.iterrows():
                     t = str(r.get("type", ""))
                     if t == "__notes__":

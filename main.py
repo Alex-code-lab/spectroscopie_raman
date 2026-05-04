@@ -331,9 +331,9 @@ class MainWindow(QMainWindow):
 </p>
 <ul>
   <li><span class="mono">Mesures</span> - fiche terrain synthétique, avec une seule ligne de données.</li>
-  <li><span class="mono">Volumes</span> - tableau de volumes si la titration est utilisée.</li>
-  <li><span class="mono">Correspondance</span> - métadonnées et correspondance spectres ↔ tubes.</li>
-  <li><span class="mono">EtatProtocole</span> - état des cases du protocole si une feuille de protocole a été utilisée.</li>
+  <li><span class="mono">Titration-volumes</span> - tableau de volumes si la titration est utilisée.</li>
+  <li><span class="mono">Titration-correspondance</span> - métadonnées et correspondance spectres ↔ tubes.</li>
+  <li><span class="mono">Titration-EtatProtocole</span> - état des cases du protocole si une feuille de protocole a été utilisée.</li>
 </ul>
 
 <h3>2 - Onglet Fichiers Raman</h3>
