@@ -1647,6 +1647,17 @@ class MetadataCreatorWidget(QWidget):
         "Débit (m3/s)",
     ]
     DEBIT_FLUX_PREFIX = "Débit / flux - "
+    PLACE_TYPE_CHOICES = [
+        "Plage",
+        "Cours d'eau en aval d'une zone habitée non reliée au réseau AC (hameau, quartier non relié...)",
+        "Cours d'eau à l'aval d'un point de rejet de STEP",
+        "Cours d'eau en aval d'un siège d'exploitation agricole",
+        "Cours d'eau en aval d'une zone d'épandage",
+        "Estuaire (à l'exutoire du cours d'eau)",
+        "Cours d'eau en aval d'une zone urbanisée (agglomération)",
+        "Tête de bassin versant (en amont des sources de pollution)",
+        "Exutoire d'eau pluviale (dont fossé)",
+    ]
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -1726,7 +1737,7 @@ class MetadataCreatorWidget(QWidget):
         self.extra_samplers_layout = QVBoxLayout()
         header_layout.addLayout(self.extra_samplers_layout)
 
-        # Ligne 2 : date + heure + lieu du prélèvement
+        # Ligne 2 : date + heure du prélèvement
         row2 = QHBoxLayout()
         row2.addWidget(QLabel("Date du prélèvement :", self))
         self.edit_sample_date = QDateEdit(self)
@@ -1749,13 +1760,24 @@ class MetadataCreatorWidget(QWidget):
         self._set_default_on_interaction(self.edit_sample_time, "current_time")
         row2.addWidget(self.edit_sample_time)
 
-        row2.addWidget(QLabel("Lieu du prélèvement :", self))
+        row2.addStretch(1)
+        header_layout.addLayout(row2)
+
+        row_place = QHBoxLayout()
+        row_place.addWidget(QLabel("Type de lieu :", self))
+        self.combo_place_type = QComboBox(self)
+        self.combo_place_type.addItems(["Choisir...", *self.PLACE_TYPE_CHOICES])
+        self.combo_place_type.setMinimumWidth(360)
+        self.combo_place_type.currentTextChanged.connect(self._on_header_field_changed)
+        row_place.addWidget(self.combo_place_type, 1)
+
+        row_place.addWidget(QLabel("Nom du point de prélèvement :", self))
         self.edit_sample_location = QLineEdit(self)
-        self.edit_sample_location.setPlaceholderText("ex : site / point de prélèvement")
-        row2.addWidget(self.edit_sample_location)
+        self.edit_sample_location.setPlaceholderText("ex : nom du site / point")
+        row_place.addWidget(self.edit_sample_location, 1)
         self.edit_sample_location.textChanged.connect(self._on_header_field_changed)
 
-        header_layout.addLayout(row2)
+        header_layout.addLayout(row_place)
 
         row_sample_name = QHBoxLayout()
         row_sample_name.addWidget(QLabel("Nom du prélèvement :", self))
@@ -2297,6 +2319,7 @@ class MetadataCreatorWidget(QWidget):
             self.edit_sampler,
             self.edit_sample_date,
             self.edit_sample_time,
+            self.combo_place_type,
             self.edit_sample_location,
             self.edit_sample_lat,
             self.edit_sample_lon,
@@ -2489,6 +2512,7 @@ class MetadataCreatorWidget(QWidget):
 
         # --- Combos → valeur de départ ---
         combo_defaults = {
+            "combo_place_type": 0,
             "combo_water_type": 0,
             "combo_weather": 0,
             "combo_volume_preset": "Titration classique compte-gouttes (actuel)",
@@ -2970,7 +2994,7 @@ class MetadataCreatorWidget(QWidget):
         if not txt:
             return None
 
-        hemisphere_match = re.search(r"([NSEW])", txt, flags=re.IGNORECASE)
+        hemisphere_match = re.search(r"(?<![A-Za-zÀ-ÖØ-öø-ÿ])([NSEW])(?![A-Za-zÀ-ÖØ-öø-ÿ])", txt, flags=re.IGNORECASE)
         has_dms_marker = bool(re.search(r"[°º'’′\"”″]", txt))
         if hemisphere_match or has_dms_marker:
             numbers = re.findall(r"[-+]?\d+(?:\.\d+)?", txt)
@@ -3363,6 +3387,9 @@ class MetadataCreatorWidget(QWidget):
         water_type = ""
         if hasattr(self, "combo_water_type") and self._is_water_type_selected():
             water_type = self.combo_water_type.currentText().strip()
+        place_type = ""
+        if hasattr(self, "combo_place_type") and _field_has_value(self.combo_place_type):
+            place_type = self.combo_place_type.currentText().strip()
         sampler_names = self._sampler_names()
         sampler_associations = self._sampler_associations()
         extra_sampler_values = {
@@ -3393,6 +3420,7 @@ class MetadataCreatorWidget(QWidget):
             ),
             **extra_association_values,
             "Association(s) du prélèvement": " ; ".join(a for a in sampler_associations if a),
+            "Type de lieu": place_type,
             "Lieu du prélèvement": self.edit_sample_location.text().strip() if hasattr(self, "edit_sample_location") else "",
             "Latitude du prélèvement": self._format_coord_value(
                 self.edit_sample_lat.text() if hasattr(self, "edit_sample_lat") else "",
@@ -3574,6 +3602,18 @@ class MetadataCreatorWidget(QWidget):
             "Departement du prelevement": "Département",
             "Commune du prélèvement": "Commune",
             "Commune du prelevement": "Commune",
+            "Type lieu": "Type de lieu",
+            "Type de lieu": "Type de lieu",
+            "Type du lieu": "Type de lieu",
+            "Type point": "Type de lieu",
+            "Type de point": "Type de lieu",
+            "Nom du point": "Lieu du prélèvement",
+            "Nom du point de prélèvement": "Lieu du prélèvement",
+            "Nom du point de prelevement": "Lieu du prélèvement",
+            "Point de prélèvement": "Lieu du prélèvement",
+            "Point de prelevement": "Lieu du prélèvement",
+            "Lieu prélèvement": "Lieu du prélèvement",
+            "Lieu prelevement": "Lieu du prélèvement",
             "Date prélèvement": "Date du prélèvement",
             "Date prelevement": "Date du prélèvement",
             "Date de prélèvement": "Date du prélèvement",
@@ -3872,7 +3912,9 @@ class MetadataCreatorWidget(QWidget):
                 "Type d'eau",
                 "Département",
                 "Commune",
+                "Type de lieu",
                 "Lieu du prélèvement",
+                "Nom du point de prélèvement",
                 "Nom du lieu",
                 "Latitude",
                 "Latitude GPS",
@@ -3887,6 +3929,12 @@ class MetadataCreatorWidget(QWidget):
                 "Date du prélèvement",
                 "Heure du prélèvement",
                 "Préleveur·se",
+                "Préleveur·se 1",
+                "Préleveur·se 2",
+                "Préleveur·se 3",
+                "Préleveur·se 4",
+                "Préleveur·se 5",
+                "Préleveur·se 6",
                 "Association",
                 "Coordinateur",
                 "Opérateur",
@@ -4149,7 +4197,14 @@ class MetadataCreatorWidget(QWidget):
             "Nom du prélèvement": _value_right_of_label("Nom du prélèvement"),
             "Département": _value_right_of_label("Département") or _cell(2, 4),
             "Commune": _value_right_of_label("Commune") or _cell(2, 9),
-            "Lieu du prélèvement": _value_right_of_label("Lieu du prélèvement", "Nom du lieu")
+            "Type de lieu": _value_right_of_label("Type de lieu", "Type du lieu", "Type de point"),
+            "Lieu du prélèvement": _value_right_of_label(
+                "Nom du point de prélèvement",
+                "Nom du point de prelevement",
+                "Point de prélèvement",
+                "Lieu du prélèvement",
+                "Nom du lieu",
+            )
             or _col_value("point", exclude=("point gps",), fallback=_cell(7, 2))
             or _cell(2, 19),
             "Latitude du prélèvement": _value_right_of_label("Latitude du prélèvement", "Latitude GPS", "Latitude", "Lat")
@@ -4161,7 +4216,7 @@ class MetadataCreatorWidget(QWidget):
                 "Lon",
             )
             or _col_value("point gps lon", "longitude", "lon", fallback=_cell(7, 4)),
-            "Type d'eau": _value_right_of_label("Type d'eau", "Type de lieu", "Nature de l'eau")
+            "Type d'eau": _value_right_of_label("Type d'eau", "Nature de l'eau")
             or _col_value("nature de l eau", "type d eau", fallback=_cell(7, 5))
             or _cell(2, 14),
             "Date du prélèvement": _value_right_of_label("Date du prélèvement", "Date de prélèvement")
@@ -5458,6 +5513,34 @@ class MetadataCreatorWidget(QWidget):
                         return value_by_key[key]
             return ""
 
+        def _set_combo_from_text(combo: QComboBox, text: str) -> None:
+            txt = str(text or "").strip()
+            if not txt:
+                return
+            idx = combo.findText(txt, Qt.MatchFixedString | Qt.MatchCaseSensitive)
+            if idx < 0:
+                idx = combo.findText(txt, Qt.MatchFixedString)
+            if idx < 0:
+                wanted_key = self._norm_text_key(txt)
+                for item_idx in range(combo.count()):
+                    if self._norm_text_key(combo.itemText(item_idx)) == wanted_key:
+                        idx = item_idx
+                        break
+                if idx < 0 and len(wanted_key) >= 12:
+                    for item_idx in range(combo.count()):
+                        item_key = self._norm_text_key(combo.itemText(item_idx))
+                        if item_key and (item_key.startswith(wanted_key) or wanted_key.startswith(item_key)):
+                            idx = item_idx
+                            break
+                if idx < 0 and len(wanted_key) >= 12:
+                    for item_idx in range(combo.count()):
+                        item_key = self._norm_text_key(combo.itemText(item_idx))
+                        if item_key and (wanted_key in item_key or item_key in wanted_key):
+                            idx = item_idx
+                            break
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+
         # Nom du prélèvement
         name_val = _value_for("Nom du prélèvement :", "Nom du prélèvement", "Nom de la manip :", "Nom de la manip")
         if name_val and hasattr(self, "edit_manip"):
@@ -5521,7 +5604,17 @@ class MetadataCreatorWidget(QWidget):
             if extra_sampler or extra_association:
                 self._add_sampler_field(extra_sampler, extra_association)
 
-        sample_loc = _value_for("Lieu du prélèvement")
+        place_type = _value_for("Type de lieu", "Type lieu", "Type du lieu", "Type de point", "Type point")
+        if place_type and hasattr(self, "combo_place_type"):
+            _set_combo_from_text(self.combo_place_type, place_type)
+
+        sample_loc = _value_for(
+            "Nom du point de prélèvement",
+            "Nom du point de prelevement",
+            "Point de prélèvement",
+            "Point de prelevement",
+            "Lieu du prélèvement",
+        )
         if sample_loc and hasattr(self, "edit_sample_location"):
             self.edit_sample_location.setText(sample_loc)
 
@@ -5616,7 +5709,7 @@ class MetadataCreatorWidget(QWidget):
                 "estuarienne": "Eau estuarienne",
                 "esturienne": "Eau estuarienne",
             }
-            self.combo_water_type.setCurrentText(water_aliases.get(water_key, water_type))
+            _set_combo_from_text(self.combo_water_type, water_aliases.get(water_key, water_type))
 
         tide_coef = _value_for("Coefficient de marée", "Coefficient de maree", "Coefficient maree", "Coef marée", "Coef maree")
         if tide_coef and hasattr(self, "spin_tide_coefficient"):
@@ -5649,11 +5742,7 @@ class MetadataCreatorWidget(QWidget):
 
         weather = _value_for("Temps au moment de la mesure", "Meteo", "Météo")
         if weather and hasattr(self, "combo_weather"):
-            idx = self.combo_weather.findText(weather, Qt.MatchFixedString | Qt.MatchCaseSensitive)
-            if idx < 0:
-                idx = self.combo_weather.findText(weather, Qt.MatchFixedString)
-            if idx >= 0:
-                self.combo_weather.setCurrentIndex(idx)
+            _set_combo_from_text(self.combo_weather, weather)
 
         air_temp = _value_for("Température de l'air", "Temperature de l'air", "Temp air")
         if air_temp and hasattr(self, "spin_air_temperature"):
@@ -5979,9 +6068,12 @@ class MetadataCreatorWidget(QWidget):
         title_fill = PatternFill("solid", fgColor="C6E0B4")
         info_fill = PatternFill("solid", fgColor="D9E2F3")
         section_fill = PatternFill("solid", fgColor="F8CBAD")
-        header_fill = PatternFill("solid", fgColor="E2F0D9")
-        data_blue = PatternFill("solid", fgColor="BDD7EE")
-        data_cyan = PatternFill("solid", fgColor="00CFE8")
+        titration_fill = PatternFill("solid", fgColor="D9EAD3")
+        other_measures_fill = PatternFill("solid", fgColor="00CFE8")
+        turbidity_fill = PatternFill("solid", fgColor="DA9694")
+        conductivity_fill = PatternFill("solid", fgColor="B4C6E7")
+        ph_fill = PatternFill("solid", fgColor="E4DFEC")
+        dissolved_o2_fill = PatternFill("solid", fgColor="C9DAF8")
         context_fill = PatternFill("solid", fgColor="E2F0D9")
         ammonium_fill = PatternFill("solid", fgColor="FCE4D6")
         bacterio_fill = PatternFill("solid", fgColor="DDEBF7")
@@ -6009,7 +6101,7 @@ class MetadataCreatorWidget(QWidget):
                     if font is not None:
                         cell.font = font
 
-        sampler_start_row = 7
+        sampler_start_row = 8
         sampler_end_row = sampler_start_row + sampler_rows_count - 1
         status_start_row = sampler_end_row + 1
         measure_title_row = status_start_row + 3
@@ -6025,11 +6117,12 @@ class MetadataCreatorWidget(QWidget):
             (3, "C", "Type d'eau", "D", values.get("Type d'eau", "")),
             (4, "A", "Département", "B", values.get("Département", "")),
             (4, "C", "Commune", "D", values.get("Commune", "")),
-            (5, "A", "Lieu du prélèvement", "B", values.get("Lieu du prélèvement", "")),
-            (5, "C", "Latitude", "D", values.get("Latitude du prélèvement", "")),
-            (5, "E", "Longitude", "F", values.get("Longitude du prélèvement", "")),
-            (6, "A", "Date du prélèvement", "B", sample_date),
-            (6, "C", "Heure du prélèvement", "D", sample_time),
+            (5, "A", "Date du prélèvement", "B", sample_date),
+            (5, "C", "Heure du prélèvement", "D", sample_time),
+            (6, "A", "Type de lieu", "B", values.get("Type de lieu", "")),
+            (6, "C", "Nom du point de prélèvement", "D", values.get("Lieu du prélèvement", "")),
+            (7, "A", "Latitude", "B", values.get("Latitude du prélèvement", "")),
+            (7, "C", "Longitude", "D", values.get("Longitude du prélèvement", "")),
         ]
         _merge("A2:H2", "Informations générales", info_fill, Font(bold=True))
         for row_idx, label_col, label, value_col, value in info_pairs:
@@ -6067,21 +6160,29 @@ class MetadataCreatorWidget(QWidget):
 
         status_rows = [
             [
-                ("Titration du cuivre", values.get("Titration du cuivre", "Non") or "Non"),
-                ("Analyses bactériologiques", values.get("Analyses bactériologiques", "Non") or "Non"),
-                ("Test ammonium réalisé", values.get("Test ammonium réalisé", "Non") or "Non"),
-                ("Turbidité mesurée", values.get("Turbidité mesurée", "Non") or "Non"),
+                ("Titration du cuivre", values.get("Titration du cuivre", "Non") or "Non", titration_fill),
+                (
+                    "Analyses bactériologiques",
+                    values.get("Analyses bactériologiques", "Non") or "Non",
+                    bacterio_fill,
+                ),
+                ("Test ammonium réalisé", values.get("Test ammonium réalisé", "Non") or "Non", ammonium_fill),
+                ("Turbidité mesurée", values.get("Turbidité mesurée", "Non") or "Non", turbidity_fill),
             ],
             [
-                ("Conductivité mesurée", values.get("Conductivité mesurée", "Non") or "Non"),
-                ("pH eau mesuré", values.get("pH de l'eau mesuré", "Non") or "Non"),
-                ("Oxygène dissous mesuré", values.get("Oxygène dissous mesuré", "Non") or "Non"),
-                ("", ""),
+                ("Conductivité mesurée", values.get("Conductivité mesurée", "Non") or "Non", conductivity_fill),
+                ("pH eau mesuré", values.get("pH de l'eau mesuré", "Non") or "Non", ph_fill),
+                (
+                    "Oxygène dissous mesuré",
+                    values.get("Oxygène dissous mesuré", "Non") or "Non",
+                    dissolved_o2_fill,
+                ),
+                ("", "", white_fill),
             ],
         ]
         for row_offset, row_pairs in enumerate(status_rows):
             row_idx = status_start_row + row_offset
-            for pair_idx, (label, value) in enumerate(row_pairs):
+            for pair_idx, (label, value, fill) in enumerate(row_pairs):
                 label_cell = ws.cell(row=row_idx, column=pair_idx * 2 + 1)
                 value_cell = ws.cell(row=row_idx, column=pair_idx * 2 + 2)
                 label_cell.value = label
@@ -6090,15 +6191,15 @@ class MetadataCreatorWidget(QWidget):
                     cell.border = thin_border
                     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
                 if label:
-                    label_cell.fill = info_fill
+                    label_cell.fill = fill
                     label_cell.font = Font(bold=True, size=9)
                 else:
                     label_cell.fill = white_fill
-                value_cell.fill = white_fill
+                value_cell.fill = fill if label else white_fill
 
         _style_range(f"A1:H{status_start_row + len(status_rows) - 1}", border=thin_border)
 
-        def _write_section(row_idx: int, title: str, fill, columns: list[tuple[str, str]]) -> int:
+        def _write_section(row_idx: int, title: str, fill, columns: list[tuple]) -> int:
             last_col = get_column_letter(max(1, len(columns)))
             _merge(f"A{row_idx}:{last_col}{row_idx}", title, fill, Font(bold=True, size=10))
             for cell in ws[row_idx]:
@@ -6106,10 +6207,12 @@ class MetadataCreatorWidget(QWidget):
             row_idx += 1
             header_row = row_idx
             value_row = row_idx + 1
-            for col_idx, (label, value) in enumerate(columns, start=1):
+            for col_idx, column in enumerate(columns, start=1):
+                label, value = column[:2]
+                label_fill = column[2] if len(column) >= 3 else fill
                 label_cell = ws.cell(row=header_row, column=col_idx)
                 label_cell.value = label
-                label_cell.fill = fill
+                label_cell.fill = label_fill
                 label_cell.font = Font(bold=True, size=9)
                 label_cell.border = thin_border
                 label_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -6175,21 +6278,21 @@ class MetadataCreatorWidget(QWidget):
             ),
             (
                 "Autres mesures",
-                data_cyan,
+                other_measures_fill,
                 [
-                    ("Turbidité mesurée", values.get("Turbidité mesurée", "Non") or "Non"),
-                    ("Turbidité (NTU)", values.get("Turbidité (NTU)", "")),
-                    ("Conductivité mesurée", values.get("Conductivité mesurée", "Non") or "Non"),
-                    ("Conductivité (µS/cm)", values.get("Conductivité (µS/cm)", "")),
-                    ("pH de l'eau mesuré", values.get("pH de l'eau mesuré", "Non") or "Non"),
-                    ("pH de l'eau", values.get("pH de l'eau", "")),
-                    ("Oxygène dissous mesuré", values.get("Oxygène dissous mesuré", "Non") or "Non"),
-                    ("Oxygène dissous (mg/L)", values.get("Oxygène dissous (mg/L)", "")),
+                    ("Turbidité mesurée", values.get("Turbidité mesurée", "Non") or "Non", turbidity_fill),
+                    ("Turbidité (NTU)", values.get("Turbidité (NTU)", ""), turbidity_fill),
+                    ("Conductivité mesurée", values.get("Conductivité mesurée", "Non") or "Non", conductivity_fill),
+                    ("Conductivité (µS/cm)", values.get("Conductivité (µS/cm)", ""), conductivity_fill),
+                    ("pH de l'eau mesuré", values.get("pH de l'eau mesuré", "Non") or "Non", ph_fill),
+                    ("pH de l'eau", values.get("pH de l'eau", ""), ph_fill),
+                    ("Oxygène dissous mesuré", values.get("Oxygène dissous mesuré", "Non") or "Non", dissolved_o2_fill),
+                    ("Oxygène dissous (mg/L)", values.get("Oxygène dissous (mg/L)", ""), dissolved_o2_fill),
                 ],
             ),
             (
                 "Titration du cuivre",
-                header_fill,
+                titration_fill,
                 [
                     ("Titration du cuivre", values.get("Titration du cuivre", "Non") or "Non"),
                     ("Nom de la manip de titration", values.get("Nom de la manip de titration", "")),
