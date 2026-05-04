@@ -596,6 +596,8 @@ class TableEditorDialog(QDialog):
 
         # Numéro du nouveau tube = max existant + 1
         tube_indices = self._get_tube_column_indices()
+        if not tube_indices:
+            return
         last_header = self.table.horizontalHeaderItem(tube_indices[-1])
         last_name = last_header.text().strip() if last_header else ""
         import re as _re

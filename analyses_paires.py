@@ -39,6 +39,8 @@ def load_excel(path: str) -> dict:
     Retourne un dict {nom_manip: DataFrame} avec colonnes normalisées.
     """
     raw = pd.read_excel(path, header=None)
+    if raw.empty:
+        raise ValueError("Le fichier Excel est vide.")
 
     # Ligne 0 : noms des manips (cellules fusionnées → premier nom, NaN ensuite)
     manip_row = raw.iloc[0].tolist()

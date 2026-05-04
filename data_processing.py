@@ -38,7 +38,7 @@ def load_spectrum_file(path: str, poly_order: int = 5, apply_baseline: bool = Tr
         )
 
         # Supprimer dernière colonne si vide / Unnamed
-        if df.columns[-1].startswith("Unnamed"):
+        if len(df.columns) > 0 and str(df.columns[-1]).startswith("Unnamed"):
             df = df.iloc[:, :-1]
 
         # Nettoyage des noms de colonnes (espaces, insécables, etc.)

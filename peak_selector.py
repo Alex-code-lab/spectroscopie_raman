@@ -1092,7 +1092,7 @@ class PeakSelectorTab(QWidget):
         fig = go.Figure()
         id_texts = [str(s) for s in ids] if ids is not None else [str(i) for i in range(len(pc1))]
 
-        if color_vals is None or (isinstance(color_vals, list) and isinstance(color_vals[0], str)):
+        if color_vals is None or (isinstance(color_vals, list) and (not color_vals or isinstance(color_vals[0], str))):
             # Catégoriel ou pas de couleur
             unique_cats = list(dict.fromkeys(color_vals)) if color_vals is not None else []
             palette = [
