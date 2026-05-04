@@ -165,6 +165,7 @@ class TableEditorDialog(QDialog):
         sum_row: bool = False,
         sum_row_label: str = "Total",
         sum_target: float | None = None,
+        show_rename_col: bool = True,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -220,7 +221,9 @@ class TableEditorDialog(QDialog):
         btns_edit.addWidget(self.btn_add_col)
         btns_edit.addWidget(self.btn_del_col)
         btns_edit.addWidget(self.btn_dup_col)
-        btns_edit.addWidget(self.btn_rename_col)
+        self.btn_rename_col.setVisible(bool(show_rename_col))
+        if show_rename_col:
+            btns_edit.addWidget(self.btn_rename_col)
 
         btns_edit.addSpacing(20)
         self.btn_reset = QPushButton(self._reset_button_text, self)
@@ -3406,14 +3409,14 @@ class MetadataCreatorWidget(QWidget):
             "Nom de la manip de titration manuel": (
                 "Oui" if titration_done and getattr(self, "_titration_name_manual", False) else "Non"
             ),
+            "Date de la titration": self._titration_date_text() if titration_done else "",
+            "Heure de la titration": self._titration_time_text() if titration_done else "",
+            "Date/heure de la titration": self._titration_date_time_text() if titration_done else "",
             "Lieu de la titration": (
                 self.edit_titration_location.text().strip()
                 if titration_done and hasattr(self, "edit_titration_location")
                 else ""
             ),
-            "Date de la titration": self._titration_date_text() if titration_done else "",
-            "Heure de la titration": self._titration_time_text() if titration_done else "",
-            "Date/heure de la titration": self._titration_date_time_text() if titration_done else "",
             "Coordinateur": (
                 self.edit_coordinator.text().strip()
                 if titration_done and hasattr(self, "edit_coordinator")
@@ -3624,6 +3627,8 @@ class MetadataCreatorWidget(QWidget):
             ["Nom de la manip", values.get("Nom de la manip de titration", "")],
             ["Coordinateur", values.get("Coordinateur", "")],
             ["Opérateur", values.get("Opérateur", "")],
+            ["Date de la titration", values.get("Date de la titration", "")],
+            ["Heure de la titration", values.get("Heure de la titration", "")],
             ["Lieu de la titration", values.get("Lieu de la titration", "")],
             ["Date/heure de la titration", values.get("Date/heure de la titration", "")],
         ]
@@ -3770,6 +3775,10 @@ class MetadataCreatorWidget(QWidget):
                 "Longitude GPS",
                 "Lieu de la titration",
                 "Lieu titration",
+                "Date de la titration",
+                "Date titration",
+                "Heure de la titration",
+                "Heure titration",
                 "Date du prélèvement",
                 "Heure du prélèvement",
                 "Préleveur·se",
@@ -4061,6 +4070,8 @@ class MetadataCreatorWidget(QWidget):
                 "nom de la manip de titration",
                 "nom de la manip",
             ),
+            "Date de la titration": _value_right_of_label("Date de la titration", "Date titration"),
+            "Heure de la titration": _value_right_of_label("Heure de la titration", "Heure titration"),
             "Lieu de la titration": _value_right_of_label("Lieu de la titration", "Lieu titration")
             or _col_value("lieu titration", "lieu de la titration"),
             "Débit / flux - Largeur route": _col_value("largeur route", fallback=_cell(7, 27)),
@@ -4367,7 +4378,7 @@ class MetadataCreatorWidget(QWidget):
                 for i, tube_label in enumerate(tube_labels_default):
                     tube_key = self._tube_merge_key_for_mapping(tube_label, n_tubes)
                     existing = existing_by_tube.get(tube_key, {})
-                    name = existing.get("Nom du spectre") or f"{manip_name}_{start_index + i:02d}"
+                    name = f"{manip_name}_{start_index + i:02d}"
                     existing_tube = existing.get("Tube") or ""
                     # Forcer l'affichage du dernier tube comme "Contrôle" si demandé,
                     # et inversement forcer "Tube N" si le contrôle n'est pas demandé.
@@ -4429,6 +4440,7 @@ class MetadataCreatorWidget(QWidget):
             parent=self,
             reset_df=reset_df,
             reset_button_text="Reset (valeurs par défaut)",
+            show_rename_col=False,
         )
         # Options : inclure Contrôle BRB / Contrôle (dernier tube)
         opts_layout = QHBoxLayout()
@@ -5903,6 +5915,8 @@ class MetadataCreatorWidget(QWidget):
             ("Oxygène dissous (mg/L)", "result"),
             ("Titration du cuivre", "titration"),
             ("Nom manip titration", "titration"),
+            ("Date titration", "titration"),
+            ("Heure titration", "titration"),
             ("Lieu titration", "titration"),
             ("Largeur route", "debit"),
             ("Longueur 6 arches", "debit"),
@@ -5925,9 +5939,9 @@ class MetadataCreatorWidget(QWidget):
             (7, 11, "Test ammonium", ammonium_fill),
             (12, 17, "Analyses bactériologiques", bacterio_fill),
             (18, 25, "Autres mesures", data_cyan),
-            (26, 28, "Titration du cuivre", header_fill),
-            (29, 34, "Débit / flux", debit_fill),
-            (35, 35, "Commentaires", comment_fill),
+            (26, 30, "Titration du cuivre", header_fill),
+            (31, 36, "Débit / flux", debit_fill),
+            (37, 37, "Commentaires", comment_fill),
         ]
         for start_col, end_col, title, fill in group_specs:
             _merge(
@@ -5985,6 +5999,8 @@ class MetadataCreatorWidget(QWidget):
             "Oxygène dissous (mg/L)": values.get("Oxygène dissous (mg/L)", ""),
             "Titration du cuivre": values.get("Titration du cuivre", "Non") or "Non",
             "Nom manip titration": values.get("Nom de la manip de titration", ""),
+            "Date titration": values.get("Date de la titration", ""),
+            "Heure titration": values.get("Heure de la titration", ""),
             "Lieu titration": values.get("Lieu de la titration", ""),
             "Largeur route": values.get("Débit / flux - Largeur route", ""),
             "Longueur 6 arches": values.get("Débit / flux - Longueur 6 arches", ""),
@@ -6005,8 +6021,8 @@ class MetadataCreatorWidget(QWidget):
             "A": 13, "B": 11, "C": 11, "D": 12, "E": 13, "F": 12, "G": 14, "H": 16,
             "I": 13, "J": 13, "K": 12, "L": 16, "M": 13, "N": 13, "O": 16, "P": 13,
             "Q": 16, "R": 13, "S": 13, "T": 14, "U": 15, "V": 13, "W": 11, "X": 16,
-            "Y": 17, "Z": 14, "AA": 20, "AB": 16, "AC": 12, "AD": 13, "AE": 12,
-            "AF": 13, "AG": 10, "AH": 11, "AI": 28,
+            "Y": 17, "Z": 14, "AA": 20, "AB": 13, "AC": 13, "AD": 16, "AE": 12,
+            "AF": 13, "AG": 12, "AH": 13, "AI": 10, "AJ": 11, "AK": 28,
         }
         for col, width in widths.items():
             ws.column_dimensions[col].width = width
