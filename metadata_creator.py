@@ -66,6 +66,7 @@ FIELD_FILLED_STYLE = "background-color: rgba(92, 184, 92, 77);"
 OPTIONAL_DATE_SENTINEL = QDate(1900, 1, 1)
 OPTIONAL_TIME_SENTINEL = QTime(0, 0)
 SHEET_MEASURES = "Mesures"
+SHEET_METADATA_INDEX = "Index-métadonnées"
 SHEET_TITRATION_VOLUMES = "Titration-volumes"
 SHEET_TITRATION_CORRESPONDENCE = "Titration-correspondance"
 SHEET_TITRATION_PROTOCOL_STATE = "Titration-EtatProtocole"
@@ -3236,11 +3237,17 @@ class MetadataCreatorWidget(QWidget):
             "pH (ammonium)": (
                 self.edit_ammonium_ph.text().strip() if hasattr(self, "edit_ammonium_ph") else ""
             ) if ammonium_enabled else "",
+            "Turbidité mesurée": (
+                "Oui" if hasattr(self, "chk_turbidity") and self.chk_turbidity.isChecked() else "Non"
+            ),
             "Turbidité (NTU)": (
                 str(round(self.spin_turbidity.value(), 1))
                 if hasattr(self, "chk_turbidity") and self.chk_turbidity.isChecked()
                 and hasattr(self, "spin_turbidity") and _field_has_value(self.spin_turbidity)
                 else ""
+            ),
+            "Conductivité mesurée": (
+                "Oui" if hasattr(self, "chk_conductivity") and self.chk_conductivity.isChecked() else "Non"
             ),
             "Conductivité (µS/cm)": (
                 str(round(self.spin_conductivity.value(), 1))
@@ -3248,11 +3255,17 @@ class MetadataCreatorWidget(QWidget):
                 and hasattr(self, "spin_conductivity") and _field_has_value(self.spin_conductivity)
                 else ""
             ),
+            "pH de l'eau mesuré": (
+                "Oui" if hasattr(self, "chk_ph_water") and self.chk_ph_water.isChecked() else "Non"
+            ),
             "pH de l'eau": (
                 str(round(self.spin_ph_water.value(), 2))
                 if hasattr(self, "chk_ph_water") and self.chk_ph_water.isChecked()
                 and hasattr(self, "spin_ph_water") and _field_has_value(self.spin_ph_water)
                 else ""
+            ),
+            "Oxygène dissous mesuré": (
+                "Oui" if hasattr(self, "chk_dissolved_o2") and self.chk_dissolved_o2.isChecked() else "Non"
             ),
             "Oxygène dissous (mg/L)": (
                 str(round(self.spin_dissolved_o2.value(), 2))
@@ -3401,16 +3414,28 @@ class MetadataCreatorWidget(QWidget):
             "Turbidite": "Turbidité (NTU)",
             "Turbidité": "Turbidité (NTU)",
             "Turbidity": "Turbidité (NTU)",
+            "Turbidité mesuree": "Turbidité mesurée",
+            "Turbidite mesuree": "Turbidité mesurée",
+            "Turbidité mesurée": "Turbidité mesurée",
             "Conductivite": "Conductivité (µS/cm)",
             "Conductivité": "Conductivité (µS/cm)",
             "Conductivity": "Conductivité (µS/cm)",
+            "Conductivité mesuree": "Conductivité mesurée",
+            "Conductivite mesuree": "Conductivité mesurée",
+            "Conductivité mesurée": "Conductivité mesurée",
             "pH eau": "pH de l'eau",
             "pH de l eau": "pH de l'eau",
             "pH water": "pH de l'eau",
+            "pH eau mesure": "pH de l'eau mesuré",
+            "pH de l eau mesure": "pH de l'eau mesuré",
+            "pH de l'eau mesuré": "pH de l'eau mesuré",
             "Oxygene dissous": "Oxygène dissous (mg/L)",
             "Oxygène dissous": "Oxygène dissous (mg/L)",
             "O2 dissous": "Oxygène dissous (mg/L)",
             "Dissolved O2": "Oxygène dissous (mg/L)",
+            "Oxygene dissous mesure": "Oxygène dissous mesuré",
+            "Oxygène dissous mesuré": "Oxygène dissous mesuré",
+            "O2 dissous mesure": "Oxygène dissous mesuré",
             "Analyse bactériologique": "Analyses bactériologiques",
             "Analyses bacteriologiques": "Analyses bactériologiques",
             "Analyse bacteriologique": "Analyses bactériologiques",
@@ -3472,8 +3497,26 @@ class MetadataCreatorWidget(QWidget):
 
     def _header_rows_dataframe(self, manip_name: str | None = None) -> pd.DataFrame:
         values = self._header_values(manip_name)
-        rows = [[label, value] for label, value in values.items()]
+        rows = [
+            ["Nom du prélèvement", values.get("Nom du prélèvement", "")],
+            ["Nom de la manip", values.get("Nom de la manip de titration", "")],
+            ["Coordinateur", values.get("Coordinateur", "")],
+            ["Opérateur", values.get("Opérateur", "")],
+            ["Date/heure de la titration", values.get("Date/heure de la titration", "")],
+        ]
         return pd.DataFrame(rows, columns=["Nom du spectre", "Tube"])
+
+    def _metadata_index_dataframe(self) -> pd.DataFrame:
+        values = self._header_values()
+        rows = [
+            {
+                "Clé": self._header_storage_key(label),
+                "Champ": label,
+                "Valeur": value,
+            }
+            for label, value in values.items()
+        ]
+        return pd.DataFrame(rows, columns=["Clé", "Champ", "Valeur"])
 
     def _df_map_with_current_header(self, df: pd.DataFrame) -> pd.DataFrame:
         if df is None or df.empty or not {"Nom du spectre", "Tube"}.issubset(df.columns):
@@ -3504,6 +3547,51 @@ class MetadataCreatorWidget(QWidget):
         if unnamed.any():
             out = out.loc[:, ~unnamed]
         return out
+
+    def _header_values_from_metadata_index_sheet(self, xls: pd.ExcelFile) -> dict[str, str]:
+        """Relit les métadonnées depuis la feuille technique clé/valeur."""
+        if SHEET_METADATA_INDEX not in xls.sheet_names:
+            return {}
+        try:
+            df = pd.read_excel(xls, sheet_name=SHEET_METADATA_INDEX, dtype=object)
+        except Exception:
+            return {}
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            return {}
+
+        def _clean_cell(value) -> str:
+            if value is None:
+                return ""
+            try:
+                if pd.isna(value):
+                    return ""
+            except Exception:
+                pass
+            if isinstance(value, pd.Timestamp):
+                if value.time().hour == 0 and value.time().minute == 0 and value.time().second == 0:
+                    return value.strftime("%d/%m/%Y")
+                return value.strftime("%d/%m/%Y %H:%M")
+            text = str(value).strip()
+            return "" if text.lower() in {"nan", "nat", "none", "<na>"} else text
+
+        normalized_columns = {self._header_storage_key(col): col for col in df.columns}
+        label_col = (
+            normalized_columns.get("Champ")
+            or normalized_columns.get("Libellé")
+            or normalized_columns.get("Label")
+            or normalized_columns.get("Clé")
+        )
+        value_col = normalized_columns.get("Valeur") or normalized_columns.get("Value") or normalized_columns.get("Tube")
+        if not label_col or not value_col:
+            return {}
+
+        values: dict[str, str] = {}
+        for _, row in df.iterrows():
+            label = _clean_cell(row.get(label_col, ""))
+            value = _clean_cell(row.get(value_col, ""))
+            if label and value:
+                values[self._header_storage_key(label)] = value
+        return values
 
     def _header_values_from_measure_summary_sheet(self, xls: pd.ExcelFile) -> dict[str, str]:
         """Relit les champs principaux depuis la feuille terrain lisible.
@@ -3549,7 +3637,7 @@ class MetadataCreatorWidget(QWidget):
 
         def _value_right_of_label(*labels: str, max_scan: int = 12) -> str:
             wanted = {_key(label) for label in labels}
-            for row_idx in range(min(len(raw), 8)):
+            for row_idx in range(min(len(raw), 40)):
                 for col_idx in range(raw.shape[1]):
                     if _key(_cell0(row_idx, col_idx)).rstrip(" :") not in wanted:
                         continue
@@ -3558,6 +3646,20 @@ class MetadataCreatorWidget(QWidget):
                         if val:
                             return val
             return ""
+
+        def _values_right_of_label_prefix(*prefixes: str) -> list[str]:
+            prefix_keys = tuple(_key(prefix) for prefix in prefixes)
+            values_out: list[str] = []
+            for row_idx in range(min(len(raw), 40)):
+                for col_idx in range(raw.shape[1] - 1):
+                    label_key = _key(_cell0(row_idx, col_idx))
+                    if not label_key:
+                        continue
+                    if any(label_key == prefix or label_key.startswith(f"{prefix} ") for prefix in prefix_keys):
+                        val = _cell0(row_idx, col_idx + 1)
+                        if val:
+                            values_out.append(val)
+            return values_out
 
         def _find_measure_header_rows() -> tuple[int, int, int]:
             for row_idx in range(max(0, len(raw) - 1)):
@@ -3654,7 +3756,11 @@ class MetadataCreatorWidget(QWidget):
             fallback_values=[_cell(7, 11), _cell(7, 13), _cell(7, 15)],
         )
         if not any(sampler_values):
+            sampler_values = _values_right_of_label_prefix("Préleveur·se", "Preleveur")
+        if not any(sampler_values):
             sampler_values = [p.strip() for p in re.split(r"[;\n]+", _value_right_of_label("Bénévoles engagé·es")) if p.strip()]
+        if not any(association_values):
+            association_values = _values_right_of_label_prefix("Association")
         if not any(association_values):
             association_values = [
                 p.strip()
@@ -3668,9 +3774,11 @@ class MetadataCreatorWidget(QWidget):
             _col_value("resultats e coli", fallback=_cell(7, 25)),
             _col_value("resultats enterocoques", fallback=_cell(7, 26)),
         ]
+        bacterio_status = _col_value("analyses bacteriologiques", "analyse bacteriologique")
         bacterio_done = any(str(v).strip() for v in bacterio_markers)
 
         values: dict[str, str] = {
+            "Nom du prélèvement": _value_right_of_label("Nom du prélèvement"),
             "Département": _value_right_of_label("Département") or _cell(2, 4),
             "Commune": _value_right_of_label("Commune") or _cell(2, 9),
             "Lieu du prélèvement": _col_value("point", exclude=("point gps",), fallback=_cell(7, 2))
@@ -3685,7 +3793,12 @@ class MetadataCreatorWidget(QWidget):
             "Coefficient de marée": _col_value("coefficient de maree", "coefficient maree", fallback=_cell(7, 7)),
             "Heure de pleine mer": _col_value("heure pleine mer", "heure de pleine mer", fallback=_cell(7, 8)),
             "Heure du prélèvement": _col_value("heure du prelevement", fallback=_cell(7, 9)),
-            "Analyses bactériologiques": "Oui" if bacterio_done else "",
+            "Test ammonium réalisé": _col_value("test ammonium realise", "test ammonium realise"),
+            "Test ammonium réalisé par": _col_value("realise par", "realise par"),
+            "Test ammonium 1 (grossier)": _col_value("test 1 grossier", "ammonium test 1"),
+            "Test ammonium 2 (précis)": _col_value("test 2 precis", "ammonium test 2"),
+            "pH (ammonium)": _col_value("ph ammonium"),
+            "Analyses bactériologiques": bacterio_status or ("Oui" if bacterio_done else ""),
             "Jour de dépôt": _col_value("jour de depot", "jour depot", fallback=_cell(7, 16)),
             "Heure du dépôt": _col_value("heure du depot", "heure depot", fallback=_cell(7, 17)),
             "Entreprise de mesure": _col_value("entreprise de mesure", fallback=_cell(7, 18)),
@@ -3695,6 +3808,20 @@ class MetadataCreatorWidget(QWidget):
             "Pluie dernières 24 h (mm)": _col_value("pluviometrie", "mm 24h", "pluie", fallback=_cell(7, 24)),
             "Résultats E.Coli (npp/ml)": _col_value("resultats e coli", fallback=_cell(7, 25)),
             "Résultats Entérocoques intestinaux (npp/100ml)": _col_value("resultats enterocoques", fallback=_cell(7, 26)),
+            "Turbidité mesurée": _col_value("turbidite mesuree"),
+            "Turbidité (NTU)": _col_value("turbidite ntu"),
+            "Conductivité mesurée": _col_value("conductivite mesuree"),
+            "Conductivité (µS/cm)": _col_value("conductivite us cm", "conductivite s cm"),
+            "pH de l'eau mesuré": _col_value("ph eau mesure", "ph de l eau mesure"),
+            "pH de l'eau": _col_value("ph de l eau", "ph eau"),
+            "Oxygène dissous mesuré": _col_value("oxygene dissous mesure", "o2 dissous mesure"),
+            "Oxygène dissous (mg/L)": _col_value("oxygene dissous mg l", "o2 dissous"),
+            "Titration du cuivre": _col_value("titration du cuivre", "titration"),
+            "Nom de la manip de titration": _col_value(
+                "nom manip titration",
+                "nom de la manip de titration",
+                "nom de la manip",
+            ),
             "Débit / flux - Largeur route": _col_value("largeur route", fallback=_cell(7, 27)),
             "Débit / flux - Longueur 6 arches": _col_value("longueur 6 arches", fallback=_cell(7, 28)),
             "Débit / flux - Hauteur eau": _col_value("hauteur eau", fallback=_cell(7, 29)),
@@ -5095,12 +5222,12 @@ class MetadataCreatorWidget(QWidget):
             self.edit_ammonium_ph.setText(ammonium_ph)
 
         # Paramètres terrain
-        def _load_check_spin(check_attr, spin_attr, toggled_fn, *keys):
-            val = _value_for(*keys)
-            if not val:
-                return
-            f = self._to_float(val)
-            if f is None:
+        def _load_check_spin(check_attr, spin_attr, toggled_fn, value_keys, status_keys=()):
+            status_val = _value_for(*status_keys) if status_keys else ""
+            enabled_from_status = self._is_yes_value(status_val)
+            val = _value_for(*value_keys)
+            f = self._to_float(val) if val else None
+            if not enabled_from_status and f is None:
                 return
             chk = getattr(self, check_attr, None)
             spin = getattr(self, spin_attr, None)
@@ -5110,16 +5237,37 @@ class MetadataCreatorWidget(QWidget):
             chk.setChecked(True)
             chk.blockSignals(False)
             toggled_fn(True)
-            spin.setValue(max(spin.minimum() + 0.01, min(spin.maximum(), f)))
+            if f is not None:
+                spin.setValue(max(spin.minimum() + 0.01, min(spin.maximum(), f)))
 
-        _load_check_spin("chk_turbidity", "spin_turbidity", self._on_turbidity_toggled,
-                         "Turbidité (NTU)", "Turbidite", "Turbidity")
-        _load_check_spin("chk_conductivity", "spin_conductivity", self._on_conductivity_toggled,
-                         "Conductivité (µS/cm)", "Conductivite", "Conductivity")
-        _load_check_spin("chk_ph_water", "spin_ph_water", self._on_ph_water_toggled,
-                         "pH de l'eau", "pH eau")
-        _load_check_spin("chk_dissolved_o2", "spin_dissolved_o2", self._on_dissolved_o2_toggled,
-                         "Oxygène dissous (mg/L)", "Oxygene dissous", "O2 dissous")
+        _load_check_spin(
+            "chk_turbidity",
+            "spin_turbidity",
+            self._on_turbidity_toggled,
+            ("Turbidité (NTU)", "Turbidite", "Turbidity"),
+            ("Turbidité mesurée", "Turbidite mesuree"),
+        )
+        _load_check_spin(
+            "chk_conductivity",
+            "spin_conductivity",
+            self._on_conductivity_toggled,
+            ("Conductivité (µS/cm)", "Conductivite", "Conductivity"),
+            ("Conductivité mesurée", "Conductivite mesuree"),
+        )
+        _load_check_spin(
+            "chk_ph_water",
+            "spin_ph_water",
+            self._on_ph_water_toggled,
+            ("pH de l'eau", "pH eau"),
+            ("pH de l'eau mesuré", "pH eau mesure"),
+        )
+        _load_check_spin(
+            "chk_dissolved_o2",
+            "spin_dissolved_o2",
+            self._on_dissolved_o2_toggled,
+            ("Oxygène dissous (mg/L)", "Oxygene dissous", "O2 dissous"),
+            ("Oxygène dissous mesuré", "Oxygene dissous mesure", "O2 dissous mesure"),
+        )
 
         # Analyses bactériologiques
         bacterio_val = _value_for(
@@ -5191,7 +5339,12 @@ class MetadataCreatorWidget(QWidget):
         if titration_time and hasattr(self, "edit_titration_time"):
             self._set_time_text(self.edit_titration_time, titration_time)
 
-        titration_name = _value_for("Nom de la manip de titration", "Nom de la titration", "Nom manip titration")
+        titration_name = _value_for(
+            "Nom de la manip de titration",
+            "Nom de la manip",
+            "Nom de la titration",
+            "Nom manip titration",
+        )
         titration_name_manual = _value_for(
             "Nom de la manip de titration manuel",
             "Nom de la titration manuel",
@@ -5345,13 +5498,7 @@ class MetadataCreatorWidget(QWidget):
         air_temp = values.get("Température de l'air")
         sampler_names = self._sampler_names()
         sampler_associations = self._sampler_associations()
-        sampler_comments = ""
-        if len(sampler_names) > 3:
-            extra_samplers = []
-            for idx, name in enumerate(sampler_names[3:], start=3):
-                association = sampler_associations[idx] if len(sampler_associations) > idx else ""
-                extra_samplers.append(f"{name} ({association})" if association else name)
-            sampler_comments = "Préleveur·ses supplémentaires : " + " ; ".join(extra_samplers)
+        sampler_rows_count = max(len(sampler_names), len(sampler_associations), 1)
 
         border_side = Side(style="thin", color="000000")
         thick_side = Side(style="medium", color="000000")
@@ -5363,6 +5510,10 @@ class MetadataCreatorWidget(QWidget):
         header_fill = PatternFill("solid", fgColor="E2F0D9")
         data_blue = PatternFill("solid", fgColor="BDD7EE")
         data_cyan = PatternFill("solid", fgColor="00CFE8")
+        context_fill = PatternFill("solid", fgColor="E2F0D9")
+        ammonium_fill = PatternFill("solid", fgColor="FCE4D6")
+        bacterio_fill = PatternFill("solid", fgColor="DDEBF7")
+        debit_fill = PatternFill("solid", fgColor="FFF2CC")
         comment_fill = PatternFill("solid", fgColor="FFE699")
         white_fill = PatternFill("solid", fgColor="FFFFFF")
 
@@ -5386,151 +5537,249 @@ class MetadataCreatorWidget(QWidget):
                     if font is not None:
                         cell.font = font
 
-        # En-tête du document
-        _merge("A1:AG1", "Dispositif de mesure de la qualité de l'eau par les citoyens", title_fill, Font(bold=True))
-        _merge("A2:A3", "Informations sur le lieu des mesures", info_fill, Font(bold=True))
-        _merge("B2:C2", "Département :", info_fill, Font(bold=True))
-        _merge("D2:F2", values.get("Département", ""), info_fill)
-        _merge("G2:H2", "Commune :", info_fill, Font(bold=True))
-        _merge("I2:K2", values.get("Commune", ""), info_fill)
-        _merge("L2:M2", "Type de lieu :", info_fill, Font(bold=True))
-        _merge("N2:P2", values.get("Type d'eau", ""), info_fill)
-        _merge("Q2:R2", "Nom du lieu :", info_fill, Font(bold=True))
-        _merge("S2:AG2", values.get("Lieu du prélèvement", ""), info_fill)
-        _merge("B3:D3", "Bénévoles engagé·es :", info_fill, Font(bold=True))
-        _merge("E3:J3", values.get("Préleveur·ses", values.get("Préleveur·se", "")), info_fill)
-        _merge("K3:N3", "De (ou des) l'association(s) :", info_fill, Font(bold=True))
-        _merge("O3:AG3", values.get("Association(s) du prélèvement", ""), info_fill)
+        sampler_start_row = 7
+        sampler_end_row = sampler_start_row + sampler_rows_count - 1
+        status_start_row = sampler_end_row + 1
+        measure_title_row = status_start_row + 3
+        header_top_row = measure_title_row + 1
+        header_sub_row = measure_title_row + 2
+        data_row_idx = measure_title_row + 3
 
-        _merge("A4:AG4", "Les mesures", section_fill, Font(bold=True))
+        # Bloc compact d'identification : il reste lisible et facile à relire
+        # même si des colonnes sont ajoutées au tableau des mesures plus bas.
+        _merge("A1:H1", "Dispositif de mesure de la qualité de l'eau par les citoyens", title_fill, Font(bold=True))
+        info_pairs = [
+            (3, "A", "Nom du prélèvement", "B", values.get("Nom du prélèvement", "")),
+            (3, "C", "Type d'eau", "D", values.get("Type d'eau", "")),
+            (4, "A", "Département", "B", values.get("Département", "")),
+            (4, "C", "Commune", "D", values.get("Commune", "")),
+            (5, "A", "Lieu du prélèvement", "B", values.get("Lieu du prélèvement", "")),
+            (5, "C", "Latitude", "D", values.get("Latitude du prélèvement", "")),
+            (5, "E", "Longitude", "F", values.get("Longitude du prélèvement", "")),
+            (6, "A", "Date du prélèvement", "B", sample_date),
+            (6, "C", "Heure du prélèvement", "D", sample_time),
+        ]
+        _merge("A2:H2", "Informations générales", info_fill, Font(bold=True))
+        for row_idx, label_col, label, value_col, value in info_pairs:
+            label_cell = ws[f"{label_col}{row_idx}"]
+            value_cell = ws[f"{value_col}{row_idx}"]
+            label_cell.value = label
+            value_cell.value = value
+            for cell in (label_cell, value_cell):
+                cell.border = thin_border
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            label_cell.fill = info_fill
+            value_cell.fill = white_fill
+            label_cell.font = Font(bold=True, size=9)
 
-        # En-têtes du tableau.
-        two_row_headers = {
-            "A5:A6": "n°",
-            "B5:B6": "Point",
-            "E5:E6": "Nature de l'eau\n(douce ou salée)",
-            "F5:F6": "Date",
-            "G5:G6": "Coefficient de marée\n(si eau de mer)",
-            "H5:H6": "Heure pleine mer",
-            "I5:I6": "Heure du prélèvement",
-            "J5:J6": "Préleveur 1",
-            "K5:K6": "Association",
-            "L5:L6": "Préleveur 2",
-            "M5:M6": "Association",
-            "N5:N6": "Préleveur 3",
-            "O5:O6": "Association",
-            "P5:P6": "Jour de dépôt",
-            "Q5:Q6": "Heure du dépôt",
-            "R5:R6": "Entreprise de mesure",
-            "S5:S6": "Analyse E. coli\nMettre un X si mesure faite",
-            "T5:T6": "Analyse Entérocoques intestinaux\nMettre un X si mesure faite",
-            "U5:U6": "Météo\n(contexte de prélèvement)",
-            "V5:V6": "T° eau\n(°C)",
-            "W5:W6": "T° air\n(°C)",
-            "X5:X6": "Pluviométrie de la station de référence\n(mm/24h)",
-            "Y5:Y6": "Résultats E. coli\n(npp/ml)",
-            "Z5:Z6": "Résultats Entérocoques intestinaux\n(npp/100ml)",
-            "AG5:AG6": "Commentaires",
+        for row_offset in range(sampler_rows_count):
+            row_idx = sampler_start_row + row_offset
+            sampler_name = sampler_names[row_offset] if row_offset < len(sampler_names) else ""
+            association = sampler_associations[row_offset] if row_offset < len(sampler_associations) else ""
+            row_cells = [
+                ("A", f"Préleveur·se {row_offset + 1}", True),
+                ("B", sampler_name, False),
+                ("C", "Association", True),
+                ("D", association, False),
+            ]
+            for col_letter, text, is_label in row_cells:
+                cell = ws[f"{col_letter}{row_idx}"]
+                cell.value = text
+                cell.border = thin_border
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                if is_label:
+                    cell.fill = info_fill
+                    cell.font = Font(bold=True, size=9)
+                else:
+                    cell.fill = white_fill
+
+        status_pairs = [
+            (status_start_row, "A", "Titration du cuivre", "B", values.get("Titration du cuivre", "")),
+            (status_start_row, "C", "Analyses bactériologiques", "D", values.get("Analyses bactériologiques", "")),
+            (status_start_row, "E", "Test ammonium réalisé", "F", values.get("Test ammonium réalisé", "")),
+            (status_start_row, "G", "Turbidité mesurée", "H", values.get("Turbidité mesurée", "")),
+            (status_start_row + 1, "A", "Conductivité mesurée", "B", values.get("Conductivité mesurée", "")),
+            (status_start_row + 1, "C", "pH eau mesuré", "D", values.get("pH de l'eau mesuré", "")),
+            (status_start_row + 1, "E", "Oxygène dissous mesuré", "F", values.get("Oxygène dissous mesuré", "")),
+        ]
+        for row_idx, label_col, label, value_col, value in status_pairs:
+            label_cell = ws[f"{label_col}{row_idx}"]
+            value_cell = ws[f"{value_col}{row_idx}"]
+            label_cell.value = label
+            value_cell.value = value
+            for cell in (label_cell, value_cell):
+                cell.border = thin_border
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            label_cell.fill = info_fill
+            value_cell.fill = white_fill
+            label_cell.font = Font(bold=True, size=9)
+
+        _style_range(f"A1:H{status_start_row + 1}", border=thin_border)
+
+        table_columns = [
+            ("Météo", "context"),
+            ("T° eau (°C)", "context"),
+            ("T° air (°C)", "context"),
+            ("Pluie 24 h (mm)", "context"),
+            ("Coefficient de marée", "context"),
+            ("Heure pleine mer", "context"),
+            ("Test ammonium réalisé", "ammonium"),
+            ("Réalisé par", "ammonium"),
+            ("Test 1 grossier", "ammonium"),
+            ("Test 2 précis", "ammonium"),
+            ("pH ammonium", "ammonium"),
+            ("Analyses bactériologiques", "bacterio"),
+            ("Jour de dépôt", "bacterio"),
+            ("Heure du dépôt", "bacterio"),
+            ("Entreprise de mesure", "bacterio"),
+            ("E. coli (npp/ml)", "bacterio_result"),
+            ("Entérocoques (npp/100ml)", "bacterio_result"),
+            ("Turbidité mesurée", "result"),
+            ("Turbidité (NTU)", "result"),
+            ("Conductivité mesurée", "result"),
+            ("Conductivité (µS/cm)", "result"),
+            ("pH eau mesuré", "result"),
+            ("pH de l'eau", "result"),
+            ("Oxygène dissous mesuré", "result"),
+            ("Oxygène dissous (mg/L)", "result"),
+            ("Titration du cuivre", "titration"),
+            ("Nom manip titration", "titration"),
+            ("Largeur route", "debit"),
+            ("Longueur 6 arches", "debit"),
+            ("Hauteur eau", "debit"),
+            ("Volume total (m3)", "debit"),
+            ("Vitesse (s)", "debit"),
+            ("Débit (m3/s)", "debit"),
+            ("Commentaires", "comment"),
+        ]
+        last_table_col = get_column_letter(len(table_columns))
+        _merge(
+            f"A{measure_title_row}:{last_table_col}{measure_title_row}",
+            "Préleveur·ses, mesures effectuées et résultats",
+            section_fill,
+            Font(bold=True),
+        )
+
+        group_specs = [
+            (1, 6, "Contexte terrain", context_fill),
+            (7, 11, "Test ammonium", ammonium_fill),
+            (12, 17, "Analyses bactériologiques", bacterio_fill),
+            (18, 25, "Autres mesures", data_cyan),
+            (26, 27, "Titration du cuivre", header_fill),
+            (28, 33, "Débit / flux", debit_fill),
+            (34, 34, "Commentaires", comment_fill),
+        ]
+        for start_col, end_col, title, fill in group_specs:
+            _merge(
+                f"{get_column_letter(start_col)}{header_top_row}:{get_column_letter(end_col)}{header_top_row}",
+                title,
+                fill,
+                Font(bold=True, size=9),
+            )
+
+        section_fills = {
+            "people": data_blue,
+            "context": context_fill,
+            "status": header_fill,
+            "ammonium": ammonium_fill,
+            "bacterio": bacterio_fill,
+            "bacterio_result": data_cyan,
+            "result": data_cyan,
+            "titration": white_fill,
+            "debit": debit_fill,
+            "comment": comment_fill,
         }
-        for cell_range, text in two_row_headers.items():
-            fill = comment_fill if cell_range == "AG5:AG6" else header_fill
-            if cell_range in {"Y5:Y6", "Z5:Z6"}:
-                fill = data_cyan
-            _merge(cell_range, text, fill, Font(bold=True, size=9))
-
-        _merge("C5:D5", "Point GPS", header_fill, Font(bold=True, size=9))
-        ws["C6"] = "Lat"
-        ws["D6"] = "Lon"
-        _merge("AA5:AF5", "Débit / flux", header_fill, Font(bold=True, size=9))
-        for cell, text in {
-            "AA6": "Largeur route",
-            "AB6": "Longueur 6 arches",
-            "AC6": "Hauteur eau",
-            "AD6": "Volume total (m3)",
-            "AE6": "Vitesse (s)",
-            "AF6": "Débit (m3/s)",
-        }.items():
-            ws[cell] = text
-
-        _style_range("A1:AG6", border=thin_border)
-        for cell in ws[6]:
-            if cell.column not in (25, 26, 33):
-                cell.fill = header_fill
+        for col_idx, (header, section) in enumerate(table_columns, start=1):
+            cell = ws.cell(row=header_sub_row, column=col_idx)
+            cell.value = header
+            cell.border = thin_border
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.fill = section_fills.get(section, header_fill)
             cell.font = Font(bold=True, size=9)
 
-        bacterio_done = values.get("Analyses bactériologiques") == "Oui"
-        row_values = {
-            "A": 1,
-            "B": values.get("Lieu du prélèvement", ""),
-            "C": values.get("Latitude du prélèvement", ""),
-            "D": values.get("Longitude du prélèvement", ""),
-            "E": values.get("Type d'eau", ""),
-            "F": sample_date,
-            "G": values.get("Coefficient de marée", ""),
-            "H": values.get("Heure de pleine mer", ""),
-            "I": sample_time,
-            "J": sampler_names[0] if len(sampler_names) >= 1 else "",
-            "K": sampler_associations[0] if len(sampler_associations) >= 1 else "",
-            "L": sampler_names[1] if len(sampler_names) >= 2 else "",
-            "M": sampler_associations[1] if len(sampler_associations) >= 2 else "",
-            "N": sampler_names[2] if len(sampler_names) >= 3 else "",
-            "O": sampler_associations[2] if len(sampler_associations) >= 3 else "",
-            "P": values.get("Jour de dépôt", ""),
-            "Q": values.get("Heure du dépôt", ""),
-            "R": values.get("Entreprise de mesure", ""),
-            "S": "X" if bacterio_done else "",
-            "T": "X" if bacterio_done else "",
-            "U": weather_text,
-            "V": water_temp,
-            "W": air_temp,
-            "X": values.get("Pluie dernières 24 h (mm)", ""),
-            "Y": values.get("Résultats E.Coli (npp/ml)", ""),
-            "Z": values.get("Résultats Entérocoques intestinaux (npp/100ml)", ""),
-            "AA": values.get("Débit / flux - Largeur route", ""),
-            "AB": values.get("Débit / flux - Longueur 6 arches", ""),
-            "AC": values.get("Débit / flux - Hauteur eau", ""),
-            "AD": values.get("Débit / flux - Volume total (m3)", ""),
-            "AE": values.get("Débit / flux - Vitesse (s)", ""),
-            "AF": values.get("Débit / flux - Débit (m3/s)", ""),
-            "AG": " ; ".join(
-                part for part in (values.get("Commentaire sur les conditions", ""), sampler_comments) if part
-            ),
+        shared_values = {
+            "Météo": weather_text,
+            "T° eau (°C)": water_temp,
+            "T° air (°C)": air_temp,
+            "Pluie 24 h (mm)": values.get("Pluie dernières 24 h (mm)", ""),
+            "Coefficient de marée": values.get("Coefficient de marée", ""),
+            "Heure pleine mer": values.get("Heure de pleine mer", ""),
+            "Test ammonium réalisé": values.get("Test ammonium réalisé", "Non") or "Non",
+            "Réalisé par": values.get("Test ammonium réalisé par", ""),
+            "Test 1 grossier": values.get("Test ammonium 1 (grossier)", ""),
+            "Test 2 précis": values.get("Test ammonium 2 (précis)", ""),
+            "pH ammonium": values.get("pH (ammonium)", ""),
+            "Analyses bactériologiques": values.get("Analyses bactériologiques", "Non") or "Non",
+            "Jour de dépôt": values.get("Jour de dépôt", ""),
+            "Heure du dépôt": values.get("Heure du dépôt", ""),
+            "Entreprise de mesure": values.get("Entreprise de mesure", ""),
+            "E. coli (npp/ml)": values.get("Résultats E.Coli (npp/ml)", ""),
+            "Entérocoques (npp/100ml)": values.get("Résultats Entérocoques intestinaux (npp/100ml)", ""),
+            "Turbidité mesurée": values.get("Turbidité mesurée", "Non") or "Non",
+            "Turbidité (NTU)": values.get("Turbidité (NTU)", ""),
+            "Conductivité mesurée": values.get("Conductivité mesurée", "Non") or "Non",
+            "Conductivité (µS/cm)": values.get("Conductivité (µS/cm)", ""),
+            "pH eau mesuré": values.get("pH de l'eau mesuré", "Non") or "Non",
+            "pH de l'eau": values.get("pH de l'eau", ""),
+            "Oxygène dissous mesuré": values.get("Oxygène dissous mesuré", "Non") or "Non",
+            "Oxygène dissous (mg/L)": values.get("Oxygène dissous (mg/L)", ""),
+            "Titration du cuivre": values.get("Titration du cuivre", "Non") or "Non",
+            "Nom manip titration": values.get("Nom de la manip de titration", ""),
+            "Largeur route": values.get("Débit / flux - Largeur route", ""),
+            "Longueur 6 arches": values.get("Débit / flux - Longueur 6 arches", ""),
+            "Hauteur eau": values.get("Débit / flux - Hauteur eau", ""),
+            "Volume total (m3)": values.get("Débit / flux - Volume total (m3)", ""),
+            "Vitesse (s)": values.get("Débit / flux - Vitesse (s)", ""),
+            "Débit (m3/s)": values.get("Débit / flux - Débit (m3/s)", ""),
+            "Commentaires": values.get("Commentaire sur les conditions", ""),
         }
-
-        for col_idx in range(1, 34):
-            cell = ws.cell(row=7, column=col_idx)
-            col_letter = get_column_letter(col_idx)
-            if col_letter in row_values:
-                cell.value = row_values[col_letter]
+        for col_idx, (header, section) in enumerate(table_columns, start=1):
+            cell = ws.cell(row=data_row_idx, column=col_idx)
+            cell.value = shared_values.get(header, "")
             cell.border = thick_bottom
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            if col_letter in {"Y", "Z"}:
-                cell.fill = data_cyan
-            elif col_letter == "AG":
-                cell.fill = comment_fill
-            elif col_letter in {"B", "C", "D", "I", "P", "Q", "R", "S", "T"}:
-                cell.fill = data_blue
-            elif col_letter == "A":
-                cell.fill = header_fill
-            else:
-                cell.fill = white_fill
+            cell.fill = section_fills.get(section, white_fill)
 
         widths = {
-            "A": 5, "B": 12, "C": 13, "D": 13, "E": 13, "F": 16, "G": 13, "H": 12,
-            "I": 13, "J": 13, "K": 13, "L": 13, "M": 13, "N": 13, "O": 13,
-            "P": 13, "Q": 13, "R": 14, "S": 13, "T": 14, "U": 14, "V": 14,
-            "W": 14, "X": 15, "Y": 13, "Z": 14, "AA": 12, "AB": 13, "AC": 12,
-            "AD": 13, "AE": 10, "AF": 11, "AG": 26,
+            "A": 13, "B": 11, "C": 11, "D": 12, "E": 13, "F": 12, "G": 14, "H": 16,
+            "I": 13, "J": 13, "K": 12, "L": 16, "M": 13, "N": 13, "O": 16, "P": 13,
+            "Q": 16, "R": 13, "S": 13, "T": 14, "U": 15, "V": 13, "W": 11, "X": 16,
+            "Y": 17, "Z": 14, "AA": 20, "AB": 12, "AC": 13, "AD": 12, "AE": 13,
+            "AF": 10, "AG": 11, "AH": 28,
         }
         for col, width in widths.items():
             ws.column_dimensions[col].width = width
-        for row_idx in range(1, 8):
+        last_data_row = data_row_idx
+        for row_idx in range(1, last_data_row + 1):
             ws.row_dimensions[row_idx].height = 24
         ws.row_dimensions[1].height = 18
-        ws.row_dimensions[5].height = 34
-        ws.row_dimensions[6].height = 34
-        ws.freeze_panes = "A7"
+        ws.row_dimensions[header_top_row].height = 34
+        ws.row_dimensions[header_sub_row].height = 34
+        ws.freeze_panes = f"A{data_row_idx}"
         ws.sheet_view.zoomScale = 75
+
+    def _write_metadata_index_sheet(self, workbook) -> None:
+        """Ajoute une feuille technique clé/valeur relue en priorité."""
+        from openpyxl.styles import Font, PatternFill
+
+        if SHEET_METADATA_INDEX in workbook.sheetnames:
+            del workbook[SHEET_METADATA_INDEX]
+        ws = workbook.create_sheet(SHEET_METADATA_INDEX, 1)
+        ws.append(["Clé", "Champ", "Valeur"])
+
+        header_fill = PatternFill("solid", fgColor="D9E2F3")
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+            cell.fill = header_fill
+
+        for _, row in self._metadata_index_dataframe().iterrows():
+            ws.append([row["Clé"], row["Champ"], row["Valeur"]])
+
+        ws.column_dimensions["A"].width = 32
+        ws.column_dimensions["B"].width = 38
+        ws.column_dimensions["C"].width = 50
+        ws.freeze_panes = "A2"
+        ws.sheet_state = "hidden"
 
     def _default_metadata_filename(self) -> str:
         base_name = self.edit_manip.text().strip() if hasattr(self, "edit_manip") else ""
@@ -5605,6 +5854,7 @@ class MetadataCreatorWidget(QWidget):
                             rows.append({"type": key[0], "r_idx": key[1], "t_idx": key[2], "checked": int(val)})
                     pd.DataFrame(rows).to_excel(writer, sheet_name=SHEET_TITRATION_PROTOCOL_STATE, index=False)
                 self._write_measure_summary_sheet(writer.book)
+                self._write_metadata_index_sheet(writer.book)
         except Exception as e:
             QMessageBox.critical(
                 self,
@@ -5632,7 +5882,10 @@ class MetadataCreatorWidget(QWidget):
             loaded_comp = False
             loaded_map = False
             loaded_metadata = False
-            summary_values = self._header_values_from_measure_summary_sheet(xls)
+            summary_values = (
+                self._header_values_from_metadata_index_sheet(xls)
+                or self._header_values_from_measure_summary_sheet(xls)
+            )
             # Volumes
             volumes_sheet = _first_existing_sheet(xls.sheet_names, SHEET_TITRATION_VOLUMES_ALIASES)
             if volumes_sheet:
