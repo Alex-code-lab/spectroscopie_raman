@@ -9,6 +9,7 @@ import numpy as np
 import re
 import json
 import time
+import datetime as dt
 import urllib.parse
 import urllib.request
 from scipy.stats import norm
@@ -1685,6 +1686,11 @@ class MetadataCreatorWidget(QWidget):
         self.btn_load_meta.clicked.connect(self._on_load_metadata_clicked)
         top_actions.addWidget(self.btn_load_meta)
         top_actions.addStretch(1)
+        self.btn_reset_all_fields = QPushButton("Réinitialiser tous les champs", self)
+        self.btn_reset_all_fields.setToolTip("Vide tous les champs et remet l'onglet métadonnées à zéro.")
+        self.btn_reset_all_fields.setStyleSheet("background-color: #6c757d; color: white; font-weight: 700;")
+        self.btn_reset_all_fields.clicked.connect(self._on_reset_all_fields_clicked)
+        top_actions.addWidget(self.btn_reset_all_fields)
         layout.addLayout(top_actions)
 
         # Champs d'en-tête pour la manipulation : prélèvement puis titration.
@@ -2481,12 +2487,21 @@ class MetadataCreatorWidget(QWidget):
                 w.setTime(OPTIONAL_TIME_SENTINEL)
                 w.blockSignals(False)
 
-        # --- Combos → premier item ("Choisir...") ---
-        for attr in ("combo_water_type", "combo_weather"):
+        # --- Combos → valeur de départ ---
+        combo_defaults = {
+            "combo_water_type": 0,
+            "combo_weather": 0,
+            "combo_volume_preset": "Titration classique compte-gouttes (actuel)",
+        }
+        for attr, default in combo_defaults.items():
             w = getattr(self, attr, None)
             if w is not None:
                 w.blockSignals(True)
-                w.setCurrentIndex(0)
+                if isinstance(default, str):
+                    idx = w.findText(default)
+                    w.setCurrentIndex(idx if idx >= 0 else 0)
+                else:
+                    w.setCurrentIndex(default)
                 w.blockSignals(False)
 
         # --- SpinBox → valeur minimale (special value text) ---
@@ -2543,13 +2558,17 @@ class MetadataCreatorWidget(QWidget):
         self._on_dissolved_o2_toggled(False)
         self._refresh_bacterio_fields_visible()
         self._refresh_titration_fields_visible()
+        self._refresh_tide_fields_enabled()
 
         # --- Rafraîchissement visuel final ---
         self._refresh_manip_name()
         self._refresh_titration_manip_name(force=True)
         self._refresh_fillable_fields_style()
-        self._refresh_button_states()
         self._mark_metadata_dirty(refresh=False)
+        self._refresh_button_states()
+
+    def _on_reset_all_fields_clicked(self) -> None:
+        self.reset_all()
 
     def _refresh_button_states(self) -> None:
         """Met à jour la couleur des boutons selon l'état des DataFrames.
@@ -2697,7 +2716,12 @@ class MetadataCreatorWidget(QWidget):
         txt = str(text or "").strip()
         if not txt:
             return
-        qdt = QDateTime.fromString(txt, "dd/MM/yyyy HH:mm")
+        txt = re.sub(r"\s+", " ", txt)
+        qdt = QDateTime()
+        for fmt in ("dd/MM/yyyy HH:mm", "dd/MM/yyyy HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-MM-dd HH:mm:ss"):
+            qdt = QDateTime.fromString(txt, fmt)
+            if qdt.isValid():
+                break
         if qdt.isValid():
             if isinstance(widget, QDateEdit):
                 widget.setDate(qdt.date())
@@ -2710,7 +2734,11 @@ class MetadataCreatorWidget(QWidget):
                 except Exception:
                     pass
             return
-        qd = QDate.fromString(txt, "dd/MM/yyyy")
+        qd = QDate()
+        for fmt in ("dd/MM/yyyy", "yyyy-MM-dd"):
+            qd = QDate.fromString(txt, fmt)
+            if qd.isValid():
+                break
         if qd.isValid():
             if isinstance(widget, QDateEdit):
                 widget.setDate(qd)
@@ -2764,7 +2792,7 @@ class MetadataCreatorWidget(QWidget):
         txt = txt.replace("h", ":").replace(".", ":")
         if re.fullmatch(r"\d{3,4}", txt):
             txt = f"{txt[:-2]}:{txt[-2:]}"
-        match = re.fullmatch(r"(\d{1,2})(?::(\d{1,2}))?", txt)
+        match = re.fullmatch(r"(\d{1,2})(?::(\d{1,2}))?(?::\d{1,2})?", txt)
         if not match:
             return str(text or "").strip()
         hour = int(match.group(1))
@@ -3760,6 +3788,14 @@ class MetadataCreatorWidget(QWidget):
                 if value.time().hour == 0 and value.time().minute == 0 and value.time().second == 0:
                     return value.strftime("%d/%m/%Y")
                 return value.strftime("%d/%m/%Y %H:%M")
+            if isinstance(value, dt.datetime):
+                if value.hour == 0 and value.minute == 0 and value.second == 0:
+                    return value.strftime("%d/%m/%Y")
+                return value.strftime("%d/%m/%Y %H:%M")
+            if isinstance(value, dt.date):
+                return value.strftime("%d/%m/%Y")
+            if isinstance(value, dt.time):
+                return value.strftime("%H:%M")
             text = str(value).strip()
             return "" if text.lower() in {"nan", "nat", "none", "<na>"} else text
 
@@ -3812,6 +3848,14 @@ class MetadataCreatorWidget(QWidget):
                 if value.time().hour == 0 and value.time().minute == 0 and value.time().second == 0:
                     return value.strftime("%d/%m/%Y")
                 return value.strftime("%d/%m/%Y %H:%M")
+            if isinstance(value, dt.datetime):
+                if value.hour == 0 and value.minute == 0 and value.second == 0:
+                    return value.strftime("%d/%m/%Y")
+                return value.strftime("%d/%m/%Y %H:%M")
+            if isinstance(value, dt.date):
+                return value.strftime("%d/%m/%Y")
+            if isinstance(value, dt.time):
+                return value.strftime("%H:%M")
             text = str(value).strip()
             return "" if text.lower() in {"nan", "nat", "none", "<na>"} else text
 
@@ -3844,9 +3888,14 @@ class MetadataCreatorWidget(QWidget):
                 "Heure du prélèvement",
                 "Préleveur·se",
                 "Association",
+                "Coordinateur",
+                "Opérateur",
                 "Titration du cuivre",
                 "Analyses bactériologiques",
                 "Test ammonium réalisé",
+                "Test ammonium réalisé par",
+                "Test ammonium 1 (grossier)",
+                "Test ammonium 2 (précis)",
                 "Turbidité mesurée",
                 "Conductivité mesurée",
                 "pH eau mesuré",
@@ -3858,27 +3907,42 @@ class MetadataCreatorWidget(QWidget):
                 "Réalisé par",
                 "Test 1 grossier",
                 "Test 2 précis",
+                "pH (ammonium)",
                 "pH ammonium",
                 "Jour de dépôt",
                 "Heure du dépôt",
                 "Entreprise de mesure",
+                "Temps au moment de la mesure",
                 "Météo",
+                "Température de l'eau",
+                "Température de l'air",
                 "T° eau (°C)",
                 "T° air (°C)",
+                "Pluie dernières 24 h (mm)",
                 "Pluie 24 h (mm)",
+                "Résultats E.Coli (npp/ml)",
+                "Résultats Entérocoques intestinaux (npp/100ml)",
                 "E. coli (npp/ml)",
                 "Entérocoques (npp/100ml)",
                 "Turbidité (NTU)",
                 "Conductivité (µS/cm)",
                 "pH de l'eau",
                 "Oxygène dissous (mg/L)",
+                "Nom de la manip de titration",
                 "Nom manip titration",
+                "Débit / flux - Largeur route",
+                "Débit / flux - Longueur 6 arches",
+                "Débit / flux - Hauteur eau",
+                "Débit / flux - Volume total (m3)",
+                "Débit / flux - Vitesse (s)",
+                "Débit / flux - Débit (m3/s)",
                 "Largeur route",
                 "Longueur 6 arches",
                 "Hauteur eau",
                 "Volume total (m3)",
                 "Vitesse (s)",
                 "Débit (m3/s)",
+                "Commentaire sur les conditions",
                 "Commentaires",
             )
         }
@@ -3888,7 +3952,7 @@ class MetadataCreatorWidget(QWidget):
 
         def _value_right_of_label(*labels: str, max_scan: int = 12) -> str:
             wanted = {_key(label) for label in labels}
-            for row_idx in range(min(len(raw), 40)):
+            for row_idx in range(min(len(raw), 250)):
                 for col_idx in range(raw.shape[1]):
                     if _key(_cell0(row_idx, col_idx)).rstrip(" :") not in wanted:
                         continue
@@ -3897,6 +3961,22 @@ class MetadataCreatorWidget(QWidget):
                         if not val:
                             continue
                         val_key = _key(val).rstrip(" :")
+                        if val_key in wanted:
+                            continue
+                        if val_key in known_label_keys and val_key not in wanted:
+                            break
+                        return val
+            for row_idx in range(min(len(raw), 250)):
+                for col_idx in range(raw.shape[1]):
+                    if _key(_cell0(row_idx, col_idx)).rstrip(" :") not in wanted:
+                        continue
+                    for scan_row in range(row_idx + 1, min(len(raw), row_idx + 4)):
+                        val = _cell0(scan_row, col_idx)
+                        if not val:
+                            continue
+                        val_key = _key(val).rstrip(" :")
+                        if val_key in wanted:
+                            continue
                         if val_key in known_label_keys and val_key not in wanted:
                             break
                         return val
@@ -3905,7 +3985,7 @@ class MetadataCreatorWidget(QWidget):
         def _values_right_of_label_prefix(*prefixes: str) -> list[str]:
             prefix_keys = tuple(_key(prefix) for prefix in prefixes)
             values_out: list[str] = []
-            for row_idx in range(min(len(raw), 40)):
+            for row_idx in range(min(len(raw), 250)):
                 for col_idx in range(raw.shape[1] - 1):
                     label_key = _key(_cell0(row_idx, col_idx))
                     if not label_key:
@@ -3916,7 +3996,7 @@ class MetadataCreatorWidget(QWidget):
                             values_out.append(val)
             return values_out
 
-        def _find_measure_header_rows() -> tuple[int, int, int]:
+        def _find_measure_header_rows() -> tuple[int, int, int] | None:
             for row_idx in range(max(0, len(raw) - 1)):
                 row_keys = [_key(_cell0(row_idx, col_idx)) for col_idx in range(raw.shape[1])]
                 next_keys = [_key(_cell0(row_idx + 1, col_idx)) for col_idx in range(raw.shape[1])]
@@ -3980,15 +4060,18 @@ class MetadataCreatorWidget(QWidget):
                         data_row = candidate
                         break
                 return row_idx, row_idx + 1, data_row
-            return 4, 5, 6
+            return None
 
-        top_header_row, sub_header_row, data_row = _find_measure_header_rows()
+        measure_header_rows = _find_measure_header_rows()
 
         headers: list[str] = []
-        for col_idx in range(raw.shape[1]):
-            top = _cell0(top_header_row, col_idx)
-            sub = _cell0(sub_header_row, col_idx)
-            headers.append(_key(f"{top} {sub}".strip()))
+        data_row = -1
+        if measure_header_rows is not None:
+            top_header_row, sub_header_row, data_row = measure_header_rows
+            for col_idx in range(raw.shape[1]):
+                top = _cell0(top_header_row, col_idx)
+                sub = _cell0(sub_header_row, col_idx)
+                headers.append(_key(f"{top} {sub}".strip()))
 
         def _header_matches(header: str, *patterns: str) -> bool:
             if not header:
@@ -4006,6 +4089,8 @@ class MetadataCreatorWidget(QWidget):
             return False
 
         def _col_value(*patterns: str, exclude: tuple[str, ...] = (), fallback: str = "") -> str:
+            if not headers or data_row < 0:
+                return ""
             exclude_keys = tuple(_key(item) for item in exclude)
             for col_idx, header in enumerate(headers):
                 if any(ex and ex in header for ex in exclude_keys):
@@ -4017,6 +4102,8 @@ class MetadataCreatorWidget(QWidget):
             return fallback
 
         def _col_values(*patterns: str, fallback_values: list[str] | None = None) -> list[str]:
+            if not headers or data_row < 0:
+                return fallback_values or []
             values_out: list[str] = []
             for col_idx, header in enumerate(headers):
                 if _header_matches(header, *patterns):
@@ -4089,40 +4176,71 @@ class MetadataCreatorWidget(QWidget):
             or _col_value("test ammonium realise", "test ammonium"),
             "Test ammonium réalisé par": _value_right_of_label("Test ammonium réalisé par")
             or _col_value("realise par", "réalisé par"),
-            "Test ammonium 1 (grossier)": _col_value("test 1 grossier", "ammonium test 1"),
-            "Test ammonium 2 (précis)": _col_value("test 2 precis", "ammonium test 2"),
-            "pH (ammonium)": _col_value("ph ammonium"),
+            "Test ammonium 1 (grossier)": _value_right_of_label(
+                "Test ammonium 1 (grossier)",
+                "Test 1 grossier",
+                "Ammonium test 1",
+            )
+            or _col_value("test 1 grossier", "ammonium test 1"),
+            "Test ammonium 2 (précis)": _value_right_of_label(
+                "Test ammonium 2 (précis)",
+                "Test 2 précis",
+                "Test 2 precis",
+                "Ammonium test 2",
+            )
+            or _col_value("test 2 precis", "ammonium test 2"),
+            "pH (ammonium)": _value_right_of_label("pH (ammonium)", "pH ammonium")
+            or _col_value("ph ammonium"),
             "Analyses bactériologiques": _value_right_of_label(
                 "Analyses bactériologiques",
                 "Analyse bactériologique",
             )
             or bacterio_status
             or ("Oui" if bacterio_done else ""),
-            "Jour de dépôt": _col_value("jour de depot", "jour depot", fallback=_cell(7, 16)),
-            "Heure du dépôt": _col_value("heure du depot", "heure depot", fallback=_cell(7, 17)),
-            "Entreprise de mesure": _col_value("entreprise de mesure", fallback=_cell(7, 18)),
-            "Temps au moment de la mesure": _col_value("meteo", "contexte de prelevement", fallback=_cell(7, 21)),
-            "Température de l'eau": _col_value("t eau", "temperature de l eau", fallback=_cell(7, 22)),
-            "Température de l'air": _col_value("t air", "temperature de l air", fallback=_cell(7, 23)),
-            "Pluie dernières 24 h (mm)": _col_value("pluviometrie", "mm 24h", "pluie", fallback=_cell(7, 24)),
-            "Résultats E.Coli (npp/ml)": _col_value("resultats e coli", "e coli", fallback=_cell(7, 25)),
-            "Résultats Entérocoques intestinaux (npp/100ml)": _col_value(
+            "Jour de dépôt": _value_right_of_label("Jour de dépôt", "Jour depot")
+            or _col_value("jour de depot", "jour depot", fallback=_cell(7, 16)),
+            "Heure du dépôt": _value_right_of_label("Heure du dépôt", "Heure depot")
+            or _col_value("heure du depot", "heure depot", fallback=_cell(7, 17)),
+            "Entreprise de mesure": _value_right_of_label("Entreprise de mesure")
+            or _col_value("entreprise de mesure", fallback=_cell(7, 18)),
+            "Temps au moment de la mesure": _value_right_of_label("Temps au moment de la mesure", "Météo")
+            or _col_value("meteo", "contexte de prelevement", fallback=_cell(7, 21)),
+            "Température de l'eau": _value_right_of_label("Température de l'eau", "T° eau (°C)", "T eau")
+            or _col_value("t eau", "temperature de l eau", fallback=_cell(7, 22)),
+            "Température de l'air": _value_right_of_label("Température de l'air", "T° air (°C)", "T air")
+            or _col_value("t air", "temperature de l air", fallback=_cell(7, 23)),
+            "Pluie dernières 24 h (mm)": _value_right_of_label("Pluie dernières 24 h (mm)", "Pluie 24 h (mm)")
+            or _col_value("pluviometrie", "mm 24h", "pluie", fallback=_cell(7, 24)),
+            "Résultats E.Coli (npp/ml)": _value_right_of_label(
+                "Résultats E.Coli (npp/ml)",
+                "E. coli (npp/ml)",
+            )
+            or _col_value("resultats e coli", "e coli", fallback=_cell(7, 25)),
+            "Résultats Entérocoques intestinaux (npp/100ml)": _value_right_of_label(
+                "Résultats Entérocoques intestinaux (npp/100ml)",
+                "Entérocoques (npp/100ml)",
+            )
+            or _col_value(
                 "resultats enterocoques",
                 "enterocoques",
                 fallback=_cell(7, 26),
             ),
             "Turbidité mesurée": _value_right_of_label("Turbidité mesurée")
             or _col_value("turbidite mesuree"),
-            "Turbidité (NTU)": _col_value("turbidite ntu"),
+            "Turbidité (NTU)": _value_right_of_label("Turbidité (NTU)")
+            or _col_value("turbidite ntu"),
             "Conductivité mesurée": _value_right_of_label("Conductivité mesurée")
             or _col_value("conductivite mesuree"),
-            "Conductivité (µS/cm)": _col_value("conductivite us cm", "conductivite s cm"),
+            "Conductivité (µS/cm)": _value_right_of_label("Conductivité (µS/cm)")
+            or _col_value("conductivite us cm", "conductivite s cm"),
             "pH de l'eau mesuré": _value_right_of_label("pH eau mesuré", "pH de l'eau mesuré")
             or _col_value("ph eau mesure", "ph de l eau mesure"),
-            "pH de l'eau": _col_value("ph de l eau", "ph eau", exclude=("mesure",)),
+            "pH de l'eau": _value_right_of_label("pH de l'eau")
+            or _col_value("ph de l eau", "ph eau", exclude=("mesure",)),
             "Oxygène dissous mesuré": _value_right_of_label("Oxygène dissous mesuré", "O2 dissous mesuré")
             or _col_value("oxygene dissous mesure", "o2 dissous mesure"),
-            "Oxygène dissous (mg/L)": _col_value("oxygene dissous mg l", "o2 dissous"),
+            "Oxygène dissous (mg/L)": _value_right_of_label("Oxygène dissous (mg/L)", "O2 dissous")
+            or _col_value("oxygene dissous mg l", "o2 dissous"),
             "Titration du cuivre": _value_right_of_label("Titration du cuivre", "Titration")
             or _col_value("titration du cuivre", "titration"),
             "Nom de la manip de titration": _value_right_of_label("Nom de la manip", "Nom de la manip de titration")
@@ -4135,13 +4253,35 @@ class MetadataCreatorWidget(QWidget):
             "Heure de la titration": _value_right_of_label("Heure de la titration", "Heure titration"),
             "Lieu de la titration": _value_right_of_label("Lieu de la titration", "Lieu titration")
             or _col_value("lieu titration", "lieu de la titration"),
-            "Débit / flux - Largeur route": _col_value("largeur route", fallback=_cell(7, 27)),
-            "Débit / flux - Longueur 6 arches": _col_value("longueur 6 arches", fallback=_cell(7, 28)),
-            "Débit / flux - Hauteur eau": _col_value("hauteur eau", fallback=_cell(7, 29)),
-            "Débit / flux - Volume total (m3)": _col_value("volume total", fallback=_cell(7, 30)),
-            "Débit / flux - Vitesse (s)": _col_value("vitesse", fallback=_cell(7, 31)),
-            "Débit / flux - Débit (m3/s)": _col_value("debit m3 s", fallback=_cell(7, 32)),
-            "Commentaire sur les conditions": _col_value("commentaires", "commentaire", fallback=_cell(7, 33)),
+            "Coordinateur": _value_right_of_label("Coordinateur"),
+            "Opérateur": _value_right_of_label("Opérateur"),
+            "Débit / flux - Largeur route": _value_right_of_label("Débit / flux - Largeur route", "Largeur route")
+            or _col_value("largeur route", fallback=_cell(7, 27)),
+            "Débit / flux - Longueur 6 arches": _value_right_of_label(
+                "Débit / flux - Longueur 6 arches",
+                "Longueur 6 arches",
+            )
+            or _col_value("longueur 6 arches", fallback=_cell(7, 28)),
+            "Débit / flux - Hauteur eau": _value_right_of_label("Débit / flux - Hauteur eau", "Hauteur eau")
+            or _col_value("hauteur eau", fallback=_cell(7, 29)),
+            "Débit / flux - Volume total (m3)": _value_right_of_label(
+                "Débit / flux - Volume total (m3)",
+                "Volume total (m3)",
+            )
+            or _col_value("volume total", fallback=_cell(7, 30)),
+            "Débit / flux - Vitesse (s)": _value_right_of_label("Débit / flux - Vitesse (s)", "Vitesse (s)")
+            or _col_value("vitesse", fallback=_cell(7, 31)),
+            "Débit / flux - Débit (m3/s)": _value_right_of_label(
+                "Débit / flux - Débit (m3/s)",
+                "Débit (m3/s)",
+                "Debit (m3/s)",
+            )
+            or _col_value("debit m3 s", fallback=_cell(7, 32)),
+            "Commentaire sur les conditions": _value_right_of_label(
+                "Commentaire sur les conditions",
+                "Commentaires",
+            )
+            or _col_value("commentaires", "commentaire", fallback=_cell(7, 33)),
         }
 
         sampler_values = [v for v in sampler_values if str(v).strip()]
@@ -5925,175 +6065,170 @@ class MetadataCreatorWidget(QWidget):
                 else:
                     cell.fill = white_fill
 
-        status_pairs = [
-            (status_start_row, "A", "Titration du cuivre", "B", values.get("Titration du cuivre", "")),
-            (status_start_row, "C", "Analyses bactériologiques", "D", values.get("Analyses bactériologiques", "")),
-            (status_start_row, "E", "Test ammonium réalisé", "F", values.get("Test ammonium réalisé", "")),
-            (status_start_row, "G", "Turbidité mesurée", "H", values.get("Turbidité mesurée", "")),
-            (status_start_row + 1, "A", "Conductivité mesurée", "B", values.get("Conductivité mesurée", "")),
-            (status_start_row + 1, "C", "pH eau mesuré", "D", values.get("pH de l'eau mesuré", "")),
-            (status_start_row + 1, "E", "Oxygène dissous mesuré", "F", values.get("Oxygène dissous mesuré", "")),
+        status_rows = [
+            [
+                ("Titration du cuivre", values.get("Titration du cuivre", "Non") or "Non"),
+                ("Analyses bactériologiques", values.get("Analyses bactériologiques", "Non") or "Non"),
+                ("Test ammonium réalisé", values.get("Test ammonium réalisé", "Non") or "Non"),
+                ("Turbidité mesurée", values.get("Turbidité mesurée", "Non") or "Non"),
+            ],
+            [
+                ("Conductivité mesurée", values.get("Conductivité mesurée", "Non") or "Non"),
+                ("pH eau mesuré", values.get("pH de l'eau mesuré", "Non") or "Non"),
+                ("Oxygène dissous mesuré", values.get("Oxygène dissous mesuré", "Non") or "Non"),
+                ("", ""),
+            ],
         ]
-        for row_idx, label_col, label, value_col, value in status_pairs:
-            label_cell = ws[f"{label_col}{row_idx}"]
-            value_cell = ws[f"{value_col}{row_idx}"]
-            label_cell.value = label
-            value_cell.value = value
-            for cell in (label_cell, value_cell):
+        for row_offset, row_pairs in enumerate(status_rows):
+            row_idx = status_start_row + row_offset
+            for pair_idx, (label, value) in enumerate(row_pairs):
+                label_cell = ws.cell(row=row_idx, column=pair_idx * 2 + 1)
+                value_cell = ws.cell(row=row_idx, column=pair_idx * 2 + 2)
+                label_cell.value = label
+                value_cell.value = value
+                for cell in (label_cell, value_cell):
+                    cell.border = thin_border
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                if label:
+                    label_cell.fill = info_fill
+                    label_cell.font = Font(bold=True, size=9)
+                else:
+                    label_cell.fill = white_fill
+                value_cell.fill = white_fill
+
+        _style_range(f"A1:H{status_start_row + len(status_rows) - 1}", border=thin_border)
+
+        def _write_section(row_idx: int, title: str, fill, columns: list[tuple[str, str]]) -> int:
+            last_col = get_column_letter(max(1, len(columns)))
+            _merge(f"A{row_idx}:{last_col}{row_idx}", title, fill, Font(bold=True, size=10))
+            for cell in ws[row_idx]:
                 cell.border = thin_border
-                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            label_cell.fill = info_fill
-            value_cell.fill = white_fill
-            label_cell.font = Font(bold=True, size=9)
+            row_idx += 1
+            header_row = row_idx
+            value_row = row_idx + 1
+            for col_idx, (label, value) in enumerate(columns, start=1):
+                label_cell = ws.cell(row=header_row, column=col_idx)
+                label_cell.value = label
+                label_cell.fill = fill
+                label_cell.font = Font(bold=True, size=9)
+                label_cell.border = thin_border
+                label_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-        _style_range(f"A1:H{status_start_row + 1}", border=thin_border)
+                value_cell = ws.cell(row=value_row, column=col_idx)
+                value_cell.value = value
+                value_cell.fill = white_fill
+                value_cell.border = thick_bottom
+                value_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            ws.row_dimensions[header_row].height = 30
+            ws.row_dimensions[value_row].height = 24
+            return row_idx + 4
 
-        table_columns = [
-            ("Météo", "context"),
-            ("T° eau (°C)", "context"),
-            ("T° air (°C)", "context"),
-            ("Pluie 24 h (mm)", "context"),
-            ("Coefficient de marée", "context"),
-            ("Heure pleine mer", "context"),
-            ("Test ammonium réalisé", "ammonium"),
-            ("Réalisé par", "ammonium"),
-            ("Test 1 grossier", "ammonium"),
-            ("Test 2 précis", "ammonium"),
-            ("pH ammonium", "ammonium"),
-            ("Analyses bactériologiques", "bacterio"),
-            ("Jour de dépôt", "bacterio"),
-            ("Heure du dépôt", "bacterio"),
-            ("Entreprise de mesure", "bacterio"),
-            ("E. coli (npp/ml)", "bacterio_result"),
-            ("Entérocoques (npp/100ml)", "bacterio_result"),
-            ("Turbidité mesurée", "result"),
-            ("Turbidité (NTU)", "result"),
-            ("Conductivité mesurée", "result"),
-            ("Conductivité (µS/cm)", "result"),
-            ("pH eau mesuré", "result"),
-            ("pH de l'eau", "result"),
-            ("Oxygène dissous mesuré", "result"),
-            ("Oxygène dissous (mg/L)", "result"),
-            ("Titration du cuivre", "titration"),
-            ("Nom manip titration", "titration"),
-            ("Date titration", "titration"),
-            ("Heure titration", "titration"),
-            ("Lieu titration", "titration"),
-            ("Largeur route", "debit"),
-            ("Longueur 6 arches", "debit"),
-            ("Hauteur eau", "debit"),
-            ("Volume total (m3)", "debit"),
-            ("Vitesse (s)", "debit"),
-            ("Débit (m3/s)", "debit"),
-            ("Commentaires", "comment"),
-        ]
-        last_table_col = get_column_letter(len(table_columns))
+        section_row = status_start_row + len(status_rows) + 1
         _merge(
-            f"A{measure_title_row}:{last_table_col}{measure_title_row}",
-            "Préleveur·ses, mesures effectuées et résultats",
+            f"A{section_row}:H{section_row}",
+            "Mesures effectuées et résultats",
             section_fill,
             Font(bold=True),
         )
-
-        group_specs = [
-            (1, 6, "Contexte terrain", context_fill),
-            (7, 11, "Test ammonium", ammonium_fill),
-            (12, 17, "Analyses bactériologiques", bacterio_fill),
-            (18, 25, "Autres mesures", data_cyan),
-            (26, 30, "Titration du cuivre", header_fill),
-            (31, 36, "Débit / flux", debit_fill),
-            (37, 37, "Commentaires", comment_fill),
-        ]
-        for start_col, end_col, title, fill in group_specs:
-            _merge(
-                f"{get_column_letter(start_col)}{header_top_row}:{get_column_letter(end_col)}{header_top_row}",
-                title,
-                fill,
-                Font(bold=True, size=9),
-            )
-
-        section_fills = {
-            "people": data_blue,
-            "context": context_fill,
-            "status": header_fill,
-            "ammonium": ammonium_fill,
-            "bacterio": bacterio_fill,
-            "bacterio_result": data_cyan,
-            "result": data_cyan,
-            "titration": white_fill,
-            "debit": debit_fill,
-            "comment": comment_fill,
-        }
-        for col_idx, (header, section) in enumerate(table_columns, start=1):
-            cell = ws.cell(row=header_sub_row, column=col_idx)
-            cell.value = header
+        for cell in ws[section_row]:
             cell.border = thin_border
-            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            cell.fill = section_fills.get(section, header_fill)
-            cell.font = Font(bold=True, size=9)
+        section_row += 2
 
-        shared_values = {
-            "Météo": weather_text,
-            "T° eau (°C)": water_temp,
-            "T° air (°C)": air_temp,
-            "Pluie 24 h (mm)": values.get("Pluie dernières 24 h (mm)", ""),
-            "Coefficient de marée": values.get("Coefficient de marée", ""),
-            "Heure pleine mer": values.get("Heure de pleine mer", ""),
-            "Test ammonium réalisé": values.get("Test ammonium réalisé", "Non") or "Non",
-            "Réalisé par": values.get("Test ammonium réalisé par", ""),
-            "Test 1 grossier": values.get("Test ammonium 1 (grossier)", ""),
-            "Test 2 précis": values.get("Test ammonium 2 (précis)", ""),
-            "pH ammonium": values.get("pH (ammonium)", ""),
-            "Analyses bactériologiques": values.get("Analyses bactériologiques", "Non") or "Non",
-            "Jour de dépôt": values.get("Jour de dépôt", ""),
-            "Heure du dépôt": values.get("Heure du dépôt", ""),
-            "Entreprise de mesure": values.get("Entreprise de mesure", ""),
-            "E. coli (npp/ml)": values.get("Résultats E.Coli (npp/ml)", ""),
-            "Entérocoques (npp/100ml)": values.get("Résultats Entérocoques intestinaux (npp/100ml)", ""),
-            "Turbidité mesurée": values.get("Turbidité mesurée", "Non") or "Non",
-            "Turbidité (NTU)": values.get("Turbidité (NTU)", ""),
-            "Conductivité mesurée": values.get("Conductivité mesurée", "Non") or "Non",
-            "Conductivité (µS/cm)": values.get("Conductivité (µS/cm)", ""),
-            "pH eau mesuré": values.get("pH de l'eau mesuré", "Non") or "Non",
-            "pH de l'eau": values.get("pH de l'eau", ""),
-            "Oxygène dissous mesuré": values.get("Oxygène dissous mesuré", "Non") or "Non",
-            "Oxygène dissous (mg/L)": values.get("Oxygène dissous (mg/L)", ""),
-            "Titration du cuivre": values.get("Titration du cuivre", "Non") or "Non",
-            "Nom manip titration": values.get("Nom de la manip de titration", ""),
-            "Date titration": values.get("Date de la titration", ""),
-            "Heure titration": values.get("Heure de la titration", ""),
-            "Lieu titration": values.get("Lieu de la titration", ""),
-            "Largeur route": values.get("Débit / flux - Largeur route", ""),
-            "Longueur 6 arches": values.get("Débit / flux - Longueur 6 arches", ""),
-            "Hauteur eau": values.get("Débit / flux - Hauteur eau", ""),
-            "Volume total (m3)": values.get("Débit / flux - Volume total (m3)", ""),
-            "Vitesse (s)": values.get("Débit / flux - Vitesse (s)", ""),
-            "Débit (m3/s)": values.get("Débit / flux - Débit (m3/s)", ""),
-            "Commentaires": values.get("Commentaire sur les conditions", ""),
-        }
-        for col_idx, (header, section) in enumerate(table_columns, start=1):
-            cell = ws.cell(row=data_row_idx, column=col_idx)
-            cell.value = shared_values.get(header, "")
-            cell.border = thick_bottom
-            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            cell.fill = white_fill
+        sections = [
+            (
+                "Contexte terrain",
+                context_fill,
+                [
+                    ("Temps au moment de la mesure", weather_text),
+                    ("Température de l'eau", water_temp),
+                    ("Température de l'air", air_temp),
+                    ("Pluie dernières 24 h (mm)", values.get("Pluie dernières 24 h (mm)", "")),
+                    ("Coefficient de marée", values.get("Coefficient de marée", "")),
+                    ("Heure de pleine mer", values.get("Heure de pleine mer", "")),
+                ],
+            ),
+            (
+                "Test ammonium",
+                ammonium_fill,
+                [
+                    ("Test ammonium réalisé", values.get("Test ammonium réalisé", "Non") or "Non"),
+                    ("Test ammonium réalisé par", values.get("Test ammonium réalisé par", "")),
+                    ("Test ammonium 1 (grossier)", values.get("Test ammonium 1 (grossier)", "")),
+                    ("Test ammonium 2 (précis)", values.get("Test ammonium 2 (précis)", "")),
+                    ("pH (ammonium)", values.get("pH (ammonium)", "")),
+                ],
+            ),
+            (
+                "Analyses bactériologiques",
+                bacterio_fill,
+                [
+                    ("Analyses bactériologiques", values.get("Analyses bactériologiques", "Non") or "Non"),
+                    ("Jour de dépôt", values.get("Jour de dépôt", "")),
+                    ("Heure du dépôt", values.get("Heure du dépôt", "")),
+                    ("Entreprise de mesure", values.get("Entreprise de mesure", "")),
+                    ("Résultats E.Coli (npp/ml)", values.get("Résultats E.Coli (npp/ml)", "")),
+                    (
+                        "Résultats Entérocoques intestinaux (npp/100ml)",
+                        values.get("Résultats Entérocoques intestinaux (npp/100ml)", ""),
+                    ),
+                ],
+            ),
+            (
+                "Autres mesures",
+                data_cyan,
+                [
+                    ("Turbidité mesurée", values.get("Turbidité mesurée", "Non") or "Non"),
+                    ("Turbidité (NTU)", values.get("Turbidité (NTU)", "")),
+                    ("Conductivité mesurée", values.get("Conductivité mesurée", "Non") or "Non"),
+                    ("Conductivité (µS/cm)", values.get("Conductivité (µS/cm)", "")),
+                    ("pH de l'eau mesuré", values.get("pH de l'eau mesuré", "Non") or "Non"),
+                    ("pH de l'eau", values.get("pH de l'eau", "")),
+                    ("Oxygène dissous mesuré", values.get("Oxygène dissous mesuré", "Non") or "Non"),
+                    ("Oxygène dissous (mg/L)", values.get("Oxygène dissous (mg/L)", "")),
+                ],
+            ),
+            (
+                "Titration du cuivre",
+                header_fill,
+                [
+                    ("Titration du cuivre", values.get("Titration du cuivre", "Non") or "Non"),
+                    ("Nom de la manip de titration", values.get("Nom de la manip de titration", "")),
+                    ("Date de la titration", values.get("Date de la titration", "")),
+                    ("Heure de la titration", values.get("Heure de la titration", "")),
+                    ("Lieu de la titration", values.get("Lieu de la titration", "")),
+                ],
+            ),
+            (
+                "Débit / flux",
+                debit_fill,
+                [
+                    ("Débit / flux - Largeur route", values.get("Débit / flux - Largeur route", "")),
+                    ("Débit / flux - Longueur 6 arches", values.get("Débit / flux - Longueur 6 arches", "")),
+                    ("Débit / flux - Hauteur eau", values.get("Débit / flux - Hauteur eau", "")),
+                    ("Débit / flux - Volume total (m3)", values.get("Débit / flux - Volume total (m3)", "")),
+                    ("Débit / flux - Vitesse (s)", values.get("Débit / flux - Vitesse (s)", "")),
+                    ("Débit / flux - Débit (m3/s)", values.get("Débit / flux - Débit (m3/s)", "")),
+                ],
+            ),
+            (
+                "Commentaires",
+                comment_fill,
+                [
+                    ("Commentaire sur les conditions", values.get("Commentaire sur les conditions", "")),
+                ],
+            ),
+        ]
+        for title, fill, rows in sections:
+            section_row = _write_section(section_row, title, fill, rows)
 
-        widths = {
-            "A": 13, "B": 11, "C": 11, "D": 12, "E": 13, "F": 12, "G": 14, "H": 16,
-            "I": 13, "J": 13, "K": 12, "L": 16, "M": 13, "N": 13, "O": 16, "P": 13,
-            "Q": 16, "R": 13, "S": 13, "T": 14, "U": 15, "V": 13, "W": 11, "X": 16,
-            "Y": 17, "Z": 14, "AA": 20, "AB": 13, "AC": 13, "AD": 16, "AE": 12,
-            "AF": 13, "AG": 12, "AH": 13, "AI": 10, "AJ": 11, "AK": 28,
-        }
+        widths = {"A": 36, "B": 18, "C": 14, "D": 14, "E": 14, "F": 14, "G": 14, "H": 14}
         for col, width in widths.items():
             ws.column_dimensions[col].width = width
-        last_data_row = data_row_idx
+        last_data_row = max(1, section_row - 1)
         for row_idx in range(1, last_data_row + 1):
-            ws.row_dimensions[row_idx].height = 24
+            ws.row_dimensions[row_idx].height = 22
         ws.row_dimensions[1].height = 18
-        ws.row_dimensions[header_top_row].height = 34
-        ws.row_dimensions[header_sub_row].height = 34
-        ws.freeze_panes = f"A{data_row_idx}"
+        ws.freeze_panes = f"A{sampler_end_row + 2}"
         ws.sheet_view.zoomScale = 75
 
     def _write_metadata_index_sheet(self, workbook) -> None:
