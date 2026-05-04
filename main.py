@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QWidget,
     QVBoxLayout,
+    QHBoxLayout,
     QStatusBar,
     QLabel,
     QScrollArea,
@@ -392,6 +393,20 @@ class MainWindow(QMainWindow):
         # Onglet Métadonnées (création directe des tableaux dans l'application)
         self.metadata_tab = QWidget(self)
         metadata_layout = QVBoxLayout(self.metadata_tab)
+
+        meta_top_bar = QHBoxLayout()
+        meta_top_bar.addStretch(1)
+        self.btn_new_metadata = QPushButton("Nouvelle fiche", self)
+        self.btn_new_metadata.setStyleSheet(
+            "background-color: #6c757d; color: white; font-weight: 700; padding: 4px 14px;"
+        )
+        self.btn_new_metadata.setToolTip(
+            "Vider tous les champs et repartir d'une fiche vierge."
+        )
+        self.btn_new_metadata.clicked.connect(self._on_new_metadata_clicked)
+        meta_top_bar.addWidget(self.btn_new_metadata)
+        metadata_layout.addLayout(meta_top_bar)
+
         metadata_scroll = QScrollArea(self.metadata_tab)
         metadata_scroll.setWidgetResizable(True)
         metadata_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -530,6 +545,42 @@ class MainWindow(QMainWindow):
                 "Vous pouvez continuer, mais pensez à enregistrer avant de quitter le logiciel.",
             )
         self._last_tab_index = index
+
+    def _on_new_metadata_clicked(self) -> None:
+        mc = getattr(self, "metadata_creator", None)
+        if mc is None:
+            return
+        has_data = (
+            mc.df_comp is not None
+            or mc.df_map is not None
+            or any(
+                bool(getattr(mc, attr, None) and getattr(mc, attr).text().strip())
+                for attr in (
+                    "edit_sampler", "edit_sample_location",
+                    "edit_sample_lat", "edit_sample_lon",
+                    "edit_coordinator", "edit_operator",
+                )
+            )
+            or (
+                hasattr(mc, "edit_sample_date")
+                and mc.edit_sample_date.date() != mc.edit_sample_date.minimumDate()
+            )
+        )
+        if has_data:
+            reply = QMessageBox.question(
+                self,
+                "Nouvelle fiche",
+                "Toutes les données saisies seront effacées.\n"
+                "Voulez-vous vraiment repartir d'une fiche vierge ?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+        mc.reset_all()
+        fp = getattr(self, "file_picker", None)
+        if fp is not None:
+            fp.clear_selected()
 
     def closeEvent(self, event):
         mc = getattr(self, "metadata_creator", None)

@@ -125,16 +125,22 @@ class SpectraTab(QWidget):
     def mark_plot_stale(self) -> None:
         self._set_plot_button_done(False)
 
+    def _apply_axis_ranges(self, fig) -> None:
+        xmin = self.spin_xmin.value()
+        xmax = self.spin_xmax.value()
+        ymin = self.spin_ymin.value()
+        ymax = self.spin_ymax.value()
+        if xmin >= 0 and xmax >= 0 and xmin < xmax:
+            fig.update_xaxes(range=[xmin, xmax])
+        if ymin >= 0 and ymax >= 0 and ymin < ymax:
+            fig.update_yaxes(range=[ymin, ymax])
+
     def _reset_axes(self):
         """Remet les axes en autoscale."""
-        if hasattr(self, "spin_xmin"):
-            self.spin_xmin.setValue(-1.0)
-        if hasattr(self, "spin_xmax"):
-            self.spin_xmax.setValue(-1.0)
-        if hasattr(self, "spin_ymin"):
-            self.spin_ymin.setValue(-1.0)
-        if hasattr(self, "spin_ymax"):
-            self.spin_ymax.setValue(-1.0)
+        self.spin_xmin.setValue(-1.0)
+        self.spin_xmax.setValue(-1.0)
+        self.spin_ymin.setValue(-1.0)
+        self.spin_ymax.setValue(-1.0)
 
     def _get_manip_name(self) -> str | None:
         md = self._metadata_creator
@@ -267,17 +273,7 @@ class SpectraTab(QWidget):
                     height=600,
                 )
 
-                # --- Axes manuels si définis (valeur -1 => auto) ---
-                xmin = float(self.spin_xmin.value()) if hasattr(self, "spin_xmin") else -1.0
-                xmax = float(self.spin_xmax.value()) if hasattr(self, "spin_xmax") else -1.0
-                ymin = float(self.spin_ymin.value()) if hasattr(self, "spin_ymin") else -1.0
-                ymax = float(self.spin_ymax.value()) if hasattr(self, "spin_ymax") else -1.0
-
-                if xmin >= 0 and xmax >= 0 and xmin < xmax:
-                    fig.update_xaxes(range=[xmin, xmax])
-                if ymin >= 0 and ymax >= 0 and ymin < ymax:
-                    fig.update_yaxes(range=[ymin, ymax])
-
+                self._apply_axis_ranges(fig)
                 self._last_fig = fig  # Sauvegarde pour export PNG
                 self.plot_view._plotly_fig = fig
                 set_plotly_filename(self.plot_view, file_base)
@@ -352,17 +348,7 @@ class SpectraTab(QWidget):
             height=600,
         )
 
-        # --- Axes manuels si définis (valeur -1 => auto) ---
-        xmin = float(self.spin_xmin.value()) if hasattr(self, "spin_xmin") else -1.0
-        xmax = float(self.spin_xmax.value()) if hasattr(self, "spin_xmax") else -1.0
-        ymin = float(self.spin_ymin.value()) if hasattr(self, "spin_ymin") else -1.0
-        ymax = float(self.spin_ymax.value()) if hasattr(self, "spin_ymax") else -1.0
-
-        if xmin >= 0 and xmax >= 0 and xmin < xmax:
-            fig.update_xaxes(range=[xmin, xmax])
-        if ymin >= 0 and ymax >= 0 and ymin < ymax:
-            fig.update_yaxes(range=[ymin, ymax])
-
+        self._apply_axis_ranges(fig)
         self._last_fig = fig
         self.plot_view._plotly_fig = fig
         manip_name = self._get_manip_name()
@@ -521,6 +507,7 @@ class SpectraTab(QWidget):
         """
         self._js_export_fname = fname
         self._js_export_fmt   = fmt
+        self._js_poll_attempts = 0
         self.plot_view.page().runJavaScript(js)
 
         if hasattr(self, "_js_poll") and self._js_poll.isActive():
@@ -530,7 +517,18 @@ class SpectraTab(QWidget):
         self._js_poll.timeout.connect(self._poll_js_export)
         self._js_poll.start()
 
+    _JS_POLL_MAX = 30  # 30 × 300 ms = 9 s maximum
+
     def _poll_js_export(self) -> None:
+        self._js_poll_attempts += 1
+        if self._js_poll_attempts > self._JS_POLL_MAX:
+            self._js_poll.stop()
+            QMessageBox.critical(
+                self, "Délai dépassé",
+                "L'export n'a pas répondu dans les 9 secondes.\n"
+                "Vérifiez que le graphique est bien affiché et réessayez."
+            )
+            return
         self.plot_view.page().runJavaScript("!!window._pexReady", self._check_js_ready)
 
     def _check_js_ready(self, ready: bool) -> None:

@@ -2397,6 +2397,119 @@ class MetadataCreatorWidget(QWidget):
                 widget.deleteLater()
         self._extra_sampler_rows = []
 
+    def reset_all(self) -> None:
+        """Remet tous les champs à zéro : textes vidés, cases décochées, dates/heures en
+        'à renseigner', tableaux chargés supprimés, états visuels mis à jour."""
+
+        # --- Champs texte ---
+        for attr in (
+            "edit_sampler", "edit_sampler_association",
+            "edit_sample_location", "edit_sample_lat", "edit_sample_lon",
+            "edit_sample_department", "edit_sample_commune",
+            "edit_ammonium_operator", "edit_ammonium_test1",
+            "edit_ammonium_test2", "edit_ammonium_ph",
+            "edit_bacterio_company", "edit_bacterio_ecoli", "edit_bacterio_enterococci",
+            "edit_coordinator", "edit_operator",
+            "edit_titration_location", "edit_high_tide_time",
+        ):
+            w = getattr(self, attr, None)
+            if w is not None:
+                w.blockSignals(True)
+                w.setText("")
+                w.blockSignals(False)
+
+        comment = getattr(self, "edit_conditions_comment", None)
+        if comment is not None:
+            comment.blockSignals(True)
+            comment.clear()
+            comment.blockSignals(False)
+
+        # --- Dates → "à renseigner" ---
+        for attr in ("edit_sample_date", "edit_bacterio_deposit_day", "edit_titration_date"):
+            w = getattr(self, attr, None)
+            if w is not None:
+                w.blockSignals(True)
+                w.setDate(OPTIONAL_DATE_SENTINEL)
+                w.blockSignals(False)
+
+        # --- Heures → "à renseigner" ---
+        for attr in ("edit_sample_time", "edit_bacterio_deposit_time", "edit_titration_time"):
+            w = getattr(self, attr, None)
+            if w is not None:
+                w.blockSignals(True)
+                w.setTime(OPTIONAL_TIME_SENTINEL)
+                w.blockSignals(False)
+
+        # --- Combos → premier item ("Choisir...") ---
+        for attr in ("combo_water_type", "combo_weather"):
+            w = getattr(self, attr, None)
+            if w is not None:
+                w.blockSignals(True)
+                w.setCurrentIndex(0)
+                w.blockSignals(False)
+
+        # --- SpinBox → valeur minimale (special value text) ---
+        for attr in (
+            "spin_tide_coefficient",
+            "spin_water_temperature", "spin_air_temperature", "spin_rainfall_24h",
+            "spin_turbidity", "spin_conductivity", "spin_ph_water", "spin_dissolved_o2",
+        ):
+            w = getattr(self, attr, None)
+            if w is not None:
+                w.blockSignals(True)
+                w.setValue(w.minimum())
+                w.blockSignals(False)
+
+        # --- Cases à cocher → décochées (signaux bloqués ; visibilités gérées explicitement après) ---
+        for attr in (
+            "chk_ammonium_test", "chk_bacterio_analysis", "chk_titration_done",
+            "chk_turbidity", "chk_conductivity", "chk_ph_water", "chk_dissolved_o2",
+        ):
+            w = getattr(self, attr, None)
+            if w is not None:
+                w.blockSignals(True)
+                w.setChecked(False)
+                w.blockSignals(False)
+
+        # --- Préleveurs supplémentaires ---
+        self._clear_extra_sampler_fields()
+
+        # --- Nom manuel de la titration → retour au mode auto ---
+        self._set_titration_name_manual_mode(False)
+
+        # --- Tableaux et état interne ---
+        self.df_comp = None
+        self.df_map = None
+        self._protocol_states = {}
+        self._ammonium_test_enabled = False
+        self._ammonium_test_values = {"test_1": "", "test_2": "", "ph": "", "operator": ""}
+        self._debit_flux_values = {column: "" for column in self.DEBIT_FLUX_COLUMNS}
+        self.map_dirty = False
+        self._spec_start_index = 0
+        self._last_titration_visibility = None  # force la ré-émission du signal
+
+        # --- Labels de statut ---
+        if hasattr(self, "lbl_status_comp"):
+            self.lbl_status_comp.setText("Tableau des volumes : non défini")
+        if hasattr(self, "lbl_status_map"):
+            self.lbl_status_map.setText("Tableau de correspondance : non défini")
+
+        # --- Visibilités des champs dépendant des cases à cocher ---
+        self._on_ammonium_test_toggled(False)
+        self._on_turbidity_toggled(False)
+        self._on_conductivity_toggled(False)
+        self._on_ph_water_toggled(False)
+        self._on_dissolved_o2_toggled(False)
+        self._refresh_bacterio_fields_visible()
+        self._refresh_titration_fields_visible()
+
+        # --- Rafraîchissement visuel final ---
+        self._refresh_manip_name()
+        self._refresh_titration_manip_name(force=True)
+        self._refresh_fillable_fields_style()
+        self._refresh_button_states()
+        self._mark_metadata_dirty(refresh=False)
+
     def _refresh_button_states(self) -> None:
         """Met à jour la couleur des boutons selon l'état des DataFrames.
 
@@ -3098,6 +3211,15 @@ class MetadataCreatorWidget(QWidget):
         self._mark_metadata_dirty(refresh=False)
         if self.df_map is not None and isinstance(self.df_map, pd.DataFrame) and not self.df_map.empty:
             self.map_dirty = True
+            # Mettre à jour les lignes d'en-tête (valeurs comme coordinateur, lieu…)
+            self.df_map = self._apply_header_values_to_df_map(self.df_map)
+            # Mettre à jour les noms de spectres avec le nom de la manip de titration.
+            # edit_titration_manip est déjà à jour ici (auto : refreshed avant cet appel ;
+            # manuel : en cours de frappe).
+            titration_widget = getattr(self, "edit_titration_manip", None)
+            titration_name = titration_widget.text().strip() if titration_widget else ""
+            if titration_name:
+                self._apply_spectrum_names_to_df_map(titration_name, int(self._spec_start_index))
         self._refresh_button_states()
 
     def _on_header_field_changed(self, *args) -> None:
@@ -4118,18 +4240,29 @@ class MetadataCreatorWidget(QWidget):
         """
         default_cols = ["Nom du spectre", "Tube"]
 
-        # 1) Récupération des informations d'en-tête depuis l'UI
+        # 1) Récupération du nom de base pour les spectres.
+        # Priorité : nom de la manip de titration (car les spectres sont mesurés
+        # pendant la titration). Fallback : nom du prélèvement.
         try:
-            manip_name = self.edit_manip.text().strip() if hasattr(self, "edit_manip") else ""
+            titration_widget = getattr(self, "edit_titration_manip", None)
+            titration_name = titration_widget.text().strip() if titration_widget else ""
+            titration_done = (
+                hasattr(self, "chk_titration_done") and self.chk_titration_done.isChecked()
+            )
+            if titration_done and titration_name:
+                manip_name = titration_name
+            else:
+                manip_name = self.edit_manip.text().strip() if hasattr(self, "edit_manip") else ""
         except Exception:
             manip_name = ""
 
         if not manip_name:
             QMessageBox.warning(
                 self,
-                "Nom du prélèvement manquant",
-                "Veuillez renseigner le préleveur ou la préleveuse et la date/heure de prélèvement "
-                "pour générer le nom de la manip avant de créer la correspondance spectres ↔ tubes.",
+                "Nom de la manip manquant",
+                "Veuillez renseigner le préleveur·se et la date/heure de prélèvement, "
+                "ou le coordinateur·ice et la date/heure de titration, "
+                "avant de créer la correspondance spectres ↔ tubes.",
             )
             return
 
@@ -4422,15 +4555,22 @@ class MetadataCreatorWidget(QWidget):
         self.df_map = df
         
     def _on_manip_name_changed(self, *args) -> None:
-        """Met à jour les noms de spectres générés automatiquement.
-
-        Cette méthode est connectée à QLineEdit.textChanged (str).
-        """
+        """Met à jour les noms de spectres générés automatiquement."""
         manip_name = self.edit_manip.text().strip() if hasattr(self, "edit_manip") else ""
         start_index = int(self._spec_start_index)
 
         if not manip_name:
             return
+
+        # Si la titration est active et qu'un nom de manip de titration est défini,
+        # les noms de spectres suivent la titration — ne pas les écraser avec le nom
+        # du prélèvement.
+        if hasattr(self, "chk_titration_done") and self.chk_titration_done.isChecked():
+            titration_widget = getattr(self, "edit_titration_manip", None)
+            if titration_widget and titration_widget.text().strip():
+                self._mark_metadata_dirty(refresh=False)
+                self._refresh_button_states()
+                return
 
         had_map = self.df_map is not None and isinstance(self.df_map, pd.DataFrame) and not self.df_map.empty
         was_dirty = bool(self.map_dirty)

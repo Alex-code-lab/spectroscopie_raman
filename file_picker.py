@@ -1,5 +1,5 @@
 import os
-from PySide6.QtCore import Qt, QModelIndex, QSortFilterProxyModel, QDir, Signal
+from PySide6.QtCore import Qt, QModelIndex, QSortFilterProxyModel, QDir, Signal, QSettings
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -11,11 +11,19 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QAbstractItemView,
     QListWidget,
+    QListWidgetItem,
     QSizePolicy,
 )
 
-# Dossier par défaut à l'ouverture (modifiez-le si besoin)
-DEFAULT_DIR = os.path.expanduser("~/Documents/Travail/CitizenSers/Spectroscopie/")
+_SETTINGS_KEY = "file_picker/last_dir"
+
+
+def _default_dir() -> str:
+    settings = QSettings("Ramanalyze", "Ramanalyze")
+    saved = settings.value(_SETTINGS_KEY, "")
+    if saved and os.path.isdir(saved):
+        return saved
+    return os.path.expanduser("~")
 
 
 class TxtAndDirsFilter(QSortFilterProxyModel):
@@ -51,7 +59,7 @@ class FilePickerWidget(QWidget):
     def __init__(self, parent=None, start_dir: str | None = None):
         super().__init__(parent)
         self.selected_files: list[str] = []
-        root = start_dir or DEFAULT_DIR
+        root = start_dir or _default_dir()
 
         # ---------- Modèle système de fichiers ----------
         self.model = QFileSystemModel(self)
@@ -146,7 +154,9 @@ class FilePickerWidget(QWidget):
     def _set_root_from_src_index(self, src_index: QModelIndex):
         """Met à jour la vue (proxy) pour afficher le src_index donné comme racine."""
         self.view.setRootIndex(self.proxy.mapFromSource(src_index))
-        self.path_edit.setText(self.model.filePath(src_index))
+        path = self.model.filePath(src_index)
+        self.path_edit.setText(path)
+        QSettings("Ramanalyze", "Ramanalyze").setValue(_SETTINGS_KEY, path)
 
     def _on_double_clicked(self, proxy_index: QModelIndex):
         src_index = self.proxy.mapToSource(proxy_index)
@@ -189,12 +199,15 @@ class FilePickerWidget(QWidget):
     def _refresh_selected_list(self):
         self.selected_list_widget.clear()
         for file_path in self.selected_files:
-            self.selected_list_widget.addItem(file_path)
+            item = QListWidgetItem(os.path.basename(file_path))
+            item.setToolTip(file_path)
+            item.setData(Qt.UserRole, file_path)
+            self.selected_list_widget.addItem(item)
 
     def _remove_selected_from_list(self):
         selected_items = self.selected_list_widget.selectedItems()
         for item in selected_items:
-            file_path = item.text()
+            file_path = item.data(Qt.UserRole) or item.text()
             if file_path in self.selected_files:
                 self.selected_files.remove(file_path)
             self.selected_list_widget.takeItem(self.selected_list_widget.row(item))
