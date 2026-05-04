@@ -3502,6 +3502,7 @@ class MetadataCreatorWidget(QWidget):
             ["Nom de la manip", values.get("Nom de la manip de titration", "")],
             ["Coordinateur", values.get("Coordinateur", "")],
             ["Opérateur", values.get("Opérateur", "")],
+            ["Lieu de la titration", values.get("Lieu de la titration", "")],
             ["Date/heure de la titration", values.get("Date/heure de la titration", "")],
         ]
         return pd.DataFrame(rows, columns=["Nom du spectre", "Tube"])
@@ -3632,6 +3633,64 @@ class MetadataCreatorWidget(QWidget):
             text = re.sub(r"[^a-z0-9]+", " ", text)
             return re.sub(r"\s+", " ", text).strip()
 
+        known_label_keys = {
+            _key(label)
+            for label in (
+                "Nom du prélèvement",
+                "Type d'eau",
+                "Département",
+                "Commune",
+                "Lieu du prélèvement",
+                "Nom du lieu",
+                "Latitude",
+                "Latitude GPS",
+                "Longitude",
+                "Longitude GPS",
+                "Lieu de la titration",
+                "Lieu titration",
+                "Date du prélèvement",
+                "Heure du prélèvement",
+                "Préleveur·se",
+                "Association",
+                "Titration du cuivre",
+                "Analyses bactériologiques",
+                "Test ammonium réalisé",
+                "Turbidité mesurée",
+                "Conductivité mesurée",
+                "pH eau mesuré",
+                "pH de l'eau mesuré",
+                "Oxygène dissous mesuré",
+                "Coefficient de marée",
+                "Heure pleine mer",
+                "Heure de pleine mer",
+                "Réalisé par",
+                "Test 1 grossier",
+                "Test 2 précis",
+                "pH ammonium",
+                "Jour de dépôt",
+                "Heure du dépôt",
+                "Entreprise de mesure",
+                "Météo",
+                "T° eau (°C)",
+                "T° air (°C)",
+                "Pluie 24 h (mm)",
+                "E. coli (npp/ml)",
+                "Entérocoques (npp/100ml)",
+                "Turbidité (NTU)",
+                "Conductivité (µS/cm)",
+                "pH de l'eau",
+                "Oxygène dissous (mg/L)",
+                "Nom manip titration",
+                "Largeur route",
+                "Longueur 6 arches",
+                "Hauteur eau",
+                "Volume total (m3)",
+                "Vitesse (s)",
+                "Débit (m3/s)",
+                "Commentaires",
+            )
+        }
+
         def _cell0(row_idx: int, col_idx: int) -> str:
             return _cell(row_idx + 1, col_idx + 1)
 
@@ -3643,8 +3702,12 @@ class MetadataCreatorWidget(QWidget):
                         continue
                     for scan_col in range(col_idx + 1, min(raw.shape[1], col_idx + 1 + max_scan)):
                         val = _cell0(row_idx, scan_col)
-                        if val:
-                            return val
+                        if not val:
+                            continue
+                        val_key = _key(val).rstrip(" :")
+                        if val_key in known_label_keys and val_key not in wanted:
+                            break
+                        return val
             return ""
 
         def _values_right_of_label_prefix(*prefixes: str) -> list[str]:
@@ -3667,7 +3730,30 @@ class MetadataCreatorWidget(QWidget):
                 next_keys = [_key(_cell0(row_idx + 1, col_idx)) for col_idx in range(raw.shape[1])]
                 current_joined = " ".join(row_keys)
                 joined = " ".join(row_keys + next_keys)
-                current_score = sum(
+                new_group_score = sum(
+                    marker in current_joined
+                    for marker in (
+                        "contexte terrain",
+                        "test ammonium",
+                        "analyses bacteriologiques",
+                        "autres mesures",
+                        "titration du cuivre",
+                        "debit flux",
+                    )
+                )
+                new_sub_score = sum(
+                    marker in " ".join(next_keys)
+                    for marker in (
+                        "meteo",
+                        "t eau",
+                        "test 1 grossier",
+                        "jour de depot",
+                        "ph eau mesure",
+                        "largeur route",
+                        "commentaires",
+                    )
+                )
+                legacy_current_score = sum(
                     marker in current_joined
                     for marker in (
                         "point gps",
@@ -3678,7 +3764,7 @@ class MetadataCreatorWidget(QWidget):
                         "debit flux",
                     )
                 )
-                score = sum(
+                legacy_score = sum(
                     marker in joined
                     for marker in (
                         "point gps",
@@ -3689,16 +3775,19 @@ class MetadataCreatorWidget(QWidget):
                         "debit flux",
                     )
                 )
-                if current_score < 2:
+                is_new_table = new_group_score >= 3 and new_sub_score >= 2
+                is_legacy_table = legacy_current_score >= 2 and (
+                    legacy_score >= 3 or ("lat" in next_keys and "lon" in next_keys and "point gps" in joined)
+                )
+                if not (is_new_table or is_legacy_table):
                     continue
-                if score >= 3 or ("lat" in next_keys and "lon" in next_keys and "point gps" in joined):
-                    data_row = row_idx + 2
-                    for candidate in range(row_idx + 2, min(len(raw), row_idx + 12)):
-                        filled = sum(1 for col_idx in range(raw.shape[1]) if _cell0(candidate, col_idx))
-                        if filled >= 2:
-                            data_row = candidate
-                            break
-                    return row_idx, row_idx + 1, data_row
+                data_row = row_idx + 2
+                for candidate in range(row_idx + 2, min(len(raw), row_idx + 12)):
+                    filled = sum(1 for col_idx in range(raw.shape[1]) if _cell0(candidate, col_idx))
+                    if filled >= 2:
+                        data_row = candidate
+                        break
+                return row_idx, row_idx + 1, data_row
             return 4, 5, 6
 
         top_header_row, sub_header_row, data_row = _find_measure_header_rows()
@@ -3781,24 +3870,42 @@ class MetadataCreatorWidget(QWidget):
             "Nom du prélèvement": _value_right_of_label("Nom du prélèvement"),
             "Département": _value_right_of_label("Département") or _cell(2, 4),
             "Commune": _value_right_of_label("Commune") or _cell(2, 9),
-            "Lieu du prélèvement": _col_value("point", exclude=("point gps",), fallback=_cell(7, 2))
-            or _value_right_of_label("Nom du lieu")
+            "Lieu du prélèvement": _value_right_of_label("Lieu du prélèvement", "Nom du lieu")
+            or _col_value("point", exclude=("point gps",), fallback=_cell(7, 2))
             or _cell(2, 19),
-            "Latitude du prélèvement": _col_value("point gps lat", "latitude", "lat", fallback=_cell(7, 3)),
-            "Longitude du prélèvement": _col_value("point gps lon", "longitude", "lon", fallback=_cell(7, 4)),
-            "Type d'eau": _col_value("nature de l eau", "type d eau", fallback=_cell(7, 5))
-            or _value_right_of_label("Type de lieu")
+            "Latitude du prélèvement": _value_right_of_label("Latitude du prélèvement", "Latitude GPS", "Latitude", "Lat")
+            or _col_value("point gps lat", "latitude", "lat", fallback=_cell(7, 3)),
+            "Longitude du prélèvement": _value_right_of_label(
+                "Longitude du prélèvement",
+                "Longitude GPS",
+                "Longitude",
+                "Lon",
+            )
+            or _col_value("point gps lon", "longitude", "lon", fallback=_cell(7, 4)),
+            "Type d'eau": _value_right_of_label("Type d'eau", "Type de lieu", "Nature de l'eau")
+            or _col_value("nature de l eau", "type d eau", fallback=_cell(7, 5))
             or _cell(2, 14),
-            "Date du prélèvement": _col_value("date", "date prelevement", fallback=_cell(7, 6)),
-            "Coefficient de marée": _col_value("coefficient de maree", "coefficient maree", fallback=_cell(7, 7)),
-            "Heure de pleine mer": _col_value("heure pleine mer", "heure de pleine mer", fallback=_cell(7, 8)),
-            "Heure du prélèvement": _col_value("heure du prelevement", fallback=_cell(7, 9)),
-            "Test ammonium réalisé": _col_value("test ammonium realise", "test ammonium realise"),
-            "Test ammonium réalisé par": _col_value("realise par", "realise par"),
+            "Date du prélèvement": _value_right_of_label("Date du prélèvement", "Date de prélèvement")
+            or _col_value("date", "date prelevement", fallback=_cell(7, 6)),
+            "Coefficient de marée": _value_right_of_label("Coefficient de marée", "Coefficient marée")
+            or _col_value("coefficient de maree", "coefficient maree", fallback=_cell(7, 7)),
+            "Heure de pleine mer": _value_right_of_label("Heure de pleine mer", "Heure pleine mer")
+            or _col_value("heure pleine mer", "heure de pleine mer", fallback=_cell(7, 8)),
+            "Heure du prélèvement": _value_right_of_label("Heure du prélèvement", "Heure de prélèvement")
+            or _col_value("heure du prelevement", fallback=_cell(7, 9)),
+            "Test ammonium réalisé": _value_right_of_label("Test ammonium réalisé", "Test ammonium")
+            or _col_value("test ammonium realise", "test ammonium"),
+            "Test ammonium réalisé par": _value_right_of_label("Test ammonium réalisé par")
+            or _col_value("realise par", "réalisé par"),
             "Test ammonium 1 (grossier)": _col_value("test 1 grossier", "ammonium test 1"),
             "Test ammonium 2 (précis)": _col_value("test 2 precis", "ammonium test 2"),
             "pH (ammonium)": _col_value("ph ammonium"),
-            "Analyses bactériologiques": bacterio_status or ("Oui" if bacterio_done else ""),
+            "Analyses bactériologiques": _value_right_of_label(
+                "Analyses bactériologiques",
+                "Analyse bactériologique",
+            )
+            or bacterio_status
+            or ("Oui" if bacterio_done else ""),
             "Jour de dépôt": _col_value("jour de depot", "jour depot", fallback=_cell(7, 16)),
             "Heure du dépôt": _col_value("heure du depot", "heure depot", fallback=_cell(7, 17)),
             "Entreprise de mesure": _col_value("entreprise de mesure", fallback=_cell(7, 18)),
@@ -3806,22 +3913,34 @@ class MetadataCreatorWidget(QWidget):
             "Température de l'eau": _col_value("t eau", "temperature de l eau", fallback=_cell(7, 22)),
             "Température de l'air": _col_value("t air", "temperature de l air", fallback=_cell(7, 23)),
             "Pluie dernières 24 h (mm)": _col_value("pluviometrie", "mm 24h", "pluie", fallback=_cell(7, 24)),
-            "Résultats E.Coli (npp/ml)": _col_value("resultats e coli", fallback=_cell(7, 25)),
-            "Résultats Entérocoques intestinaux (npp/100ml)": _col_value("resultats enterocoques", fallback=_cell(7, 26)),
-            "Turbidité mesurée": _col_value("turbidite mesuree"),
+            "Résultats E.Coli (npp/ml)": _col_value("resultats e coli", "e coli", fallback=_cell(7, 25)),
+            "Résultats Entérocoques intestinaux (npp/100ml)": _col_value(
+                "resultats enterocoques",
+                "enterocoques",
+                fallback=_cell(7, 26),
+            ),
+            "Turbidité mesurée": _value_right_of_label("Turbidité mesurée")
+            or _col_value("turbidite mesuree"),
             "Turbidité (NTU)": _col_value("turbidite ntu"),
-            "Conductivité mesurée": _col_value("conductivite mesuree"),
+            "Conductivité mesurée": _value_right_of_label("Conductivité mesurée")
+            or _col_value("conductivite mesuree"),
             "Conductivité (µS/cm)": _col_value("conductivite us cm", "conductivite s cm"),
-            "pH de l'eau mesuré": _col_value("ph eau mesure", "ph de l eau mesure"),
-            "pH de l'eau": _col_value("ph de l eau", "ph eau"),
-            "Oxygène dissous mesuré": _col_value("oxygene dissous mesure", "o2 dissous mesure"),
+            "pH de l'eau mesuré": _value_right_of_label("pH eau mesuré", "pH de l'eau mesuré")
+            or _col_value("ph eau mesure", "ph de l eau mesure"),
+            "pH de l'eau": _col_value("ph de l eau", "ph eau", exclude=("mesure",)),
+            "Oxygène dissous mesuré": _value_right_of_label("Oxygène dissous mesuré", "O2 dissous mesuré")
+            or _col_value("oxygene dissous mesure", "o2 dissous mesure"),
             "Oxygène dissous (mg/L)": _col_value("oxygene dissous mg l", "o2 dissous"),
-            "Titration du cuivre": _col_value("titration du cuivre", "titration"),
-            "Nom de la manip de titration": _col_value(
+            "Titration du cuivre": _value_right_of_label("Titration du cuivre", "Titration")
+            or _col_value("titration du cuivre", "titration"),
+            "Nom de la manip de titration": _value_right_of_label("Nom de la manip", "Nom de la manip de titration")
+            or _col_value(
                 "nom manip titration",
                 "nom de la manip de titration",
                 "nom de la manip",
             ),
+            "Lieu de la titration": _value_right_of_label("Lieu de la titration", "Lieu titration")
+            or _col_value("lieu titration", "lieu de la titration"),
             "Débit / flux - Largeur route": _col_value("largeur route", fallback=_cell(7, 27)),
             "Débit / flux - Longueur 6 arches": _col_value("longueur 6 arches", fallback=_cell(7, 28)),
             "Débit / flux - Hauteur eau": _col_value("hauteur eau", fallback=_cell(7, 29)),
@@ -5644,6 +5763,7 @@ class MetadataCreatorWidget(QWidget):
             ("Oxygène dissous (mg/L)", "result"),
             ("Titration du cuivre", "titration"),
             ("Nom manip titration", "titration"),
+            ("Lieu titration", "titration"),
             ("Largeur route", "debit"),
             ("Longueur 6 arches", "debit"),
             ("Hauteur eau", "debit"),
@@ -5665,9 +5785,9 @@ class MetadataCreatorWidget(QWidget):
             (7, 11, "Test ammonium", ammonium_fill),
             (12, 17, "Analyses bactériologiques", bacterio_fill),
             (18, 25, "Autres mesures", data_cyan),
-            (26, 27, "Titration du cuivre", header_fill),
-            (28, 33, "Débit / flux", debit_fill),
-            (34, 34, "Commentaires", comment_fill),
+            (26, 28, "Titration du cuivre", header_fill),
+            (29, 34, "Débit / flux", debit_fill),
+            (35, 35, "Commentaires", comment_fill),
         ]
         for start_col, end_col, title, fill in group_specs:
             _merge(
@@ -5725,6 +5845,7 @@ class MetadataCreatorWidget(QWidget):
             "Oxygène dissous (mg/L)": values.get("Oxygène dissous (mg/L)", ""),
             "Titration du cuivre": values.get("Titration du cuivre", "Non") or "Non",
             "Nom manip titration": values.get("Nom de la manip de titration", ""),
+            "Lieu titration": values.get("Lieu de la titration", ""),
             "Largeur route": values.get("Débit / flux - Largeur route", ""),
             "Longueur 6 arches": values.get("Débit / flux - Longueur 6 arches", ""),
             "Hauteur eau": values.get("Débit / flux - Hauteur eau", ""),
@@ -5738,14 +5859,14 @@ class MetadataCreatorWidget(QWidget):
             cell.value = shared_values.get(header, "")
             cell.border = thick_bottom
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            cell.fill = section_fills.get(section, white_fill)
+            cell.fill = white_fill
 
         widths = {
             "A": 13, "B": 11, "C": 11, "D": 12, "E": 13, "F": 12, "G": 14, "H": 16,
             "I": 13, "J": 13, "K": 12, "L": 16, "M": 13, "N": 13, "O": 16, "P": 13,
             "Q": 16, "R": 13, "S": 13, "T": 14, "U": 15, "V": 13, "W": 11, "X": 16,
-            "Y": 17, "Z": 14, "AA": 20, "AB": 12, "AC": 13, "AD": 12, "AE": 13,
-            "AF": 10, "AG": 11, "AH": 28,
+            "Y": 17, "Z": 14, "AA": 20, "AB": 16, "AC": 12, "AD": 13, "AE": 12,
+            "AF": 13, "AG": 10, "AH": 11, "AI": 28,
         }
         for col, width in widths.items():
             ws.column_dimensions[col].width = width
