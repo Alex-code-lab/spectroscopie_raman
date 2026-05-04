@@ -40,8 +40,9 @@ from metadata_creator import MetadataCreatorWidget
 class WorkflowStatusTabBar(QTabBar):
     """QTabBar avec fond rouge/vert pour certains onglets de workflow."""
 
-    _ACTIVE_EXTRA_WIDTH = 16
-    _ACTIVE_EXTRA_HEIGHT = 5
+    _ACTIVE_EXTRA_WIDTH = 24
+    _ACTIVE_EXTRA_HEIGHT = 8
+    _ACTIVE_BORDER_COLOR = "#f4f4f4"
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -75,12 +76,15 @@ class WorkflowStatusTabBar(QTabBar):
             self.initStyleOption(option, index)
             color_hex = self._status_colors.get(index)
             if not color_hex:
-                painter.drawControl(QStyle.ControlElement.CE_TabBarTab, option)
+                if option.state & QStyle.StateFlag.State_Selected:
+                    self._draw_colored_tab(painter, option, QColor("#666666"))
+                else:
+                    painter.drawControl(QStyle.ControlElement.CE_TabBarTab, option)
                 continue
 
             color = QColor(color_hex)
             if option.state & QStyle.StateFlag.State_Selected:
-                color = color.lighter(110)
+                color = color.lighter(115)
 
             self._draw_colored_tab(painter, option, color)
 
@@ -92,10 +96,44 @@ class WorkflowStatusTabBar(QTabBar):
         painter.drawRoundedRect(rect, 4, 4)
         painter.restore()
 
-        option.palette.setColor(QPalette.ColorRole.WindowText, QColor("#ffffff"))
-        option.palette.setColor(QPalette.ColorRole.ButtonText, QColor("#ffffff"))
-        option.palette.setColor(QPalette.ColorRole.Text, QColor("#ffffff"))
+        if option.state & QStyle.StateFlag.State_Selected:
+            self._draw_active_frame(painter, option)
+
+        self._draw_tab_label(
+            painter,
+            option,
+            QColor("#ffffff"),
+            bold=bool(option.state & QStyle.StateFlag.State_Selected),
+        )
+
+    def _draw_active_frame(self, painter: QStylePainter, option: QStyleOptionTab) -> None:
+        rect = option.rect.adjusted(0, 0, -1, -1)
+        painter.save()
+        painter.setPen(QColor(self._ACTIVE_BORDER_COLOR))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(rect, 5, 5)
+        painter.restore()
+
+    def _draw_tab_label(
+        self,
+        painter: QStylePainter,
+        option: QStyleOptionTab,
+        text_color: QColor | None = None,
+        *,
+        bold: bool = False,
+    ) -> None:
+        if text_color is not None:
+            option.palette.setColor(QPalette.ColorRole.WindowText, text_color)
+            option.palette.setColor(QPalette.ColorRole.ButtonText, text_color)
+            option.palette.setColor(QPalette.ColorRole.Text, text_color)
+
+        painter.save()
+        if bold:
+            font = painter.font()
+            font.setBold(True)
+            painter.setFont(font)
         painter.drawControl(QStyle.ControlElement.CE_TabBarTabLabel, option)
+        painter.restore()
 
 
 class MainWindow(QMainWindow):
