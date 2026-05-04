@@ -3538,44 +3538,170 @@ class MetadataCreatorWidget(QWidget):
             text = str(value).strip()
             return "" if text.lower() in {"nan", "nat", "none", "<na>"} else text
 
-        sampler_values = [_cell(7, 10), _cell(7, 12), _cell(7, 14)]
-        association_values = [_cell(7, 11), _cell(7, 13), _cell(7, 15)]
-        if not any(sampler_values):
-            sampler_values = [p.strip() for p in re.split(r"[;\n]+", _cell(3, 5)) if p.strip()]
-        if not any(association_values):
-            association_values = [p.strip() for p in re.split(r"[;\n]+", _cell(3, 15)) if p.strip()]
+        def _key(value) -> str:
+            text = mm.norm_text_key(value)
+            text = text.replace("°", " ").replace("·", " ").replace("/", " ")
+            text = re.sub(r"[^a-z0-9]+", " ", text)
+            return re.sub(r"\s+", " ", text).strip()
 
-        bacterio_markers = [_cell(7, 19), _cell(7, 20), _cell(7, 25), _cell(7, 26)]
+        def _cell0(row_idx: int, col_idx: int) -> str:
+            return _cell(row_idx + 1, col_idx + 1)
+
+        def _value_right_of_label(*labels: str, max_scan: int = 12) -> str:
+            wanted = {_key(label) for label in labels}
+            for row_idx in range(min(len(raw), 8)):
+                for col_idx in range(raw.shape[1]):
+                    if _key(_cell0(row_idx, col_idx)).rstrip(" :") not in wanted:
+                        continue
+                    for scan_col in range(col_idx + 1, min(raw.shape[1], col_idx + 1 + max_scan)):
+                        val = _cell0(row_idx, scan_col)
+                        if val:
+                            return val
+            return ""
+
+        def _find_measure_header_rows() -> tuple[int, int, int]:
+            for row_idx in range(max(0, len(raw) - 1)):
+                row_keys = [_key(_cell0(row_idx, col_idx)) for col_idx in range(raw.shape[1])]
+                next_keys = [_key(_cell0(row_idx + 1, col_idx)) for col_idx in range(raw.shape[1])]
+                current_joined = " ".join(row_keys)
+                joined = " ".join(row_keys + next_keys)
+                current_score = sum(
+                    marker in current_joined
+                    for marker in (
+                        "point gps",
+                        "nature de l eau",
+                        "heure du prelevement",
+                        "analyse e coli",
+                        "resultats e coli",
+                        "debit flux",
+                    )
+                )
+                score = sum(
+                    marker in joined
+                    for marker in (
+                        "point gps",
+                        "nature de l eau",
+                        "heure du prelevement",
+                        "analyse e coli",
+                        "resultats e coli",
+                        "debit flux",
+                    )
+                )
+                if current_score < 2:
+                    continue
+                if score >= 3 or ("lat" in next_keys and "lon" in next_keys and "point gps" in joined):
+                    data_row = row_idx + 2
+                    for candidate in range(row_idx + 2, min(len(raw), row_idx + 12)):
+                        filled = sum(1 for col_idx in range(raw.shape[1]) if _cell0(candidate, col_idx))
+                        if filled >= 2:
+                            data_row = candidate
+                            break
+                    return row_idx, row_idx + 1, data_row
+            return 4, 5, 6
+
+        top_header_row, sub_header_row, data_row = _find_measure_header_rows()
+
+        headers: list[str] = []
+        for col_idx in range(raw.shape[1]):
+            top = _cell0(top_header_row, col_idx)
+            sub = _cell0(sub_header_row, col_idx)
+            headers.append(_key(f"{top} {sub}".strip()))
+
+        def _header_matches(header: str, *patterns: str) -> bool:
+            if not header:
+                return False
+            for pattern in patterns:
+                pat = _key(pattern)
+                if not pat:
+                    continue
+                if pat == "association":
+                    if header == pat or header.startswith(f"{pat} "):
+                        return True
+                    continue
+                if header == pat or pat in header:
+                    return True
+            return False
+
+        def _col_value(*patterns: str, exclude: tuple[str, ...] = (), fallback: str = "") -> str:
+            exclude_keys = tuple(_key(item) for item in exclude)
+            for col_idx, header in enumerate(headers):
+                if any(ex and ex in header for ex in exclude_keys):
+                    continue
+                if _header_matches(header, *patterns):
+                    value = _cell0(data_row, col_idx)
+                    if value:
+                        return value
+            return fallback
+
+        def _col_values(*patterns: str, fallback_values: list[str] | None = None) -> list[str]:
+            values_out: list[str] = []
+            for col_idx, header in enumerate(headers):
+                if _header_matches(header, *patterns):
+                    val = _cell0(data_row, col_idx)
+                    if val:
+                        values_out.append(val)
+            if values_out:
+                return values_out
+            return fallback_values or []
+
+        sampler_values = _col_values(
+            "préleveur",
+            "preleveur",
+            fallback_values=[_cell(7, 10), _cell(7, 12), _cell(7, 14)],
+        )
+        association_values = _col_values(
+            "association",
+            fallback_values=[_cell(7, 11), _cell(7, 13), _cell(7, 15)],
+        )
+        if not any(sampler_values):
+            sampler_values = [p.strip() for p in re.split(r"[;\n]+", _value_right_of_label("Bénévoles engagé·es")) if p.strip()]
+        if not any(association_values):
+            association_values = [
+                p.strip()
+                for p in re.split(r"[;\n]+", _value_right_of_label("De (ou des) l'association(s)"))
+                if p.strip()
+            ]
+
+        bacterio_markers = [
+            _col_value("analyse e coli", fallback=_cell(7, 19)),
+            _col_value("analyse enterocoques", fallback=_cell(7, 20)),
+            _col_value("resultats e coli", fallback=_cell(7, 25)),
+            _col_value("resultats enterocoques", fallback=_cell(7, 26)),
+        ]
         bacterio_done = any(str(v).strip() for v in bacterio_markers)
 
         values: dict[str, str] = {
-            "Département": _cell(2, 4),
-            "Commune": _cell(2, 9),
-            "Lieu du prélèvement": _cell(7, 2) or _cell(2, 19),
-            "Latitude du prélèvement": _cell(7, 3),
-            "Longitude du prélèvement": _cell(7, 4),
-            "Type d'eau": _cell(7, 5) or _cell(2, 14),
-            "Date du prélèvement": _cell(7, 6),
-            "Coefficient de marée": _cell(7, 7),
-            "Heure de pleine mer": _cell(7, 8),
-            "Heure du prélèvement": _cell(7, 9),
+            "Département": _value_right_of_label("Département") or _cell(2, 4),
+            "Commune": _value_right_of_label("Commune") or _cell(2, 9),
+            "Lieu du prélèvement": _col_value("point", exclude=("point gps",), fallback=_cell(7, 2))
+            or _value_right_of_label("Nom du lieu")
+            or _cell(2, 19),
+            "Latitude du prélèvement": _col_value("point gps lat", "latitude", "lat", fallback=_cell(7, 3)),
+            "Longitude du prélèvement": _col_value("point gps lon", "longitude", "lon", fallback=_cell(7, 4)),
+            "Type d'eau": _col_value("nature de l eau", "type d eau", fallback=_cell(7, 5))
+            or _value_right_of_label("Type de lieu")
+            or _cell(2, 14),
+            "Date du prélèvement": _col_value("date", "date prelevement", fallback=_cell(7, 6)),
+            "Coefficient de marée": _col_value("coefficient de maree", "coefficient maree", fallback=_cell(7, 7)),
+            "Heure de pleine mer": _col_value("heure pleine mer", "heure de pleine mer", fallback=_cell(7, 8)),
+            "Heure du prélèvement": _col_value("heure du prelevement", fallback=_cell(7, 9)),
             "Analyses bactériologiques": "Oui" if bacterio_done else "",
-            "Jour de dépôt": _cell(7, 16),
-            "Heure du dépôt": _cell(7, 17),
-            "Entreprise de mesure": _cell(7, 18),
-            "Temps au moment de la mesure": _cell(7, 21),
-            "Température de l'eau": _cell(7, 22),
-            "Température de l'air": _cell(7, 23),
-            "Pluie dernières 24 h (mm)": _cell(7, 24),
-            "Résultats E.Coli (npp/ml)": _cell(7, 25),
-            "Résultats Entérocoques intestinaux (npp/100ml)": _cell(7, 26),
-            "Débit / flux - Largeur route": _cell(7, 27),
-            "Débit / flux - Longueur 6 arches": _cell(7, 28),
-            "Débit / flux - Hauteur eau": _cell(7, 29),
-            "Débit / flux - Volume total (m3)": _cell(7, 30),
-            "Débit / flux - Vitesse (s)": _cell(7, 31),
-            "Débit / flux - Débit (m3/s)": _cell(7, 32),
-            "Commentaire sur les conditions": _cell(7, 33),
+            "Jour de dépôt": _col_value("jour de depot", "jour depot", fallback=_cell(7, 16)),
+            "Heure du dépôt": _col_value("heure du depot", "heure depot", fallback=_cell(7, 17)),
+            "Entreprise de mesure": _col_value("entreprise de mesure", fallback=_cell(7, 18)),
+            "Temps au moment de la mesure": _col_value("meteo", "contexte de prelevement", fallback=_cell(7, 21)),
+            "Température de l'eau": _col_value("t eau", "temperature de l eau", fallback=_cell(7, 22)),
+            "Température de l'air": _col_value("t air", "temperature de l air", fallback=_cell(7, 23)),
+            "Pluie dernières 24 h (mm)": _col_value("pluviometrie", "mm 24h", "pluie", fallback=_cell(7, 24)),
+            "Résultats E.Coli (npp/ml)": _col_value("resultats e coli", fallback=_cell(7, 25)),
+            "Résultats Entérocoques intestinaux (npp/100ml)": _col_value("resultats enterocoques", fallback=_cell(7, 26)),
+            "Débit / flux - Largeur route": _col_value("largeur route", fallback=_cell(7, 27)),
+            "Débit / flux - Longueur 6 arches": _col_value("longueur 6 arches", fallback=_cell(7, 28)),
+            "Débit / flux - Hauteur eau": _col_value("hauteur eau", fallback=_cell(7, 29)),
+            "Débit / flux - Volume total (m3)": _col_value("volume total", fallback=_cell(7, 30)),
+            "Débit / flux - Vitesse (s)": _col_value("vitesse", fallback=_cell(7, 31)),
+            "Débit / flux - Débit (m3/s)": _col_value("debit m3 s", fallback=_cell(7, 32)),
+            "Commentaire sur les conditions": _col_value("commentaires", "commentaire", fallback=_cell(7, 33)),
         }
 
         sampler_values = [v for v in sampler_values if str(v).strip()]
