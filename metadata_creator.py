@@ -1785,15 +1785,15 @@ class MetadataCreatorWidget(QWidget):
         row_sample_name.addWidget(QLabel("Nom du prélèvement :", self))
         self.edit_manip = QLineEdit(self)
         self.edit_manip.setReadOnly(True)
-        self.edit_manip.setPlaceholderText("généré automatiquement")
+        self.edit_manip.setPlaceholderText("PRE_… (généré automatiquement)")
         self.edit_manip.setFocusPolicy(Qt.NoFocus)
         self.edit_manip.setStyleSheet(
             "background-color: #263238; color: #ffffff; border: 1px solid #6fa8d6; "
             "font-weight: 700; padding: 3px 6px;"
         )
         self.edit_manip.setToolTip(
-            "Généré depuis les initiales prénom+nom de chaque préleveur·se, "
-            "puis _AAAAMMJJ_HHhMM."
+            "Généré automatiquement : PRE_<initiales>_AAAAMMJJ_HHhMM\n"
+            "Les initiales sont celles de chaque préleveur·se (prénom+nom)."
         )
         row_sample_name.addWidget(self.edit_manip, 1)
         header_layout.addLayout(row_sample_name)
@@ -1973,6 +1973,7 @@ class MetadataCreatorWidget(QWidget):
         self.edit_ammonium_ph.setMaximumWidth(60)
         self.edit_ammonium_ph.setVisible(False)
         self.edit_ammonium_ph.textChanged.connect(self._on_header_field_changed)
+        self.edit_ammonium_ph.textChanged.connect(self._sync_ammonium_ph_to_water_ph)
         row_measures.addWidget(self.edit_ammonium_ph)
         row_measures.addStretch(1)
         measures_layout.addLayout(row_measures)
@@ -2186,8 +2187,8 @@ class MetadataCreatorWidget(QWidget):
             "font-weight: 700; padding: 3px 6px;"
         )
         self.edit_titration_manip.setToolTip(
-            "Généré depuis les initiales prénom+nom de l'opérateur·ice puis du/de la coordinateur·ice, "
-            "puis _AAAAMMJJ_HHhMM. Le bouton Modifier permet de saisir un nom manuel."
+            "Généré automatiquement : <initiales opérateur><initiales coordinateur>_AAAAMMJJ_HHhMM\n"
+            "Le bouton Modifier permet de saisir un nom manuel."
         )
         self.edit_titration_manip.textChanged.connect(self._on_titration_manual_name_text_changed)
         row_titration_name.addWidget(self.edit_titration_manip, 1)
@@ -3233,7 +3234,7 @@ class MetadataCreatorWidget(QWidget):
         if not initials or not _field_has_value(sample_date) or not _field_has_value(sample_time):
             return ""
         dt = QDateTime(sample_date.date(), sample_time.time())
-        return f"{initials}_{dt.toString('yyyyMMdd')}_{dt.toString('HH')}h{dt.toString('mm')}"
+        return f"PRE_{initials}_{dt.toString('yyyyMMdd')}_{dt.toString('HH')}h{dt.toString('mm')}"
 
     def _build_titration_manip_name(self) -> str:
         oper = self._person_initials(self.edit_operator.text() if hasattr(self, "edit_operator") else "")
@@ -4465,6 +4466,26 @@ class MetadataCreatorWidget(QWidget):
             w = getattr(self, attr, None)
             if w is not None:
                 w.setVisible(bool(checked))
+        self._on_header_field_changed()
+
+    def _sync_ammonium_ph_to_water_ph(self, text: str) -> None:
+        chk = getattr(self, "chk_ph_water", None)
+        spin = getattr(self, "spin_ph_water", None)
+        if chk is None or spin is None:
+            return
+        try:
+            val = float(text.strip().replace(",", "."))
+        except ValueError:
+            return
+        val = max(spin.minimum() + 0.01, min(spin.maximum(), val))
+        if not chk.isChecked():
+            chk.blockSignals(True)
+            chk.setChecked(True)
+            chk.blockSignals(False)
+            self._on_ph_water_toggled(True)
+        spin.blockSignals(True)
+        spin.setValue(val)
+        spin.blockSignals(False)
         self._on_header_field_changed()
 
     def _on_dissolved_o2_toggled(self, checked: bool) -> None:

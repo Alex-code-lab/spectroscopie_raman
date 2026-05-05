@@ -252,13 +252,24 @@ class MainWindow(QMainWindow):
 </ul>
 
 <div class="note">
-  <b style="color:#ffffff">Nom du prélèvement — identifiant de l'échantillon :</b>
-  Le champ <span class="key">Nom du prélèvement</span> est l'identifiant central de toute la session.
-  Il est généré automatiquement à partir des initiales du·de la préleveur·se et de la date/heure,
-  mais peut être modifié librement. <b>C'est ce nom qui apparaîtra dans tous les exports et
-  dans la correspondance spectres ↔ tubes — assurez-vous qu'il est unique et explicite
-  avant d'enregistrer</b> (ex. : <span class="mono">DJ_2026-04-30_14h00</span>).
-  Traitez-le comme le code-barres de votre échantillon.
+  <b style="color:#ffffff">Noms générés automatiquement :</b><br>
+  <ul style="margin-top:6px">
+    <li>
+      <span class="key">Nom du prélèvement</span> :
+      <span class="mono">PRE_&lt;initiales&gt;_AAAAMMJJ_HHhMM</span><br>
+      Les initiales sont celles de chaque préleveur·se (1<sup>re</sup> lettre du prénom + 1<sup>re</sup> lettre du nom, concaténées).<br>
+      Exemple avec deux préleveur·ses « Denis Jacquet » et « Alice Martin » :
+      <span class="mono">PRE_DJAM_20260430_14h00</span>
+    </li>
+    <li style="margin-top:8px">
+      <span class="key">Nom de la manip de titration</span> :
+      <span class="mono">&lt;initiales opérateur&gt;&lt;initiales coordinateur&gt;_AAAAMMJJ_HHhMM</span><br>
+      Exemple : <span class="mono">DJAM_20260430_09h30</span>
+    </li>
+  </ul>
+  Ces noms apparaissent dans tous les exports et dans la correspondance spectres ↔ tubes.
+  <b>Assurez-vous qu'ils sont uniques avant d'enregistrer</b> — traitez-les comme le code-barres de votre session.
+  Le bouton <b>Modifier</b> (titration uniquement) permet de saisir un nom manuel.
 </div>
 
 <h4>Prélèvement de l'échantillon</h4>
@@ -266,7 +277,7 @@ class MainWindow(QMainWindow):
   <li>Chaque préleveur·se est saisi·e au format <b>Prénom puis nom</b>, avec son association sur la même ligne.</li>
   <li>Le bouton <b>+1 préleveur·se</b> ajoute une personne et une association supplémentaires.</li>
   <li>La date et l'heure du prélèvement sont vides au départ ; elles passent au vert lorsqu'elles sont renseignées.</li>
-  <li>Le <b>nom du prélèvement</b> est généré automatiquement avec les initiales de tous les préleveur·ses, puis la date et l'heure.</li>
+  <li>Le <b>nom du prélèvement</b> (<span class="mono">PRE_…</span>) est généré automatiquement dès que les initiales et la date/heure sont renseignées.</li>
   <li>Latitude et longitude acceptent les degrés décimaux ou les coordonnées GPS issues d'une carte.</li>
   <li>Le bouton <b>Carte / pointer...</b> permet de placer le point sur une carte interne quand le composant web est disponible.</li>
   <li>Si Internet est disponible, département et commune sont proposés automatiquement depuis les coordonnées GPS ; ils restent modifiables à la main.</li>
@@ -290,7 +301,8 @@ class MainWindow(QMainWindow):
 <h4>Information sur la titration</h4>
 <ul>
   <li>Coordinateur·ice et opérateur·ice sont saisi·es au format <b>Prénom puis nom</b>.</li>
-  <li>Lieu, date et heure de titration génèrent le nom de la manip de titration.</li>
+  <li>Lieu, date et heure de titration génèrent le <b>nom de la manip de titration</b> affiché en haut de la section.</li>
+  <li>Ce nom peut être modifié manuellement via le bouton <b>Modifier</b> ; cliquer <b>Auto</b> revient au nom calculé.</li>
   <li>La correspondance spectres ↔ tubes repasse rouge uniquement si une information de titration est modifiée.</li>
 </ul>
 
