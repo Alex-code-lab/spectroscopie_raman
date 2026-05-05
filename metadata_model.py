@@ -112,10 +112,20 @@ def normalize_tube_label(label: str) -> str:
 
 def norm_text_key(s: str) -> str:
     """Clé de comparaison insensible à la casse et aux accents."""
+    text = ("" if s is None else str(s)).strip().lower()
+    for old, new in {
+        "\u00a0": " ",
+        "\u202f": " ",
+        "’": "'",
+        "‘": "'",
+        "`": "'",
+        "´": "'",
+        "…": "...",
+    }.items():
+        text = text.replace(old, new)
+    text = re.sub(r"\s+", " ", text)
     return (
-        ("" if s is None else str(s))
-        .strip()
-        .lower()
+        text
         .replace("é", "e")
         .replace("è", "e")
         .replace("ê", "e")
