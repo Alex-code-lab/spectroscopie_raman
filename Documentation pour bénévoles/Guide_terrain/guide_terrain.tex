@@ -23,6 +23,7 @@
 \definecolor{mainblue}{RGB}{25, 90, 160}
 \definecolor{accentteal}{RGB}{20, 140, 130}
 \definecolor{warnorange}{RGB}{210, 100, 20}
+\definecolor{importantred}{RGB}{190, 35, 35}
 \definecolor{tipgreen}{RGB}{40, 140, 75}
 \definecolor{stepbg}{RGB}{235, 242, 252}
 \definecolor{figbg}{RGB}{225, 232, 240}
@@ -81,6 +82,18 @@
                      arc=3pt, boxrule=0pt},
 }
 
+\newtcolorbox{important}{
+  enhanced, breakable,
+  colback=importantred!7!white, colframe=importantred!85!black,
+  left=7pt, right=7pt, top=5pt, bottom=5pt,
+  arc=4pt, boxrule=0.9pt,
+  title={\small\bfseries Important},
+  fonttitle=\small\bfseries,
+  attach boxed title to top left={yshift=-2pt, xshift=6pt},
+  boxed title style={colback=importantred!85!black, colframe=importantred!85!black,
+                     arc=3pt, boxrule=0pt},
+}
+
 \newtcolorbox{enresume}{
   enhanced, breakable,
   colback=mainblue!6!white, colframe=mainblue!55!black,
@@ -128,10 +141,11 @@
 \usepackage{fancyhdr}
 \pagestyle{fancy}
 \fancyhf{}
+\setlength{\headheight}{14pt}
 \renewcommand{\headrulewidth}{0pt}
 \fancyhead[L]{\small\color{darkgray}\textit{Ramanalyze : Guide saisie terrain}}
 \fancyhead[R]{\small\color{darkgray}\thepage}
-\fancyfoot[C]{\small\color{darkgray}\textit{CitizenSers : Usage interne}}
+\fancyfoot[C]{\small\color{darkgray}\textit{CitizenSers : Usage interne — Version 3.01, 05 mai 2026}}
 
 % ── Hyperliens ────────────────────────────────────────────────
 \usepackage[hidelinks, colorlinks=true,
@@ -215,6 +229,11 @@
   {\Huge\bfseries\color{tab5col} Ramanalyze}\\[8pt]
   {\large\color{darkgray} Guide de saisie terrain}
 
+  \vspace{0.3cm}
+  {\normalsize\bfseries\color{mainblue}
+    Version 3.01 du logiciel et de la fiche terrain}\\[3pt]
+  {\small\color{darkgray}Mise à jour : 05 mai 2026}
+
   \vspace{0.8cm}
   {\large\color{darkgray}
     Comment renseigner les informations de prélèvement\\
@@ -258,7 +277,8 @@
   \vfill
 
   {\color{darkgray}\small
-    \textbf{CitizenSers} : Document à usage interne\\[6pt]
+    \textbf{CitizenSers} : Document à usage interne\\[4pt]
+    Version 3.01 — 05 mai 2026\\[6pt]
     Pour toute question, contactez la personne responsable du suivi.
   }
 \end{titlepage}
@@ -292,25 +312,46 @@ Ces informations permettent ensuite :
   même si certaines informations vous semblent secondaires.
 \end{attention}
 
+\begin{attention}
+  Ce guide correspond à la \textbf{version 3.01} du logiciel Ramanalyze
+  et de la fiche terrain, datée du \textbf{05 mai 2026}. La fiche pourra
+  évoluer selon les retours de terrain. Les bénévoles et les équipes
+  concernées seront informé·es en cas de changement de version ou de
+  procédure.
+\end{attention}
+
 \subsection{Deux méthodes au choix}
 
 \begin{center}
-\begin{tabularx}{0.88\linewidth}{C{0.38\linewidth} C{0.06\linewidth} C{0.38\linewidth}}
+{\small
+\begin{tabularx}{0.9\linewidth}{C{0.34\linewidth} C{0.05\linewidth} C{0.34\linewidth}}
   \toprule
   \textbf{Logiciel Ramanalyze} & \textbf{OU} & \textbf{Fichier Excel} \\
-  \textit{modèle final.xlsx} & & \\
+  & & \textit{modèle final.xlsx} \\
   \midrule
   Interface graphique guidée & & Fichier Excel autonome \\
-  Nom généré automatiquement & & À remplir cellule par cellule \\
+  Noms générés automatiquement & & Noms retrouvés au chargement \\
   Export structuré \texttt{.xlsx} & & Export direct du fichier \\
   Recommandé si vous avez accès & & Utilisable sans le logiciel \\
   au logiciel & & installé \\
   \bottomrule
 \end{tabularx}
+}
 \end{center}
 
 Les deux méthodes produisent exactement les mêmes informations.
 Le logiciel peut ensuite charger un fichier Excel rempli à la main.
+Dans les deux cas, les champs les plus importants sont les
+\textbf{personnes} et les \textbf{dates/heures} : ce sont eux qui
+permettent de générer ou de retrouver automatiquement les noms.
+
+\begin{important}
+  Pour l'archivage, les fichiers doivent être enregistrés avec un
+  nom précis. Toute fiche liée au prélèvement doit commencer par le
+  \textbf{nom du prélèvement}, au format
+  \texttt{PRE\_<initiales>\_AAAAMMJJ\_HHhMM}. Cela permet de trier
+  les fichiers et de retrouver immédiatement l'échantillon concerné.
+\end{important}
 
 \subsection{Le nom du prélèvement}
 
@@ -341,6 +382,43 @@ la session. Il suit le format :
   préleveur·ses et la date/heure sont renseignés.
 \end{conseil}
 
+\begin{important}
+  Ce même nom doit servir au nom du fichier principal :
+  \texttt{PRE\_<initiales>\_AAAAMMJJ\_HHhMM.xlsx}. Les suffixes
+  automatiques peuvent être conservés, mais le fichier doit toujours
+  commencer par le nom du prélèvement.
+\end{important}
+
+\subsection{Le nom de la titration}
+
+Si une titration du cuivre est réalisée, elle possède aussi son
+propre nom. Il suit le format :
+
+\begin{center}
+  \large\texttt{<initiales operateur><initiales coordinateur>\_AAAAMMJJ\_HHhMM}
+\end{center}
+
+Il est généré à partir de :
+\begin{itemize}
+  \item l'\textbf{opérateur·ice} ;
+  \item le ou la \textbf{coordinateur·ice} ;
+  \item la \textbf{date} et l'\textbf{heure} de la titration.
+\end{itemize}
+
+\begin{attention}
+  Si la titration n'a pas été faite, laissez simplement la case
+  \champ{Titration du cuivre} sur \texttt{Non} ou décochée. Aucun nom
+  de titration n'est nécessaire.
+\end{attention}
+
+\begin{important}
+  Si une titration est réalisée, elle peut avoir un fichier séparé.
+  Ce fichier de titration doit alors être enregistré avec le
+  \textbf{nom de la manip de titration}, et non avec le nom
+  \texttt{PRE\_...}. Ainsi, les fichiers de prélèvement et les fichiers
+  de titration restent faciles à trier et à relier entre eux.
+\end{important}
+
 \newpage
 
 % ══════════════════════════════════════════════════════════════
@@ -349,15 +427,22 @@ la session. Il suit le format :
 
 Ouvrez le logiciel et cliquez sur l'onglet \onglet{Métadonnées}.
 
-\figph[Onglet Métadonnées ouvert — vue générale]{%
-  L'onglet Métadonnées avec toutes les sections visibles :\\
-  préleveur·ses, localisation, contexte terrain, mesures.}
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.96\linewidth]{../figures/onglet général - métadonnées - ramanalyze.png.png}
+  \caption{Onglet Métadonnées ouvert — vue générale}
+\end{figure}
 
 \subsection{Charger une fiche existante (optionnel)}
 
-Si une fiche a déjà été partiellement enregistrée, cliquez sur
-\bouton{Charger des métadonnées\ldots} en haut de l'onglet pour
-la reprendre. Sinon, continuez directement avec une fiche vierge.
+Si une fiche a déjà été partiellement enregistrée, utilisez le bouton
+en haut de l'onglet :
+
+\begin{center}
+  \bouton{Charger des métadonnées\ldots}
+\end{center}
+
+Sinon, continuez directement avec une fiche vierge.
 
 % ─────────────────────────────────────────────────────────────
 \subsection{Section 1 : Identification du prélèvement}
@@ -391,8 +476,9 @@ automatiquement dans le champ en dessous.
 \etape{3}{Vérifier le nom du prélèvement}
 
 Le champ \champ{Nom du prélèvement} est généré automatiquement.
-Vérifiez qu'il correspond bien à votre session.
-Si besoin, il peut être modifié à la main.
+Vérifiez qu'il correspond bien à votre session. Si le nom ne s'affiche
+pas, vérifiez d'abord que les préleveur·ses, la date et l'heure sont
+bien renseignés.
 
 % ─────────────────────────────────────────────────────────────
 \subsection{Section 2 : Localisation}
@@ -416,7 +502,8 @@ Si besoin, il peut être modifié à la main.
   \item Les coordonnées issues d'une application GPS ou d'un
         téléphone sont acceptées directement.
   \item Le bouton \bouton{Carte / pointer\ldots} ouvre une carte
-        interactive pour placer le point à la souris.
+        interactive pour placer le point à la souris. En validant,
+        les coordonnées sont automatiquement remplies.
 \end{itemize}
 
 \begin{conseil}
@@ -477,7 +564,7 @@ Chaque case cochée affiche les champs correspondants.
 Si un test ammonium a été réalisé, cochez \champ{Test ammonium réalisé}.
 Renseignez :
 \begin{itemize}
-  \item \champ{Réalisé par} : prénom + nom de la personne qui a fait le test.
+  \item \champ{Réalisé par} : prénom puis nom de la personne qui a fait le test.
   \item \champ{Test 1 (grossier)} : résultat du premier test colorimétrique.
   \item \champ{Test 2 (précis)} : résultat du second test si réalisé.
   \item \champ{pH (ammonium)} : valeur du pH mesurée lors du test.
@@ -519,25 +606,57 @@ Cochez les mesures effectuées et saisissez la valeur correspondante :
 \end{center}
 
 % ─────────────────────────────────────────────────────────────
+\subsection{Section 5 : Titration du cuivre}
+% ─────────────────────────────────────────────────────────────
+
+Si aucune titration du cuivre n'est réalisée, laissez la case
+\champ{Titration du cuivre} décochée. La suite de la section reste
+cachée et n'a pas à être remplie.
+
+\etape{12}{Renseigner la titration si elle est faite}
+
+Si la titration est réalisée, cochez \champ{Titration du cuivre}, puis
+renseignez :
+\begin{itemize}
+  \item \champ{Coordinateur·ice} : prénom puis nom ;
+  \item \champ{Opérateur·ice} : prénom puis nom ;
+  \item \champ{Date de la titration} et \champ{Heure de la titration} ;
+  \item \champ{Lieu de la titration}.
+\end{itemize}
+
+Le \champ{Nom de la manip de titration} apparaît automatiquement à
+partir de ces informations. Le bouton \bouton{Modifier} sert seulement
+à saisir un nom manuel volontairement ; le bouton \bouton{Auto} revient
+au nom généré.
+
+% ─────────────────────────────────────────────────────────────
 \subsection{Enregistrer la fiche}
 % ─────────────────────────────────────────────────────────────
 
-\etape{12}{Enregistrer le fichier Excel}
+\etape{13}{Enregistrer le fichier Excel}
 
 Cliquez sur \bouton{Enregistrer les métadonnées\ldots} en bas de
 l'onglet. Le logiciel propose un nom de fichier basé sur le nom du
 prélèvement. Validez ou choisissez un autre emplacement.
 
+\begin{important}
+  Ne renommez pas le fichier avec un nom libre. Pour l'archivage,
+  gardez le nom proposé ou un nom qui commence exactement par le
+  \champ{Nom du prélèvement} (\texttt{PRE\_...}).
+\end{important}
+
 Le fichier \texttt{.xlsx} créé contient plusieurs feuilles :
 
 \begin{center}
-\begin{tabularx}{0.88\linewidth}{L{4.5cm} L{7.5cm}}
+\begin{tabularx}{0.88\linewidth}{L{5.8cm} L{6.2cm}}
   \toprule
   \textbf{Feuille} & \textbf{Contenu} \\
   \midrule
   \texttt{Mesures} & Fiche terrain synthétique, lisible directement \\
   \texttt{Index-métadonnées} & Données techniques pour rechargement \\
-  \texttt{Titration-\ldots} & Volumes et correspondance (si titration) \\
+  \texttt{Titration-volumes} & Tableau de volumes (si titration) \\
+  \texttt{Titration-correspondance} & Correspondance spectres / tubes (si titration) \\
+  \texttt{Titration-EtatProtocole} & Suivi de la feuille de protocole (si titration) \\
   \bottomrule
 \end{tabularx}
 \end{center}
@@ -551,7 +670,7 @@ avec les suffixes optionnels :
   \toprule
   \textbf{Suffixe} & \textbf{Signification} \\
   \midrule
-  \texttt{\_T} & Titration du cuivre prévue \\
+  \texttt{\_T} & Titration du cuivre réalisée ou prévue \\
   \texttt{\_AnBa} & Analyses bactériologiques \\
   \texttt{\_TAm} & Test ammonium réalisé \\
   \texttt{\_Tur} & Turbidité mesurée \\
@@ -574,18 +693,36 @@ si vous préférez travailler directement dans Excel.
 Ouvrez le fichier \texttt{modèle final.xlsx}. Il contient une seule
 feuille nommée \textbf{Mesures}.
 
-\figph[Feuille Mesures du fichier Excel modèle]{%
-  Structure de la feuille Mesures : bloc d'identification en haut,\\
-  sections de mesures terrain en dessous.}
+Le logiciel Ramanalyze peut relire cette feuille si les libellés visibles
+n'ont pas été renommés. Il est donc important de garder le format du
+fichier, même si tous les champs ne sont pas remplis.
+
+Les noms de prélèvement et de titration sont reconstruits à partir des
+personnes et des dates/heures.
+
+\begin{important}
+  Si vous remplissez le modèle directement dans Excel, enregistrez le
+  fichier principal avec le \textbf{nom du prélèvement} :
+  \texttt{PRE\_<initiales>\_AAAAMMJJ\_HHhMM.xlsx}. Si une titration
+  est réalisée dans un fichier séparé, ce fichier séparé doit porter
+  le \textbf{nom de la manip de titration}.
+\end{important}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.82\linewidth]{../figures/modeèle excel 2026 05 05.png}
+  \caption{Feuille Mesures du fichier Excel modèle}
+\end{figure}
 
 \subsection{Bloc d'identification (lignes 1 à 7)}
 
 \begin{center}
-\begin{tabularx}{0.92\linewidth}{C{1.2cm} C{1.5cm} L{4cm} L{6.2cm}}
+{\small
+\begin{tabularx}{0.96\linewidth}{C{1.3cm} C{1.7cm} L{3.6cm} X}
   \toprule
   \textbf{Ligne} & \textbf{Colonne} & \textbf{Champ} & \textbf{Ce qu'il faut saisir} \\
   \midrule
-  3 & B & Nom du prélèvement & Identifiant unique, format \texttt{PRE\_...} \\
+  3 & B & Nom du prélèvement & Automatique si préleveur·ses + date/heure sont saisis ; sinon format \texttt{PRE\_...} \\
   3 & D & Type d'eau & Eau douce / mer / estuarienne \\
   4 & B & Département & Numéro ou nom du département \\
   4 & D & Commune & Nom de la commune \\
@@ -597,6 +734,7 @@ feuille nommée \textbf{Mesures}.
   7 & D & Longitude & Degrés décimaux (ex. : -2.022) \\
   \bottomrule
 \end{tabularx}
+}
 \end{center}
 
 \subsection{Bloc préleveur·ses (lignes 8 et suivantes)}
@@ -604,21 +742,23 @@ feuille nommée \textbf{Mesures}.
 Chaque ligne correspond à un·e préleveur·se :
 
 \begin{center}
-\begin{tabularx}{0.72\linewidth}{C{1.5cm} C{1.5cm} L{8.5cm}}
+{\small
+\begin{tabularx}{0.88\linewidth}{C{1.6cm} C{1.6cm} X}
   \toprule
   \textbf{Colonne} & & \textbf{Ce qu'il faut saisir} \\
   \midrule
-  A & (label) & \texttt{Préleveur·se 1}, \texttt{Préleveur·se 2}\ldots \\
-  B & & Prénom + Nom de la personne \\
-  C & (label) & \texttt{Association} \\
+  A & (nom du champ) & \texttt{Préleveur·se 1}, \texttt{Préleveur·se 2}\ldots \\
+  B & & Prénom puis nom de la personne \\
+  C & (nom du champ) & \texttt{Association} \\
   D & & Nom de l'association \\
   \bottomrule
 \end{tabularx}
+}
 \end{center}
 
 \begin{conseil}
   S'il y a plusieurs préleveur·ses, ajoutez des lignes en copiant
-  le format de la ligne 8 (labels en A et C, valeurs en B et D).
+  le format de la ligne 8 (noms des champs en A et C, valeurs en B et D).
 \end{conseil}
 
 \subsection{Cases à cocher — statut des mesures}
@@ -628,7 +768,8 @@ ont été réalisées. Remplacez \texttt{Non} par \texttt{Oui} pour chaque
 mesure effectuée :
 
 \begin{center}
-\begin{tabularx}{0.82\linewidth}{L{5.5cm} C{2cm} L{4cm}}
+{\small
+\begin{tabularx}{0.9\linewidth}{L{5cm} C{2cm} X}
   \toprule
   \textbf{Champ} & \textbf{Valeur} & \textbf{Colonne} \\
   \midrule
@@ -641,13 +782,14 @@ mesure effectuée :
   Oxygène dissous mesuré & Oui / Non & E \\
   \bottomrule
 \end{tabularx}
+}
 \end{center}
 
 \subsection{Sections de mesures}
 
 Les sections suivantes (contexte terrain, test ammonium, bactériologie,
-autres mesures, titration) contiennent chacune une ligne de labels
-et une ligne de valeurs.
+autres mesures, titration) contiennent chacune une ligne avec les noms
+des champs, puis une ligne pour les valeurs à saisir.
 
 \begin{center}
 \begin{longtable}{L{4.8cm} L{2.8cm} L{5.5cm}}
@@ -666,15 +808,15 @@ et une ligne de valeurs.
   \midrule
   \multicolumn{3}{l}{\textit{Test ammonium}} \\
   \midrule
-  Test ammonium réalisé & Oui/Non & Reprend la valeur du bloc statut \\
-  Test ammonium réalisé par & --- & Prénom + Nom \\
+  Test ammonium réalisé & Oui / Non & Reprend la valeur du bloc statut \\
+  Test ammonium réalisé par & --- & Prénom puis nom \\
   Test ammonium 1 (grossier) & --- & Résultat colorimétrique \\
   Test ammonium 2 (précis) & --- & Résultat colorimétrique \\
   pH (ammonium) & --- & Valeur mesurée \\
   \midrule
   \multicolumn{3}{l}{\textit{Analyses bactériologiques}} \\
   \midrule
-  Analyses bactériologiques & Oui/Non & Reprend la valeur du bloc statut \\
+  Analyses bactériologiques & Oui / Non & Reprend la valeur du bloc statut \\
   Jour de dépôt & JJ/MM/AAAA & \\
   Heure du dépôt & HH:MM & \\
   Entreprise de mesure & --- & Nom du laboratoire \\
@@ -683,22 +825,24 @@ et une ligne de valeurs.
   \midrule
   \multicolumn{3}{l}{\textit{Autres mesures terrain}} \\
   \midrule
-  Turbidité mesurée & Oui/Non & \\
+  Turbidité mesurée & Oui / Non & \\
   Turbidité & NTU & \\
-  Conductivité mesurée & Oui/Non & \\
+  Conductivité mesurée & Oui / Non & \\
   Conductivité & µS/cm & \\
-  pH de l'eau mesuré & Oui/Non & \\
+  pH de l'eau mesuré & Oui / Non & \\
   pH de l'eau & --- & \\
-  Oxygène dissous mesuré & Oui/Non & \\
+  Oxygène dissous mesuré & Oui / Non & \\
   Oxygène dissous & mg/L & \\
   \midrule
   \multicolumn{3}{l}{\textit{Titration du cuivre}} \\
   \midrule
-  Titration du cuivre & Oui/Non & \\
-  Nom de la manip de titration & --- & Format \texttt{INITIALES\_AAAAMMJJ\_HHhMM} \\
+  Titration du cuivre & Oui / Non & \\
+  Opérateur·ice & --- & Prénom puis nom \\
+  Coordinateur·ice & --- & Prénom puis nom \\
   Date de la titration & JJ/MM/AAAA & \\
   Heure de la titration & HH:MM & \\
   Lieu de la titration & --- & \\
+  Nom de la manip de titration & --- & Généré à partir opérateur·ice + coordinateur·ice + date/heure \\
   \midrule
   \multicolumn{3}{l}{\textit{Commentaires}} \\
   \midrule
@@ -708,10 +852,18 @@ et une ligne de valeurs.
 \end{center}
 
 \begin{attention}
-  Le fichier Excel ne génère pas automatiquement le nom du prélèvement.
-  Saisissez-le manuellement en ligne 3, colonne B, en respectant le
-  format \texttt{PRE\_<initiales>\_AAAAMMJJ\_HHhMM}.
+  Dans Excel, ne commencez pas par inventer les noms. Renseignez d'abord
+  les préleveur·ses, l'opérateur·ice, le ou la coordinateur·ice, et les
+  dates/heures. Ramanalyze s'appuie sur ces champs pour retrouver les
+  noms automatiquement au chargement.
 \end{attention}
+
+\begin{important}
+  Avant de transmettre ou d'archiver le classeur Excel, vérifiez le
+  nom du fichier. Le classeur de prélèvement doit être enregistré sous
+  le nom \texttt{PRE\_...}. Le fichier séparé de titration, s'il existe,
+  doit porter le nom propre de l'expérience de titration.
+\end{important}
 
 \newpage
 
@@ -729,10 +881,10 @@ chaque point est coché :
   \toprule
   \textbf{} & \textbf{Point à vérifier} \\
   \midrule
-  $\Box$ & Nom du prélèvement renseigné au format \texttt{PRE\_...} \\
   $\Box$ & Prénom et nom de chaque préleveur·se saisis \\
   $\Box$ & Association renseignée pour chaque préleveur·se \\
   $\Box$ & Date et heure du prélèvement renseignées \\
+  $\Box$ & Nom du prélèvement généré ou reconstructible au format \texttt{PRE\_...} \\
   $\Box$ & Coordonnées GPS saisies (latitude et longitude) \\
   $\Box$ & Type de lieu et nom du point renseignés \\
   $\Box$ & Département et commune renseignés \\
@@ -741,7 +893,9 @@ chaque point est coché :
   $\Box$ & Mesures terrain cochées et valeurs saisies \\
   $\Box$ & Tests ammonium renseignés (si réalisés) \\
   $\Box$ & Bactériologie renseignée (si réalisée) \\
-  $\Box$ & Fichier enregistré (logiciel) ou complété (Excel) \\
+  $\Box$ & Titration renseignée avec opérateur·ice, coordinateur·ice, date, heure et lieu (si réalisée) \\
+  $\Box$ & Fichier principal enregistré avec un nom commençant par \texttt{PRE\_...} \\
+  $\Box$ & Fichier séparé de titration nommé avec le nom de la manip de titration (si concerné) \\
   \bottomrule
 \end{tabularx}
 \end{center}

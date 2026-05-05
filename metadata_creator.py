@@ -3029,7 +3029,11 @@ class MetadataCreatorWidget(QWidget):
         raw = str(text or "")
         hemisphere_chunks: list[str] = []
         start = 0
-        for match in re.finditer(r"[NSEW]", raw, flags=re.IGNORECASE):
+        for match in re.finditer(
+            r"(?<![A-Za-zÀ-ÖØ-öø-ÿ])([NSEW])(?![A-Za-zÀ-ÖØ-öø-ÿ])",
+            raw,
+            flags=re.IGNORECASE,
+        ):
             hemisphere_chunks.append(raw[start:match.end()])
             start = match.end()
 
@@ -3039,7 +3043,11 @@ class MetadataCreatorWidget(QWidget):
             val = cls._parse_coord_value(chunk)
             if val is None:
                 continue
-            hemisphere = re.search(r"([NSEW])", chunk, flags=re.IGNORECASE)
+            hemisphere = re.search(
+                r"(?<![A-Za-zÀ-ÖØ-öø-ÿ])([NSEW])(?![A-Za-zÀ-ÖØ-öø-ÿ])",
+                chunk,
+                flags=re.IGNORECASE,
+            )
             if hemisphere and hemisphere.group(1).upper() in ("N", "S"):
                 lat = cls._format_coord_value(str(val), -90.0, 90.0)
             elif hemisphere and hemisphere.group(1).upper() in ("E", "W"):
@@ -3840,6 +3848,8 @@ class MetadataCreatorWidget(QWidget):
             if isinstance(value, dt.time):
                 return value.strftime("%H:%M")
             text = str(value).strip()
+            if text.upper() in {"#REF!", "#VALUE!", "#DIV/0!", "#N/A", "#NAME?", "#NULL!", "#NUM!"}:
+                return ""
             return "" if text.lower() in {"nan", "nat", "none", "<na>"} else text
 
         normalized_columns = {self._header_storage_key(col): col for col in df.columns}
@@ -3900,6 +3910,8 @@ class MetadataCreatorWidget(QWidget):
             if isinstance(value, dt.time):
                 return value.strftime("%H:%M")
             text = str(value).strip()
+            if text.upper() in {"#REF!", "#VALUE!", "#DIV/0!", "#N/A", "#NAME?", "#NULL!", "#NUM!"}:
+                return ""
             return "" if text.lower() in {"nan", "nat", "none", "<na>"} else text
 
         def _key(value) -> str:
@@ -3940,7 +3952,11 @@ class MetadataCreatorWidget(QWidget):
                 "Préleveur·se 6",
                 "Association",
                 "Coordinateur",
+                "Coordinateur·ice",
+                "Coordinateurice",
                 "Opérateur",
+                "Opérateur·ice",
+                "Opérateurice",
                 "Titration du cuivre",
                 "Analyses bactériologiques",
                 "Test ammonium réalisé",
@@ -4001,7 +4017,7 @@ class MetadataCreatorWidget(QWidget):
         def _cell0(row_idx: int, col_idx: int) -> str:
             return _cell(row_idx + 1, col_idx + 1)
 
-        def _value_right_of_label(*labels: str, max_scan: int = 12) -> str:
+        def _value_right_of_label(*labels: str, max_scan: int = 12, scan_below: bool = True) -> str:
             wanted = {_key(label) for label in labels}
             for row_idx in range(min(len(raw), 250)):
                 for col_idx in range(raw.shape[1]):
@@ -4017,6 +4033,8 @@ class MetadataCreatorWidget(QWidget):
                         if val_key in known_label_keys and val_key not in wanted:
                             break
                         return val
+            if not scan_below:
+                return ""
             for row_idx in range(min(len(raw), 250)):
                 for col_idx in range(raw.shape[1]):
                     if _key(_cell0(row_idx, col_idx)).rstrip(" :") not in wanted:
@@ -4210,13 +4228,20 @@ class MetadataCreatorWidget(QWidget):
             )
             or _col_value("point", exclude=("point gps",), fallback=_cell(7, 2))
             or _cell(2, 19),
-            "Latitude du prélèvement": _value_right_of_label("Latitude du prélèvement", "Latitude GPS", "Latitude", "Lat")
+            "Latitude du prélèvement": _value_right_of_label(
+                "Latitude du prélèvement",
+                "Latitude GPS",
+                "Latitude",
+                "Lat",
+                scan_below=False,
+            )
             or _col_value("point gps lat", "latitude", "lat", fallback=_cell(7, 3)),
             "Longitude du prélèvement": _value_right_of_label(
                 "Longitude du prélèvement",
                 "Longitude GPS",
                 "Longitude",
                 "Lon",
+                scan_below=False,
             )
             or _col_value("point gps lon", "longitude", "lon", fallback=_cell(7, 4)),
             "Type d'eau": _value_right_of_label("Type d'eau", "Nature de l'eau")
@@ -4301,18 +4326,30 @@ class MetadataCreatorWidget(QWidget):
             or _col_value("oxygene dissous mg l", "o2 dissous"),
             "Titration du cuivre": _value_right_of_label("Titration du cuivre", "Titration")
             or _col_value("titration du cuivre", "titration"),
-            "Nom de la manip de titration": _value_right_of_label("Nom de la manip", "Nom de la manip de titration")
+            "Nom de la manip de titration": _value_right_of_label("Nom de la manip de titration")
             or _col_value(
                 "nom manip titration",
                 "nom de la manip de titration",
-                "nom de la manip",
             ),
             "Date de la titration": _value_right_of_label("Date de la titration", "Date titration"),
             "Heure de la titration": _value_right_of_label("Heure de la titration", "Heure titration"),
             "Lieu de la titration": _value_right_of_label("Lieu de la titration", "Lieu titration")
             or _col_value("lieu titration", "lieu de la titration"),
-            "Coordinateur": _value_right_of_label("Coordinateur"),
-            "Opérateur": _value_right_of_label("Opérateur"),
+            "Coordinateur": _value_right_of_label(
+                "Coordinateur·ice",
+                "Coordinateurice",
+                "Coordinatrice",
+                "Coordinateur",
+            ),
+            "Opérateur": _value_right_of_label(
+                "Opérateur·ice",
+                "Opérateurice",
+                "Operateurice",
+                "Opératrice",
+                "Operatrice",
+                "Opérateur",
+                "Operateur",
+            ),
             "Débit / flux - Largeur route": _value_right_of_label("Débit / flux - Largeur route", "Largeur route")
             or _col_value("largeur route", fallback=_cell(7, 27)),
             "Débit / flux - Longueur 6 arches": _value_right_of_label(
@@ -4494,7 +4531,6 @@ class MetadataCreatorWidget(QWidget):
             if w is not None:
                 w.setVisible(bool(checked))
         self._on_header_field_changed()
-
 
     def _on_debit_flux_clicked(self) -> None:
         dlg = DebitFluxDialog(self.DEBIT_FLUX_COLUMNS, self._debit_flux_values, self)
@@ -5670,10 +5706,12 @@ class MetadataCreatorWidget(QWidget):
             old_lat, old_lon = self._split_gps_pair(old_gps)
             sample_lat = sample_lat or old_lat
             sample_lon = sample_lon or old_lon
-        if sample_lat and hasattr(self, "edit_sample_lat"):
-            self.edit_sample_lat.setText(self._format_coord_value(sample_lat, -90.0, 90.0))
-        if sample_lon and hasattr(self, "edit_sample_lon"):
-            self.edit_sample_lon.setText(self._format_coord_value(sample_lon, -180.0, 180.0))
+        if hasattr(self, "edit_sample_lat"):
+            lat_val = self._parse_coord_value(sample_lat)
+            self.edit_sample_lat.setText(f"{lat_val:.6f}" if lat_val is not None and -90.0 <= lat_val <= 90.0 else "")
+        if hasattr(self, "edit_sample_lon"):
+            lon_val = self._parse_coord_value(sample_lon)
+            self.edit_sample_lon.setText(f"{lon_val:.6f}" if lon_val is not None and -180.0 <= lon_val <= 180.0 else "")
 
         department = _value_for(
             "Département",
@@ -5852,7 +5890,6 @@ class MetadataCreatorWidget(QWidget):
             ("Oxygène dissous (mg/L)", "Oxygene dissous", "O2 dissous"),
             ("Oxygène dissous mesuré", "Oxygene dissous mesure", "O2 dissous mesure"),
         )
-
         # Analyses bactériologiques
         bacterio_val = _value_for(
             "Analyses bactériologiques",
@@ -5925,7 +5962,6 @@ class MetadataCreatorWidget(QWidget):
 
         titration_name = _value_for(
             "Nom de la manip de titration",
-            "Nom de la manip",
             "Nom de la titration",
             "Nom manip titration",
         )
@@ -5953,7 +5989,12 @@ class MetadataCreatorWidget(QWidget):
         if hasattr(self, "edit_sampler") and self.edit_sampler.text().strip():
             self._refresh_manip_name()
         expected_titration_name = self._build_titration_manip_name()
-        if titration_name:
+        titration_checked = bool(self.chk_titration_done.isChecked()) if hasattr(self, "chk_titration_done") else False
+        if titration_checked and not titration_name:
+            legacy_titration_name = value_by_label.get("Nom de la manip") or value_by_label.get("Nom de la manip :") or ""
+            if legacy_titration_name and legacy_titration_name != name_val:
+                titration_name = legacy_titration_name
+        if titration_checked and titration_name:
             manual_mode = (
                 self._is_yes_value(titration_name_manual)
                 if titration_name_manual
