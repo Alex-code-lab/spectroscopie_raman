@@ -166,7 +166,7 @@ class MainWindow(QMainWindow):
         pres_layout = QVBoxLayout(self.presentation_tab)
 
         # --- Logo page d'accueil ---
-        logo_path = os.path.join(APP_DIR, "Logo Ramanalyze", "logo ramanalyze.svg")
+        logo_path = os.path.join(APP_DIR, "assets", "Logo Ramanalyze", "logo ramanalyze.svg")
         logo_pixmap = QPixmap(logo_path)
         if not logo_pixmap.isNull():
             logo_label = QLabel()
@@ -657,9 +657,9 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
 
     if sys.platform == "win32":
-        icon_path = os.path.join(APP_DIR, "Logo Ramanalyze", "logo-ramanalyze.ico")
+        icon_path = os.path.join(APP_DIR, "assets", "Logo Ramanalyze", "logo-ramanalyze.ico")
     else:
-        icon_path = os.path.join(APP_DIR, "Logo Ramanalyze", "logo ramanalyze.svg")
+        icon_path = os.path.join(APP_DIR, "assets", "Logo Ramanalyze", "logo ramanalyze.svg")
     app.setWindowIcon(QIcon(icon_path))
 
     win = MainWindow()

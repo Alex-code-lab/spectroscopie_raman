@@ -43,23 +43,25 @@ hiddenimports += collect_submodules("plotly")
 hiddenimports += collect_submodules("fpdf")
 hiddenimports += collect_submodules("openpyxl")
 
-# --- Données locales ---
-styles_dir = os.path.join(project_dir, "styles")
-if os.path.isdir(styles_dir):
-    datas.append((styles_dir, "styles"))
+# --- Données locales (ressources de l'app dans ramanalyze/assets) ---
+assets_dir = os.path.join(project_dir, "ramanalyze", "assets")
 
-logo_dir = os.path.join(project_dir, "Logo Ramanalyze")
+styles_dir = os.path.join(assets_dir, "styles")
+if os.path.isdir(styles_dir):
+    datas.append((styles_dir, os.path.join("assets", "styles")))
+
+logo_dir = os.path.join(assets_dir, "Logo Ramanalyze")
 if os.path.isdir(logo_dir):
-    datas.append((logo_dir, "Logo Ramanalyze"))
+    datas.append((logo_dir, os.path.join("assets", "Logo Ramanalyze")))
 
 # --- Modèle Excel de mise en page (feuille de protocole) ---
-template_xlsx = os.path.join(project_dir, "modele_tableau.xlsx")
+template_xlsx = os.path.join(assets_dir, "modele_tableau.xlsx")
 if os.path.isfile(template_xlsx):
-    datas.append((template_xlsx, "."))
+    datas.append((template_xlsx, "assets"))
 
 a = Analysis(
-    ["main.py"],
-    pathex=[project_dir],
+    [os.path.join("ramanalyze", "main.py")],
+    pathex=[project_dir, os.path.join(project_dir, "ramanalyze")],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
@@ -104,5 +106,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=os.path.join(project_dir, "Logo Ramanalyze", "logo-ramanalyze.ico"),
+    icon=os.path.join(project_dir, "ramanalyze", "assets", "Logo Ramanalyze", "logo-ramanalyze.ico"),
 )

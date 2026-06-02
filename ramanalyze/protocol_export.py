@@ -37,7 +37,7 @@ def _resource_dir() -> str:
 
 
 # Chemin du modèle de mise en page (feuille de protocole)
-_TEMPLATE_PATH = os.path.join(_resource_dir(), "modele_tableau.xlsx")
+_TEMPLATE_PATH = os.path.join(_resource_dir(), "assets", "modele_tableau.xlsx")
 
 # ── Palette ───────────────────────────────────────────────────────────────────
 _TUBE_HDR    = PatternFill("solid", fgColor="2E75B6")  # bleu foncé  — volume

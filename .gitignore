@@ -1,6 +1,7 @@
 # --- Environnements Python ---
 venv/
 .venv/
+.spectroscopie_raman/
 ENV/
 env/
 __pycache__/
