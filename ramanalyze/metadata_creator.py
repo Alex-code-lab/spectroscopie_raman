@@ -799,42 +799,6 @@ class AmmoniumTestDialog(QDialog):
         }
 
 
-class DebitFluxDialog(QDialog):
-    """Dialogue de saisie du tableau débit / flux pour les prélèvements en eau douce."""
-
-    def __init__(self, columns: list[str], values: dict[str, str] | None = None, parent=None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Débit / flux")
-        self.resize(520, 360)
-        self._columns = list(columns)
-        values = values or {}
-
-        layout = QVBoxLayout(self)
-        title = QLabel("Débit / flux", self)
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("font-weight: 800; font-size: 16px;")
-        layout.addWidget(title)
-
-        form = QFormLayout()
-        self._edits: dict[str, QLineEdit] = {}
-        for column in self._columns:
-            edit = QLineEdit(str(values.get(column, "") or ""), self)
-            edit.setPlaceholderText("valeur à renseigner")
-            edit.setMinimumWidth(260)
-            _install_field_fill_style(edit)
-            form.addRow(f"{column} :", edit)
-            self._edits[column] = edit
-        layout.addLayout(form)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def values(self) -> dict[str, str]:
-        return {column: edit.text().strip() for column, edit in self._edits.items()}
-
-
 class _MapPickerBridge(QObject):
     def __init__(self, dialog: "MapPickerDialog") -> None:
         super().__init__(dialog)
@@ -1640,15 +1604,9 @@ class MetadataCreatorWidget(QWidget):
         ),
     }
 
-    DEBIT_FLUX_COLUMNS = [
-        "Largeur route",
-        "Longueur 6 arches",
-        "Hauteur eau",
-        "Volume total (m3)",
-        "Vitesse (s)",
-        "Débit (m3/s)",
-    ]
+    DEBIT_FLUX_FIELD = "Débit (m3/s)"
     DEBIT_FLUX_PREFIX = "Débit / flux - "
+    DEBIT_FLUX_KEY = DEBIT_FLUX_PREFIX + DEBIT_FLUX_FIELD
     PLACE_TYPE_CHOICES = [
         "Plage",
         "Cours d'eau en aval d'une zone habitée non reliée au réseau AC (hameau, quartier non relié...)",
@@ -1681,7 +1639,6 @@ class MetadataCreatorWidget(QWidget):
         self._spec_start_index: int = 0
         self._ammonium_test_enabled: bool = False
         self._ammonium_test_values: dict[str, str] = {"test_1": "", "test_2": "", "ph": "", "operator": ""}
-        self._debit_flux_values: dict[str, str] = {column: "" for column in self.DEBIT_FLUX_COLUMNS}
         self._fillable_fields: list = []
         self._extra_sampler_rows: list[dict] = []
         self._reverse_geocode_cache: dict[tuple[float, float], tuple[str, str]] = {}
@@ -1877,10 +1834,14 @@ class MetadataCreatorWidget(QWidget):
         self._set_default_on_interaction(self.spin_water_temperature, 20.0)
         row_water.addWidget(self.spin_water_temperature)
 
-        self.btn_debit_flux = QPushButton("Débit / flux…", self)
-        self.btn_debit_flux.setToolTip("Ouvre le tableau débit / flux pour les prélèvements en eau douce.")
-        self.btn_debit_flux.clicked.connect(self._on_debit_flux_clicked)
-        row_water.addWidget(self.btn_debit_flux)
+        self.lbl_debit_flux = QLabel("Débit (m³/s) :", self)
+        row_water.addWidget(self.lbl_debit_flux)
+        self.edit_debit_flux = QLineEdit(self)
+        self.edit_debit_flux.setPlaceholderText("ex : 0.85")
+        self.edit_debit_flux.setToolTip("Débit du cours d'eau en m³/s (prélèvements en eau douce).")
+        self.edit_debit_flux.textChanged.connect(self._on_header_field_changed)
+        _install_field_fill_style(self.edit_debit_flux)
+        row_water.addWidget(self.edit_debit_flux)
 
         row_water.addStretch(1)
         header_layout.addLayout(row_water)
@@ -2566,7 +2527,8 @@ class MetadataCreatorWidget(QWidget):
         self._protocol_states = {}
         self._ammonium_test_enabled = False
         self._ammonium_test_values = {"test_1": "", "test_2": "", "ph": "", "operator": ""}
-        self._debit_flux_values = {column: "" for column in self.DEBIT_FLUX_COLUMNS}
+        if hasattr(self, "edit_debit_flux"):
+            self.edit_debit_flux.clear()
         self.map_dirty = False
         self._spec_start_index = 0
         self._last_titration_visibility = None  # force la ré-émission du signal
@@ -2933,10 +2895,12 @@ class MetadataCreatorWidget(QWidget):
             if widget is not None:
                 widget.setVisible(visible)
                 widget.setEnabled(visible)
-        btn_debit_flux = getattr(self, "btn_debit_flux", None)
-        if btn_debit_flux is not None:
-            btn_debit_flux.setVisible(self._is_fresh_water_type())
-            btn_debit_flux.setEnabled(self._is_fresh_water_type())
+        fresh_water = self._is_fresh_water_type()
+        for widget_name in ("lbl_debit_flux", "edit_debit_flux"):
+            widget = getattr(self, widget_name, None)
+            if widget is not None:
+                widget.setVisible(fresh_water)
+                widget.setEnabled(fresh_water)
 
     def _on_water_type_changed(self, *args) -> None:
         self._refresh_tide_fields_enabled()
@@ -3412,12 +3376,11 @@ class MetadataCreatorWidget(QWidget):
             for idx in range(2, 7)
         }
         debit_flux_values = {
-            f"{self.DEBIT_FLUX_PREFIX}{column}": (
-                str(self._debit_flux_values.get(column, "") or "").strip()
-                if self._is_fresh_water_type()
+            self.DEBIT_FLUX_KEY: (
+                self.edit_debit_flux.text().strip()
+                if hasattr(self, "edit_debit_flux") and self._is_fresh_water_type()
                 else ""
             )
-            for column in self.DEBIT_FLUX_COLUMNS
         }
         return {
             "Nom du prélèvement": str(name or "").strip(),
@@ -4530,13 +4493,6 @@ class MetadataCreatorWidget(QWidget):
             w = getattr(self, attr, None)
             if w is not None:
                 w.setVisible(bool(checked))
-        self._on_header_field_changed()
-
-    def _on_debit_flux_clicked(self) -> None:
-        dlg = DebitFluxDialog(self.DEBIT_FLUX_COLUMNS, self._debit_flux_values, self)
-        if dlg.exec() != QDialog.Accepted:
-            return
-        self._debit_flux_values = dlg.values()
         self._on_header_field_changed()
 
     @staticmethod
@@ -5790,16 +5746,15 @@ class MetadataCreatorWidget(QWidget):
             if val is not None:
                 self.spin_water_temperature.setValue(max(-10.0, min(50.0, val)))
 
-        self._debit_flux_values = {column: "" for column in self.DEBIT_FLUX_COLUMNS}
-        for column in self.DEBIT_FLUX_COLUMNS:
+        if hasattr(self, "edit_debit_flux"):
             debit_flux_val = _value_for(
-                f"{self.DEBIT_FLUX_PREFIX}{column}",
-                f"Debit / flux - {column}",
-                f"Débit/flux - {column}",
-                column,
+                self.DEBIT_FLUX_KEY,
+                f"Debit / flux - {self.DEBIT_FLUX_FIELD}",
+                f"Débit/flux - {self.DEBIT_FLUX_FIELD}",
+                "Débit (m3/s)",
+                "Debit (m3/s)",
             )
-            if debit_flux_val:
-                self._debit_flux_values[column] = debit_flux_val
+            self.edit_debit_flux.setText(debit_flux_val or "")
 
         weather = _value_for("Temps au moment de la mesure", "Meteo", "Météo")
         if weather and hasattr(self, "combo_weather"):
@@ -6366,15 +6321,10 @@ class MetadataCreatorWidget(QWidget):
                 ],
             ),
             (
-                "Débit / flux",
+                "Débit",
                 debit_fill,
                 [
-                    ("Débit / flux - Largeur route", values.get("Débit / flux - Largeur route", "")),
-                    ("Débit / flux - Longueur 6 arches", values.get("Débit / flux - Longueur 6 arches", "")),
-                    ("Débit / flux - Hauteur eau", values.get("Débit / flux - Hauteur eau", "")),
-                    ("Débit / flux - Volume total (m3)", values.get("Débit / flux - Volume total (m3)", "")),
-                    ("Débit / flux - Vitesse (s)", values.get("Débit / flux - Vitesse (s)", "")),
-                    ("Débit / flux - Débit (m3/s)", values.get("Débit / flux - Débit (m3/s)", "")),
+                    ("Débit (m3/s)", values.get(self.DEBIT_FLUX_KEY, "")),
                 ],
             ),
             (
