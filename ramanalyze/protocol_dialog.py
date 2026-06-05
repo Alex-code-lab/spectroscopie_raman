@@ -184,7 +184,7 @@ class ProtocolDialog(QDialog):
             ("Opérateur :",    meta.get("operateur", "—")),
         ]:
             lbl = QLabel(f"<b>{label}</b> {val}")
-            lbl.setStyleSheet("font-size: 11px; color: #d4d4d4;")
+            lbl.setStyleSheet("font-size: 11px; color: #333333;")
             row.addWidget(lbl)
             row.addSpacing(12)
         row.addStretch()
@@ -207,7 +207,7 @@ class ProtocolDialog(QDialog):
             dot = QLabel("●")
             dot.setStyleSheet(f"color: {color_hex}; font-size: 14px;")
             txt = QLabel(label)
-            txt.setStyleSheet("font-size: 11px; color: #aaa; margin-right: 10px;")
+            txt.setStyleSheet("font-size: 11px; color: #555555; margin-right: 10px;")
             row.addWidget(dot); row.addWidget(txt)
         root.addLayout(row)
 

@@ -653,8 +653,42 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
 
+def _apply_consistent_theme(app: "QApplication") -> None:
+    """Force un thème clair identique sur toutes les plateformes.
+
+    Sans cela, Windows (et Linux) en mode sombre hérite de la palette
+    système sombre : les tableaux et fonds deviennent noirs avec du texte
+    gris (cf. le dialogue « Suivi de protocole »), alors que macOS reste
+    clair. On épingle ici une palette claire pour tout le monde, et sur
+    Windows/Linux on bascule sur le style « Fusion » qui respecte
+    intégralement la palette (le style natif macOS est conservé tel quel).
+    """
+    if sys.platform != "darwin":
+        app.setStyle("Fusion")
+
+    pal = QPalette()
+    pal.setColor(QPalette.Window, QColor("#f0f0f0"))
+    pal.setColor(QPalette.WindowText, QColor("#1e1e1e"))
+    pal.setColor(QPalette.Base, QColor("#ffffff"))
+    pal.setColor(QPalette.AlternateBase, QColor("#f5f5f5"))
+    pal.setColor(QPalette.ToolTipBase, QColor("#ffffdc"))
+    pal.setColor(QPalette.ToolTipText, QColor("#1e1e1e"))
+    pal.setColor(QPalette.Text, QColor("#1e1e1e"))
+    pal.setColor(QPalette.Button, QColor("#f0f0f0"))
+    pal.setColor(QPalette.ButtonText, QColor("#1e1e1e"))
+    pal.setColor(QPalette.BrightText, QColor("#d9534f"))
+    pal.setColor(QPalette.Link, QColor("#0057b8"))
+    pal.setColor(QPalette.Highlight, QColor("#0078d7"))
+    pal.setColor(QPalette.HighlightedText, QColor("#ffffff"))
+    pal.setColor(QPalette.PlaceholderText, QColor("#7a7a7a"))
+    for role in (QPalette.WindowText, QPalette.Text, QPalette.ButtonText):
+        pal.setColor(QPalette.Disabled, role, QColor("#a0a0a0"))
+    app.setPalette(pal)
+
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    _apply_consistent_theme(app)
 
     if sys.platform == "win32":
         icon_path = os.path.join(APP_DIR, "assets", "Logo Ramanalyze", "logo-ramanalyze.ico")
