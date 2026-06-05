@@ -183,28 +183,28 @@ class MainWindow(QMainWindow):
 <style>
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-    color: #d4d4d4;
+    color: #2b2b2b;
     max-width: 860px;
   }
-  h2 { color: #46ba48; margin-top: 6px; margin-bottom: 8px; }
-  h3 { color: #46ba48; margin-top: 22px; margin-bottom: 6px; border-bottom: 1px solid #444; padding-bottom: 3px; }
-  h4 { color: #6fa8d6; margin-top: 16px; margin-bottom: 4px; }
+  h2 { color: #1f4e79; margin-top: 6px; margin-bottom: 8px; }
+  h3 { color: #2f75b5; margin-top: 22px; margin-bottom: 6px; border-bottom: 1px solid #d0d7de; padding-bottom: 3px; }
+  h4 { color: #2f75b5; margin-top: 16px; margin-bottom: 4px; }
   p  { line-height: 1.6; margin-bottom: 8px; }
   ul, ol { margin-left: 20px; }
   li { margin-bottom: 5px; line-height: 1.5; }
-  .key    { font-weight: 700; color: #e06c75; }
-  .accent { font-weight: 600; color: #6fa8d6; }
-  .warn   { font-weight: 600; color: #e06c75; }
-  .ok     { font-weight: 600; color: #46ba48; }
+  .key    { font-weight: 700; color: #c0392b; }
+  .accent { font-weight: 600; color: #2f75b5; }
+  .warn   { font-weight: 600; color: #c0392b; }
+  .ok     { font-weight: 600; color: #2e7d32; }
   .mono   { font-family: Menlo, Consolas, "Courier New", monospace; font-size: 0.92em;
-            background: #000000 !important; color: #ffffff !important; padding: 1px 4px; border-radius: 3px; }
-  .note   { border-left: 4px solid #6fa8d6; background: #1e2a36;
-            padding: 8px 12px; margin: 12px 0; border-radius: 0 4px 4px 0; color: #e0e0e0; }
-  .warn-box { border-left: 4px solid #e07b00; background: #2a1f10;
-              padding: 8px 12px; margin: 12px 0; border-radius: 0 4px 4px 0; color: #e8d5b0; }
+            background: #eef1f4; color: #1f3b57; padding: 1px 4px; border-radius: 3px; }
+  .note   { border-left: 4px solid #2f75b5; background: #eaf2fb;
+            padding: 8px 12px; margin: 12px 0; border-radius: 0 4px 4px 0; color: #243b53; }
+  .warn-box { border-left: 4px solid #e07b00; background: #fff4e5;
+              padding: 8px 12px; margin: 12px 0; border-radius: 0 4px 4px 0; color: #6b4e00; }
   table { border-collapse: collapse; margin: 8px 0; }
-  td, th { border: 1px solid #444; padding: 5px 10px; font-size: 0.93em; }
-  th { background: #2a2a2a; color: #d4d4d4; font-weight: 600; }
+  td, th { border: 1px solid #d0d7de; padding: 5px 10px; font-size: 0.93em; }
+  th { background: #eef1f4; color: #1f3b57; font-weight: 600; }
 </style>
 
 <h2>Dispositif de mesure de la qualité de l'eau par les citoyens</h2>
@@ -216,7 +216,7 @@ class MainWindow(QMainWindow):
 </p>
 
 <div class="note">
-  <b style="color:#ffffff">Guidage visuel :</b>
+  <b style="color:#1f4e79">Guidage visuel :</b>
   les champs <span class="warn">rouges</span> sont à renseigner, les champs
   <span class="ok">verts</span> sont remplis. Les boutons rouges signalent une
   étape à préparer ou à valider ; les boutons verts indiquent une étape prête.
@@ -252,7 +252,7 @@ class MainWindow(QMainWindow):
 </ul>
 
 <div class="note">
-  <b style="color:#ffffff">Noms générés automatiquement :</b><br>
+  <b style="color:#1f4e79">Noms générés automatiquement :</b><br>
   <ul style="margin-top:6px">
     <li>
       <span class="key">Nom du prélèvement</span> :
@@ -287,7 +287,7 @@ class MainWindow(QMainWindow):
 <ul>
   <li><b>Type d'eau</b> reste rouge tant qu'aucun choix n'est fait.</li>
   <li>Pour <b>eau de mer</b> ou <b>eau estuarienne</b>, le coefficient de marée et l'heure de pleine mer apparaissent.</li>
-  <li>Pour <b>eau douce</b>, le bouton <b>Débit / flux...</b> ouvre le tableau largeur, hauteur d'eau, volume, vitesse et débit.</li>
+  <li>Pour <b>eau douce</b>, un champ <b>Débit (m³/s)</b> apparaît pour renseigner le débit du cours d'eau (la méthode de mesure est laissée à votre appréciation).</li>
   <li>Température de l'eau, météo, température de l'air, pluie sur 24 h et commentaire décrivent les conditions de prélèvement.</li>
 </ul>
 
@@ -384,7 +384,7 @@ class MainWindow(QMainWindow):
 </table>
 
 <div class="warn-box">
-  <b style="color:#ffffff">Points à vérifier en cas d'incohérence :</b>
+  <b style="color:#8a5a00">Points à vérifier en cas d'incohérence :</b>
   nom du prélèvement, date/heure, coordonnées GPS, type d'eau, correspondance
   spectres ↔ tubes, tableau de volumes, baseline et choix de longueur d'onde.
 </div>
