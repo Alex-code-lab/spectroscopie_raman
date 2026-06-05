@@ -666,6 +666,17 @@ def _apply_consistent_theme(app: "QApplication") -> None:
     if sys.platform != "darwin":
         app.setStyle("Fusion")
 
+    # Qt 6 applique la palette SOMBRE du système avant toute personnalisation
+    # quand l'OS est en mode sombre. Fusion + une palette claire ne suffisent
+    # alors PAS : il faut explicitement demander à Qt d'ignorer le thème sombre.
+    # (API disponible depuis Qt 6.5/6.8 ; ignorée silencieusement sinon — dans
+    #  ce cas l'option de plateforme "windows:darkmode=0" ci-dessous prend le
+    #  relais.)
+    try:
+        app.styleHints().setColorScheme(Qt.ColorScheme.Light)
+    except (AttributeError, TypeError):
+        pass
+
     pal = QPalette()
     pal.setColor(QPalette.Window, QColor("#f0f0f0"))
     pal.setColor(QPalette.WindowText, QColor("#1e1e1e"))
@@ -687,6 +698,13 @@ def _apply_consistent_theme(app: "QApplication") -> None:
 
 
 if __name__ == "__main__":
+    # Doit être défini AVANT la création de QApplication : désactive l'adaptation
+    # automatique de Qt au mode sombre de Windows (sinon l'appli démarre déjà
+    # avec une palette sombre). Complémentaire à setColorScheme() ci-dessous, qui
+    # n'existe que sur les Qt récents.
+    if sys.platform == "win32":
+        os.environ.setdefault("QT_QPA_PLATFORM", "windows:darkmode=0")
+
     app = QApplication(sys.argv)
     _apply_consistent_theme(app)
 
