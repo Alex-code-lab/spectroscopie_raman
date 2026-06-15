@@ -27,6 +27,7 @@ if APP_DIR not in sys.path:
 from store import SpectraStore
 from viewer_tab import ViewerTab
 from titration_tab import TitrationTab
+from peak_tracker_tab import PeakTrackerTab
 
 
 class MainWindow(QMainWindow):
@@ -44,6 +45,7 @@ class MainWindow(QMainWindow):
         tabs = QTabWidget(self)
         tabs.addTab(ViewerTab(self.store, self), "Visualiseur")
         tabs.addTab(TitrationTab(self.store, self), "Titration")
+        tabs.addTab(PeakTrackerTab(self.store, self), "Suivi de pic")
         self.setCentralWidget(tabs)
 
 
