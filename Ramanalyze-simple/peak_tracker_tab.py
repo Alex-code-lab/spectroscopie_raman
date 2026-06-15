@@ -58,6 +58,12 @@ _VOL_FACTORS = {"µL": 1e-6, "mL": 1e-3, "L": 1.0}
 _AMOUNT_UNITS = [("mol", 1.0), ("mmol", 1e-3), ("µmol", 1e-6),
                  ("nmol", 1e-9), ("pmol", 1e-12), ("fmol", 1e-15)]
 
+# Couleur = pic (constante d'une série à l'autre) ; style de trait = série.
+_PALETTE = ["#0057b8", "#d9534f", "#5cb85c", "#f0ad4e", "#9b59b6",
+            "#17a2b8", "#e83e8c", "#6c757d", "#20c997", "#fd7e14"]
+_DASHES = ["solid", "dash", "dot", "dashdot", "longdash", "longdashdot"]
+_NO_SERIES = "(sans série)"
+
 
 def _baseline_corrected(x, y, poly_order=5):
     """Soustrait une ligne de base modpoly (pybaselines). Renvoie y brut en cas d'échec."""
@@ -153,6 +159,7 @@ class PeakTrackerTab(QWidget):
         self._corr = {}            # path -> (x, y_corrigé) calculé à la détection
         self._centers = []         # liste de (centre_cm, support) détectés
         self._volumes = {}         # path -> volume de titrant saisi (texte)
+        self._series = {}          # path -> étiquette de série (texte)
         self._last_fig = None
         self._last_file_base = "evolution_pics"
         self._populating = False
@@ -176,28 +183,39 @@ class PeakTrackerTab(QWidget):
         self.btn_open.clicked.connect(self.open_files)
         left_layout.addWidget(self.btn_open)
 
-        # --- Fichiers chargés + volume de titrant par échantillon ---
-        files_box = QGroupBox("Fichiers chargés & volume de titrant", self)
+        # --- Fichiers chargés + volume de titrant + série par échantillon ---
+        files_box = QGroupBox("Fichiers chargés · volume de titrant · série", self)
         files_layout = QVBoxLayout(files_box)
         files_hint = QLabel(
-            "Double-cliquez la colonne <i>Volume</i> pour saisir le volume de titrant "
-            "ajouté à chaque échantillon. Sélectionnez des lignes pour les retirer "
-            "(Ctrl/Maj pour une sélection multiple).", self
+            "Double-cliquez les colonnes <i>Volume</i> et <i>Série</i> pour les saisir. "
+            "Chaque série est tracée indépendamment (sa propre courbe de titration). "
+            "Sélectionnez des lignes pour les retirer ou leur affecter une série.", self
         )
         files_hint.setWordWrap(True)
         files_hint.setStyleSheet("color: #888;")
         files_layout.addWidget(files_hint)
 
-        self.file_table = QTableWidget(0, 2, self)
-        self.file_table.setMinimumHeight(140)
-        self.file_table.setHorizontalHeaderLabels(["Fichier", "Volume titrant"])
+        self.file_table = QTableWidget(0, 3, self)
+        self.file_table.setMinimumHeight(150)
+        self.file_table.setHorizontalHeaderLabels(["Fichier", "Volume titrant", "Série"])
         self.file_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.file_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.file_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.file_table.verticalHeader().setVisible(False)
         self.file_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.file_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.file_table.itemChanged.connect(self._on_volume_changed)
+        self.file_table.itemChanged.connect(self._on_table_edited)
         files_layout.addWidget(self.file_table)
+
+        # affectation groupée d'une série à la sélection
+        series_row = QHBoxLayout()
+        self.edit_series = QLineEdit(self)
+        self.edit_series.setPlaceholderText("Nom de série (ex. Série 1)")
+        series_row.addWidget(self.edit_series, 1)
+        self.btn_assign = QPushButton("Affecter à la sélection", self)
+        self.btn_assign.clicked.connect(self.assign_series)
+        series_row.addWidget(self.btn_assign)
+        files_layout.addLayout(series_row)
 
         files_btns = QHBoxLayout()
         self.btn_remove = QPushButton("Retirer la sélection", self)
@@ -231,10 +249,10 @@ class PeakTrackerTab(QWidget):
         titrant_form.addRow("Unité des volumes :", self.cmb_vol_unit)
 
         self.cmb_xaxis = QComboBox(self)
-        self.cmb_xaxis.addItems(["Nom de spectre", "Quantité de matière de titrant"])
+        self.cmb_xaxis.addItems(["Quantité de matière de titrant", "Nom de spectre"])
         self.cmb_xaxis.setToolTip(
-            "Abscisse du graphe : noms des spectres, ou quantité de matière = "
-            "concentration × volume de titrant."
+            "Abscisse du graphe. Par défaut : quantité de matière = concentration × "
+            "volume de titrant (axe numérique → les séries de même quantité se superposent)."
         )
         titrant_form.addRow("Axe X :", self.cmb_xaxis)
         left_layout.addWidget(titrant_box)
@@ -416,12 +434,33 @@ class PeakTrackerTab(QWidget):
         ) == QMessageBox.Yes:
             self.store.clear()
 
-    def _on_volume_changed(self, item):
-        if self._populating or item.column() != 1:
+    def _on_table_edited(self, item):
+        if self._populating:
             return
         path = item.data(Qt.UserRole)
-        if path is not None:
+        if path is None:
+            return
+        if item.column() == 1:
             self._volumes[path] = item.text().strip()
+        elif item.column() == 2:
+            self._series[path] = item.text().strip()
+
+    def assign_series(self):
+        label = self.edit_series.text().strip()
+        rows = {idx.row() for idx in self.file_table.selectedIndexes()}
+        if not rows:
+            QMessageBox.information(
+                self, "Aucune sélection",
+                "Sélectionnez d'abord des lignes, saisissez un nom de série, puis affectez.",
+            )
+            return
+        self._populating = True
+        for r in rows:
+            path = self.file_table.item(r, 0).data(Qt.UserRole)
+            self._series[path] = label
+            self.file_table.item(r, 2).setText(label)
+        self._populating = False
+        self.status.setText(f"Série « {label or _NO_SERIES} » affectée à {len(rows)} fichier(s).")
 
     def _refresh_file_list(self):
         self._populating = True
@@ -439,9 +478,14 @@ class PeakTrackerTab(QWidget):
             vol_item = QTableWidgetItem(self._volumes.get(path, ""))
             vol_item.setData(Qt.UserRole, path)
             self.file_table.setItem(row, 1, vol_item)
-        # purge des volumes des fichiers disparus
+
+            ser_item = QTableWidgetItem(self._series.get(path, ""))
+            ser_item.setData(Qt.UserRole, path)
+            self.file_table.setItem(row, 2, ser_item)
+        # purge des fichiers disparus
         live = set(self.store.paths())
         self._volumes = {p: v for p, v in self._volumes.items() if p in live}
+        self._series = {p: v for p, v in self._series.items() if p in live}
         self._populating = False
 
     def _invalidate_detection(self):
@@ -451,7 +495,7 @@ class PeakTrackerTab(QWidget):
         self._populating = False
         self._centers = []
         self._corr = {}
-        self._matrix = {}
+        self._plot_rows = []
         self._last_fig = None
         self.btn_export_csv.setEnabled(False)
         self.btn_export_graph.setEnabled(False)
@@ -564,8 +608,11 @@ class PeakTrackerTab(QWidget):
             out[path] = conc_molL * (vol * v_factor)
         return out
 
+    def _series_label(self, path):
+        return self._series.get(path, "").strip() or _NO_SERIES
+
     def plot_evolution(self):
-        centers = self._checked_centers()
+        centers = sorted(self._checked_centers())
         if not centers:
             QMessageBox.information(
                 self, "Aucun pic coché",
@@ -579,50 +626,78 @@ class PeakTrackerTab(QWidget):
         wmin, wmax = self.spin_min.value(), self.spin_max.value()
         use_quantity = self.cmb_xaxis.currentText().startswith("Quantité")
 
-        # --- choix de l'abscisse ---
-        n_skipped = 0
+        # --- abscisse de chaque spectre (et filtrage en mode quantité) ---
+        amounts = self._amounts_mol() if use_quantity else None
         if use_quantity:
-            amounts = self._amounts_mol()
-            plot_paths = sorted((p for p in self.store.paths() if p in amounts),
-                                key=lambda p: amounts[p])
-            if not plot_paths:
+            valid = [amounts[p] for p in self.store.paths() if p in amounts]
+            if not valid:
                 QMessageBox.warning(
                     self, "Volumes manquants",
                     "Renseignez la concentration du titrant et au moins un volume "
                     "de titrant dans le tableau.",
                 )
                 return
-            n_skipped = len(self.store.paths()) - len(plot_paths)
-            unit_label, unit_factor = _pick_amount_unit(max(amounts[p] for p in plot_paths))
-            xvals = [amounts[p] / unit_factor for p in plot_paths]
+            unit_label, unit_factor = _pick_amount_unit(max(valid))
             x_title = f"Quantité de titrant ({unit_label})"
         else:
-            plot_paths = list(self.store.paths())
-            xvals = [self.store.name(p) for p in plot_paths]
             x_title = "Spectre"
 
-        names = [self.store.name(p) for p in plot_paths]
-        auto_title = f"Évolution des pics · fenêtre {wmin:.0f}–{wmax:.0f} cm⁻¹"
-        title = self.edit_title.text().strip() or auto_title
+        def xval(path):
+            if use_quantity:
+                return amounts[path] / unit_factor
+            return self.store.name(path)
+
+        # --- regroupement par série, dans l'ordre d'apparition ---
+        series_order = []
+        for p in self.store.paths():
+            lab = self._series_label(p)
+            if lab not in series_order:
+                series_order.append(lab)
+
+        # intensité de chaque pic pour chaque spectre (réutilisée tracé + export)
+        inten = {}
+        for p in self.store.paths():
+            x, y = self._corr[p]
+            inten[p] = {c: _measure_at(x, y, c, tol) for c in centers}
+
+        title = self.edit_title.text().strip() or f"Évolution des pics · {wmin:.0f}–{wmax:.0f} cm⁻¹"
         self._last_file_base = f"evolution_pics_{wmin:.0f}_{wmax:.0f}"
 
         fig = go.Figure()
-        # matrice pour l'export : center -> liste d'intensités (alignée sur plot_paths)
-        self._matrix = {}
-        for center in sorted(centers):
-            ys = []
-            for path in plot_paths:
-                x, y = self._corr[path]
-                val = _measure_at(x, y, center, tol)
-                ys.append(None if np.isnan(val) else val)
-            self._matrix[center] = ys
-            fig.add_trace(go.Scatter(
-                x=xvals, y=ys, mode="lines+markers", name=f"{center:.0f} cm⁻¹",
-                connectgaps=False, marker=dict(size=9), line=dict(width=2),
-                text=names,
-                hovertemplate=f"pic {center:.0f} cm⁻¹<br>%{{text}}<br>"
-                              f"x=%{{x}}<br>I=%{{y:.4g}}<extra></extra>",
-            ))
+        self._plot_rows = []   # (série, path, xval) dans l'ordre tracé, pour l'export
+        n_used = n_skipped = 0
+        multi = len(series_order) > 1
+        for si, lab in enumerate(series_order):
+            grp = [p for p in self.store.paths() if self._series_label(p) == lab]
+            if use_quantity:
+                grp = [p for p in grp if p in amounts]
+                grp.sort(key=lambda p: amounts[p])
+            if not grp:
+                continue
+            dash = _DASHES[si % len(_DASHES)]
+            xs = [xval(p) for p in grp]
+            names = [self.store.name(p) for p in grp]
+            n_used += len(grp)
+            for ci, center in enumerate(centers):
+                color = _PALETTE[ci % len(_PALETTE)]
+                ys = [None if np.isnan(inten[p][center]) else inten[p][center] for p in grp]
+                # nom lisible : "Série — pic" si plusieurs séries, sinon juste le pic
+                trace_name = f"{lab} — {center:.0f} cm⁻¹" if multi else f"{center:.0f} cm⁻¹"
+                fig.add_trace(go.Scatter(
+                    x=xs, y=ys, mode="lines+markers", name=trace_name,
+                    legendgroup=lab, legendgrouptitle_text=(lab if multi else None),
+                    connectgaps=False,
+                    line=dict(width=2, dash=dash, color=color),
+                    marker=dict(size=8, color=color),
+                    text=names,
+                    hovertemplate=f"{lab}<br>pic {center:.0f} cm⁻¹<br>%{{text}}<br>"
+                                  f"x=%{{x}}<br>I=%{{y:.4g}}<extra></extra>",
+                ))
+            for p in grp:
+                self._plot_rows.append((lab, p, xval(p)))
+
+        if use_quantity:
+            n_skipped = len(self.store.paths()) - n_used
 
         fig.update_layout(
             title=title,
@@ -631,7 +706,7 @@ class PeakTrackerTab(QWidget):
             template="plotly_white",
             margin=dict(l=80, r=30, t=60, b=120),
             font=dict(size=14),
-            legend=dict(title="Pics suivis"),
+            legend=dict(title="Séries / pics" if multi else "Pics suivis"),
         )
         if not use_quantity:
             fig.update_xaxes(tickangle=-45)
@@ -639,20 +714,21 @@ class PeakTrackerTab(QWidget):
         self._last_fig = fig
 
         # mémorisé pour l'export CSV
-        self._plot_paths = plot_paths
-        self._xvals = xvals
+        self._inten = inten
+        self._centers_plotted = centers
         self._x_title = x_title
 
         self.btn_export_graph.setEnabled(True)
         self.btn_export_csv.setEnabled(True)
-        msg = f"{len(centers)} pic(s) suivi(s) sur {len(plot_paths)} spectre(s)."
+        msg = (f"{len(centers)} pic(s) × {len(series_order)} série(s) "
+               f"sur {n_used} spectre(s).")
         if n_skipped:
             msg += f" {n_skipped} sans volume ignoré(s)."
         self.status.setText(msg)
 
     # ------------------------------------------------------------------
     def export_csv(self):
-        if self._last_fig is None or not getattr(self, "_matrix", None):
+        if self._last_fig is None or not getattr(self, "_plot_rows", None):
             QMessageBox.information(self, "Rien à exporter", "Tracez d'abord l'évolution.")
             return
         path, _ = QFileDialog.getSaveFileName(
@@ -661,27 +737,25 @@ class PeakTrackerTab(QWidget):
         )
         if not path:
             return
-        plot_paths = getattr(self, "_plot_paths", self.store.paths())
-        xvals = getattr(self, "_xvals", [self.store.name(p) for p in plot_paths])
-        x_title = getattr(self, "_x_title", "Spectre")
         vol_unit = self.cmb_vol_unit.currentText()
-        centers = sorted(self._matrix.keys())
+        x_title = getattr(self, "_x_title", "Spectre")
+        centers = self._centers_plotted
         include_x = x_title != "Spectre"   # colonne quantité seulement si pertinent
         try:
             with open(path, "w", encoding="utf-8", newline="") as f:
                 w = csv.writer(f, delimiter=";")
-                header = ["Fichier", f"Volume titrant ({vol_unit})"]
+                header = ["Série", "Fichier", f"Volume titrant ({vol_unit})"]
                 if include_x:
                     header.append(x_title)
                 header += [f"{c:.0f} cm-1" for c in centers]
                 w.writerow(header)
-                for i, p in enumerate(plot_paths):
-                    row = [self.store.name(p), self._volumes.get(p, "")]
+                for lab, p, xv in self._plot_rows:   # déjà dans l'ordre tracé
+                    row = [lab, self.store.name(p), self._volumes.get(p, "")]
                     if include_x:
-                        row.append(f"{xvals[i]:.6g}")
+                        row.append(f"{xv:.6g}")
                     for c in centers:
-                        v = self._matrix[c][i]
-                        row.append("" if v is None else f"{v:.6g}")
+                        v = self._inten[p][c]
+                        row.append("" if (v is None or np.isnan(v)) else f"{v:.6g}")
                     w.writerow(row)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Export impossible", str(exc))
