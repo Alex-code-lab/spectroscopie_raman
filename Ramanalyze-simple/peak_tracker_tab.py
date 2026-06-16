@@ -6,13 +6,12 @@ les pics présents, puis suivre **chacun individuellement** d'un spectre à l'au
 Démarche :
 1. On détecte les pics (scipy.find_peaks) dans la fenêtre, pour chaque spectre.
 2. On **apparie** ces pics d'un spectre à l'autre en regroupant ceux dont la
-   position est proche (tolérance réglable) → chaque groupe = un « pic suivi »,
-   caractérisé par une position de référence (centre du groupe).
-3. Pour chaque pic suivi, on mesure son intensité dans chaque spectre (maximum
-   dans ±tolérance autour du centre) et on trace **une courbe par pic**.
+   position est proche (tolérance réglable) → chaque groupe = un « pic suivi ».
+3. Pour chaque pic suivi, on mesure son intensité dans chaque spectre et on trace
+   **une courbe par (série × pic)**, en abscisse la quantité de matière de titrant.
 
-Une correction de ligne de base (modpoly, comme Ramanalyze) est appliquée par
-défaut avant toute mesure.
+Volume de titrant, série et réglages titrant sont partagés avec l'onglet Titration
+(via le store) et peuvent être enregistrés / rechargés.
 """
 
 import csv
@@ -48,20 +47,21 @@ import plotly.graph_objects as go
 
 from spectrum_loader import load_spectrum
 from plot_view import PlotlyView
+import titrant_utils as tu
 
 _SETTINGS_KEY = "simple/last_dir"
 
-# Facteurs vers les unités SI de base (mol/L et L).
-_CONC_FACTORS = {"nM": 1e-9, "µM": 1e-6, "mM": 1e-3, "M": 1.0}
-_VOL_FACTORS = {"µL": 1e-6, "mL": 1e-3, "L": 1.0}
-# Échelles d'affichage de la quantité de matière (mol).
-_AMOUNT_UNITS = [("mol", 1.0), ("mmol", 1e-3), ("µmol", 1e-6),
-                 ("nmol", 1e-9), ("pmol", 1e-12), ("fmol", 1e-15)]
-
-# Couleur = pic (constante d'une série à l'autre) ; style de trait = série.
-_PALETTE = ["#0057b8", "#d9534f", "#5cb85c", "#f0ad4e", "#9b59b6",
-            "#17a2b8", "#e83e8c", "#6c757d", "#20c997", "#fd7e14"]
-_DASHES = ["solid", "dash", "dot", "dashdot", "longdash", "longdashdot"]
+# Chaque série a sa propre FAMILLE de couleurs (teinte distincte) ; à l'intérieur
+# d'une série, chaque pic prend une nuance différente de cette famille.
+# Les données sont tracées en trait PLEIN ; seules les sigmoïdes sont en tireté.
+_FAMILIES = [
+    ["#08519c", "#3182bd", "#6baed6", "#2171b5", "#4292c6", "#9ecae1", "#c6dbef"],  # bleus
+    ["#a63603", "#e6550d", "#fd8d3c", "#d94801", "#f16913", "#fdae6b", "#fdd0a2"],  # oranges
+    ["#006d2c", "#31a354", "#74c476", "#238b45", "#41ab5d", "#a1d99b", "#c7e9c0"],  # verts
+    ["#54278f", "#756bb1", "#9e9ac8", "#6a51a3", "#807dba", "#bcbddc", "#dadaeb"],  # violets
+    ["#99000d", "#cb181d", "#ef3b2c", "#a50f15", "#fb6a4a", "#fc9272", "#fcbba1"],  # rouges
+    ["#b35806", "#8c510a", "#bf812d", "#dfc27d", "#7f3b08", "#e08214", "#fdb863"],  # bruns/ocres
+]
 _NO_SERIES = "(sans série)"
 
 
@@ -90,7 +90,6 @@ def _detect_peaks(x, y, wmin, wmax, prominence_frac):
         idx, _ = find_peaks(yb, prominence=prominence_frac * span)
         return [float(xb[i]) for i in idx]
     except Exception:  # noqa: BLE001
-        # repli : le maximum global de la fenêtre
         return [float(xb[int(np.argmax(yb))])]
 
 
@@ -98,8 +97,7 @@ def _cluster(detections, tol):
     """Regroupe des pics proches en « pics suivis ».
 
     detections : liste de (position_cm, indice_spectre).
-    Renvoie une liste de (centre_cm, support) triée par centre,
-    où *support* = nombre de spectres distincts contribuant au groupe.
+    Renvoie une liste de (centre_cm, support) triée par centre.
     """
     if not detections:
         return []
@@ -129,40 +127,16 @@ def _measure_at(x, y, center, tol):
     return float(np.max(y[mask]))
 
 
-def _parse_num(text):
-    """Convertit un texte (virgule ou point décimal) en float, ou NaN."""
-    if text is None:
-        return np.nan
-    t = str(text).strip().replace(",", ".")
-    if not t:
-        return np.nan
-    try:
-        return float(t)
-    except ValueError:
-        return np.nan
-
-
-def _pick_amount_unit(max_mol):
-    """Choisit l'unité d'affichage (mol→fmol) la plus lisible pour la quantité."""
-    if not np.isfinite(max_mol) or max_mol <= 0:
-        return "mol", 1.0
-    for label, factor in _AMOUNT_UNITS:
-        if max_mol / factor >= 1.0:
-            return label, factor
-    return _AMOUNT_UNITS[-1]  # fmol
-
-
 class PeakTrackerTab(QWidget):
     def __init__(self, store, parent=None):
         super().__init__(parent)
         self.store = store
         self._corr = {}            # path -> (x, y_corrigé) calculé à la détection
         self._centers = []         # liste de (centre_cm, support) détectés
-        self._volumes = {}         # path -> volume de titrant saisi (texte)
-        self._series = {}          # path -> étiquette de série (texte)
         self._last_fig = None
         self._last_file_base = "evolution_pics"
         self._populating = False
+        self._emitting_meta = False
 
         # ---------------- Panneau gauche ----------------
         left = QWidget(self)
@@ -172,8 +146,8 @@ class PeakTrackerTab(QWidget):
         left_layout.addWidget(QLabel("<b>Suivi individuel des pics</b>", self))
         hint = QLabel(
             "On repère tous les pics de la fenêtre, on les apparie d'un spectre à "
-            "l'autre, puis on suit chacun séparément. Les fichiers ajoutés ici (ou "
-            "envoyés depuis le Visualiseur) sont analysés.", self
+            "l'autre, puis on suit chacun séparément. Volumes et séries sont partagés "
+            "avec l'onglet Titration.", self
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #888;")
@@ -188,8 +162,8 @@ class PeakTrackerTab(QWidget):
         files_layout = QVBoxLayout(files_box)
         files_hint = QLabel(
             "Double-cliquez les colonnes <i>Volume</i> et <i>Série</i> pour les saisir. "
-            "Chaque série est tracée indépendamment (sa propre courbe de titration). "
-            "Sélectionnez des lignes pour les retirer ou leur affecter une série.", self
+            "Chaque série est tracée indépendamment. Sélectionnez des lignes pour les "
+            "retirer ou leur affecter une série.", self
         )
         files_hint.setWordWrap(True)
         files_hint.setStyleSheet("color: #888;")
@@ -225,9 +199,19 @@ class PeakTrackerTab(QWidget):
         files_btns.addWidget(self.btn_remove)
         files_btns.addWidget(self.btn_clear)
         files_layout.addLayout(files_btns)
+
+        # enregistrer / charger le tableau (partagé avec Titration)
+        session_btns = QHBoxLayout()
+        self.btn_save_session = QPushButton("💾 Enregistrer le tableau…", self)
+        self.btn_save_session.clicked.connect(self.save_session)
+        self.btn_load_session = QPushButton("📥 Charger un tableau…", self)
+        self.btn_load_session.clicked.connect(self.load_session)
+        session_btns.addWidget(self.btn_save_session)
+        session_btns.addWidget(self.btn_load_session)
+        files_layout.addLayout(session_btns)
         left_layout.addWidget(files_box)
 
-        # --- Titrant : concentration de la solution + unité + unité de volume ---
+        # --- Titrant : concentration de la solution + unités ---
         titrant_box = QGroupBox("Titrant (pour l'axe « quantité de matière »)", self)
         titrant_form = QFormLayout(titrant_box)
 
@@ -238,13 +222,13 @@ class PeakTrackerTab(QWidget):
         self.spin_conc.setValue(1.0)
         conc_row.addWidget(self.spin_conc, 1)
         self.cmb_conc_unit = QComboBox(self)
-        self.cmb_conc_unit.addItems(list(_CONC_FACTORS.keys()))  # nM, µM, mM, M
+        self.cmb_conc_unit.addItems(list(tu.CONC_FACTORS.keys()))  # nM, µM, mM, M
         self.cmb_conc_unit.setCurrentText("µM")
         conc_row.addWidget(self.cmb_conc_unit)
         titrant_form.addRow("Concentration :", conc_row)
 
         self.cmb_vol_unit = QComboBox(self)
-        self.cmb_vol_unit.addItems(list(_VOL_FACTORS.keys()))    # µL, mL, L
+        self.cmb_vol_unit.addItems(list(tu.VOL_FACTORS.keys()))    # µL, mL, L
         self.cmb_vol_unit.setCurrentText("µL")
         titrant_form.addRow("Unité des volumes :", self.cmb_vol_unit)
 
@@ -256,6 +240,11 @@ class PeakTrackerTab(QWidget):
         )
         titrant_form.addRow("Axe X :", self.cmb_xaxis)
         left_layout.addWidget(titrant_box)
+
+        # synchro des réglages titrant -> store
+        self.spin_conc.valueChanged.connect(self._on_titrant_changed)
+        self.cmb_conc_unit.currentTextChanged.connect(self._on_titrant_changed)
+        self.cmb_vol_unit.currentTextChanged.connect(self._on_titrant_changed)
 
         # --- Fenêtre + détection ---
         params = QGroupBox("Fenêtre & détection", self)
@@ -314,7 +303,7 @@ class PeakTrackerTab(QWidget):
         # --- Liste des pics détectés (cochables) ---
         left_layout.addWidget(QLabel("<b>Pics détectés</b> (cochez ceux à suivre)", self))
         self.list_peaks = QListWidget(self)
-        self.list_peaks.setMinimumHeight(180)
+        self.list_peaks.setMinimumHeight(160)
         self.list_peaks.itemChanged.connect(self._on_peak_toggled)
         left_layout.addWidget(self.list_peaks, 1)
 
@@ -334,6 +323,26 @@ class PeakTrackerTab(QWidget):
         self.edit_title.setPlaceholderText("Titre automatique (laisser vide)")
         title_row.addWidget(self.edit_title, 1)
         left_layout.addLayout(title_row)
+
+        self.chk_sigmoid = QCheckBox("Ajuster une sigmoïde (point d'équivalence)", self)
+        self.chk_sigmoid.setToolTip(
+            "Ajuste une sigmoïde et marque le point d'équivalence (inflexion). "
+            "Nécessite l'axe « Quantité de matière » et au moins 4 points."
+        )
+        self.chk_sigmoid.toggled.connect(self._on_sigmoid_toggled)
+        left_layout.addWidget(self.chk_sigmoid)
+
+        fit_row = QHBoxLayout()
+        fit_row.addWidget(QLabel("Courbe à ajuster :", self))
+        self.cmb_fit_curve = QComboBox(self)
+        self.cmb_fit_curve.setToolTip(
+            "Courbe (série × pic) sur laquelle ajuster la sigmoïde et marquer le "
+            "point d'équivalence. « Toutes les courbes » trace un fit par courbe sans repère."
+        )
+        self.cmb_fit_curve.setEnabled(False)
+        self.cmb_fit_curve.currentIndexChanged.connect(self._on_fit_curve_changed)
+        fit_row.addWidget(self.cmb_fit_curve, 1)
+        left_layout.addLayout(fit_row)
 
         self.btn_plot = QPushButton("2) Tracer l'évolution", self)
         self.btn_plot.setStyleSheet(
@@ -380,6 +389,8 @@ class PeakTrackerTab(QWidget):
         layout.addWidget(splitter)
 
         self.store.changed.connect(self._on_store_changed)
+        self.store.meta_changed.connect(self._on_meta_changed)
+        self._sync_titrant_controls()
         self._on_store_changed()
 
     # ------------------------------------------------------------------
@@ -423,16 +434,87 @@ class PeakTrackerTab(QWidget):
             )
             return
         for p in paths:
-            self.store.remove(p)   # émet « changed » -> _on_store_changed
+            self.store.remove(p)
 
     def clear_all(self):
         if not self.store.paths():
             return
-        if QMessageBox.question(
-            self, "Tout vider",
-            "Retirer tous les fichiers chargés ?",
-        ) == QMessageBox.Yes:
+        if QMessageBox.question(self, "Tout vider", "Retirer tous les fichiers chargés ?") == QMessageBox.Yes:
             self.store.clear()
+
+    # ------------------------------------------------------------------
+    # Persistance du tableau
+    # ------------------------------------------------------------------
+    def save_session(self):
+        if not self.store.paths():
+            QMessageBox.information(self, "Rien à enregistrer", "Aucun spectre chargé.")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Enregistrer le tableau", os.path.join(self._last_dir(), "tableau_titration.json"),
+            "Tableau Ramanalyze (*.json)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".json"):
+            path += ".json"
+        try:
+            self.store.save_session(path)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Enregistrement impossible", str(exc))
+            return
+        self.status.setText(f"Tableau enregistré : {os.path.basename(path)}")
+
+    def load_session(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Charger un tableau", self._last_dir(),
+            "Tableau Ramanalyze (*.json);;Tous les fichiers (*)",
+        )
+        if not path:
+            return
+        try:
+            missing = self.store.load_session(path)   # émet « changed »
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Chargement impossible", str(exc))
+            return
+        self._sync_titrant_controls()
+        msg = f"Tableau chargé : {os.path.basename(path)}."
+        if missing:
+            msg += f" {len(missing)} fichier(s) introuvable(s) : " + ", ".join(missing[:3])
+            if len(missing) > 3:
+                msg += "…"
+        self.status.setText(msg)
+
+    # ------------------------------------------------------------------
+    # Synchronisation des métadonnées (volumes / séries / titrant) via le store
+    # ------------------------------------------------------------------
+    def _emit_meta(self):
+        self._emitting_meta = True
+        self.store.meta_changed.emit()
+        self._emitting_meta = False
+
+    def _on_meta_changed(self):
+        if self._emitting_meta:
+            return
+        # un autre onglet a modifié volumes/séries/titrant : on rafraîchit l'affichage
+        self._sync_titrant_controls()
+        self._refresh_file_list()
+        self._refresh_fit_curves()
+
+    def _on_titrant_changed(self, *_):
+        if self._populating:
+            return
+        self.store.titrant["conc"] = self.spin_conc.value()
+        self.store.titrant["conc_unit"] = self.cmb_conc_unit.currentText()
+        self.store.titrant["vol_unit"] = self.cmb_vol_unit.currentText()
+        self._emit_meta()
+
+    def _sync_titrant_controls(self):
+        self._populating = True
+        t = self.store.titrant
+        self.spin_conc.setValue(float(t.get("conc", 1.0)))
+        self.cmb_conc_unit.setCurrentText(t.get("conc_unit", "µM"))
+        self.cmb_vol_unit.setCurrentText(t.get("vol_unit", "µL"))
+        self._populating = False
 
     def _on_table_edited(self, item):
         if self._populating:
@@ -441,9 +523,10 @@ class PeakTrackerTab(QWidget):
         if path is None:
             return
         if item.column() == 1:
-            self._volumes[path] = item.text().strip()
+            self.store.volumes[path] = item.text().strip()
         elif item.column() == 2:
-            self._series[path] = item.text().strip()
+            self.store.series[path] = item.text().strip()
+        self._emit_meta()
 
     def assign_series(self):
         label = self.edit_series.text().strip()
@@ -457,9 +540,10 @@ class PeakTrackerTab(QWidget):
         self._populating = True
         for r in rows:
             path = self.file_table.item(r, 0).data(Qt.UserRole)
-            self._series[path] = label
+            self.store.series[path] = label
             self.file_table.item(r, 2).setText(label)
         self._populating = False
+        self._emit_meta()
         self.status.setText(f"Série « {label or _NO_SERIES} » affectée à {len(rows)} fichier(s).")
 
     def _refresh_file_list(self):
@@ -475,17 +559,13 @@ class PeakTrackerTab(QWidget):
             name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
             self.file_table.setItem(row, 0, name_item)
 
-            vol_item = QTableWidgetItem(self._volumes.get(path, ""))
+            vol_item = QTableWidgetItem(self.store.volumes.get(path, ""))
             vol_item.setData(Qt.UserRole, path)
             self.file_table.setItem(row, 1, vol_item)
 
-            ser_item = QTableWidgetItem(self._series.get(path, ""))
+            ser_item = QTableWidgetItem(self.store.series.get(path, ""))
             ser_item.setData(Qt.UserRole, path)
             self.file_table.setItem(row, 2, ser_item)
-        # purge des fichiers disparus
-        live = set(self.store.paths())
-        self._volumes = {p: v for p, v in self._volumes.items() if p in live}
-        self._series = {p: v for p, v in self._series.items() if p in live}
         self._populating = False
 
     def _invalidate_detection(self):
@@ -503,12 +583,12 @@ class PeakTrackerTab(QWidget):
     def _on_store_changed(self):
         self._refresh_file_list()
         self._invalidate_detection()
+        self._refresh_fit_curves()
         n = len(self.store.paths())
         self.status.setText("Aucun spectre" if n == 0 else f"{n} spectre(s) chargé(s). Cliquez « Détecter les pics ».")
 
     # ------------------------------------------------------------------
     def _corrected_spectra(self):
-        """Renvoie {path: (x, y)} avec ligne de base soustraite selon l'option."""
         do_baseline = self.chk_baseline.isChecked()
         corr = {}
         for path in self.store.paths():
@@ -531,29 +611,24 @@ class PeakTrackerTab(QWidget):
         prom = self.spin_prom.value() / 100.0
         tol = self.spin_tol.value()
 
-        # 1) détecter les pics par spectre, en gardant l'indice du spectre
         detections = []
         for si, path in enumerate(self.store.paths()):
             x, y = self._corr[path]
             for pos in _detect_peaks(x, y, wmin, wmax, prom):
                 detections.append((pos, si))
 
-        # 2) apparier (regrouper) + filtrer par présence minimale
         n_spec = len(self.store.paths())
         min_support = min(self.spin_support.value(), n_spec)
         centers = [(c, s) for c, s in _cluster(detections, tol) if s >= min_support]
 
         self._centers = centers
         self._populate_peak_list()
+        self._refresh_fit_curves()
 
         if not centers:
-            self.status.setText(
-                "Aucun pic retenu. Baissez la proéminence ou la présence minimale."
-            )
+            self.status.setText("Aucun pic retenu. Baissez la proéminence ou la présence minimale.")
         else:
-            self.status.setText(
-                f"{len(centers)} pic(s) détecté(s). Cochez ceux à suivre puis « Tracer »."
-            )
+            self.status.setText(f"{len(centers)} pic(s) détecté(s). Cochez ceux à suivre puis « Tracer ».")
 
     def _populate_peak_list(self):
         self._populating = True
@@ -573,13 +648,14 @@ class PeakTrackerTab(QWidget):
         for i in range(self.list_peaks.count()):
             self.list_peaks.item(i).setCheckState(state)
         self._populating = False
+        self._refresh_fit_curves()
         if self._last_fig is not None:
             self.plot_evolution()
 
     def _on_peak_toggled(self, item):
         if self._populating:
             return
-        # re-tracer automatiquement si un graphe existe déjà
+        self._refresh_fit_curves()
         if self._last_fig is not None:
             self.plot_evolution()
 
@@ -592,24 +668,42 @@ class PeakTrackerTab(QWidget):
         return out
 
     # ------------------------------------------------------------------
-    def _amounts_mol(self):
-        """{path: quantité de matière de titrant en mol} pour les volumes valides.
+    def _on_sigmoid_toggled(self, checked):
+        self.cmb_fit_curve.setEnabled(checked)
+        self._refresh_fit_curves()
+        if self._last_fig is not None:
+            self.plot_evolution()
 
-        n = concentration(mol/L) × volume(L), avec les unités choisies dans l'UI.
-        """
-        c_factor = _CONC_FACTORS[self.cmb_conc_unit.currentText()]
-        v_factor = _VOL_FACTORS[self.cmb_vol_unit.currentText()]
-        conc_molL = self.spin_conc.value() * c_factor
-        out = {}
-        for path in self.store.paths():
-            vol = _parse_num(self._volumes.get(path, ""))
-            if np.isnan(vol):
-                continue
-            out[path] = conc_molL * (vol * v_factor)
-        return out
+    def _on_fit_curve_changed(self, *_):
+        if self._populating:
+            return
+        if self._last_fig is not None and self.chk_sigmoid.isChecked():
+            self.plot_evolution()
+
+    def _refresh_fit_curves(self):
+        """Reconstruit la liste des courbes (série × pic coché) pour le sélecteur."""
+        self._populating = True
+        keep = self.cmb_fit_curve.currentData()
+        self.cmb_fit_curve.clear()
+        self.cmb_fit_curve.addItem("Toutes les courbes", None)
+        series_order = []
+        for p in self.store.paths():
+            lab = self._series_label(p)
+            if lab not in series_order:
+                series_order.append(lab)
+        centers = sorted(self._checked_centers())
+        multi = len(series_order) > 1
+        for lab in series_order:
+            for c in centers:
+                name = f"{lab} — {c:.0f} cm⁻¹" if multi else f"{c:.0f} cm⁻¹"
+                self.cmb_fit_curve.addItem(name, (lab, c))
+        idx = self.cmb_fit_curve.findData(keep)
+        if idx >= 0:
+            self.cmb_fit_curve.setCurrentIndex(idx)
+        self._populating = False
 
     def _series_label(self, path):
-        return self._series.get(path, "").strip() or _NO_SERIES
+        return self.store.series.get(path, "").strip() or _NO_SERIES
 
     def plot_evolution(self):
         centers = sorted(self._checked_centers())
@@ -626,10 +720,9 @@ class PeakTrackerTab(QWidget):
         wmin, wmax = self.spin_min.value(), self.spin_max.value()
         use_quantity = self.cmb_xaxis.currentText().startswith("Quantité")
 
-        # --- abscisse de chaque spectre (et filtrage en mode quantité) ---
-        amounts = self._amounts_mol() if use_quantity else None
+        amounts = tu.amounts_mol(self.store.paths(), self.store.volumes, self.store.titrant) if use_quantity else None
         if use_quantity:
-            valid = [amounts[p] for p in self.store.paths() if p in amounts]
+            valid = list(amounts.values())
             if not valid:
                 QMessageBox.warning(
                     self, "Volumes manquants",
@@ -637,7 +730,7 @@ class PeakTrackerTab(QWidget):
                     "de titrant dans le tableau.",
                 )
                 return
-            unit_label, unit_factor = _pick_amount_unit(max(valid))
+            unit_label, unit_factor = tu.pick_amount_unit(max(valid))
             x_title = f"Quantité de titrant ({unit_label})"
         else:
             x_title = "Spectre"
@@ -647,14 +740,13 @@ class PeakTrackerTab(QWidget):
                 return amounts[path] / unit_factor
             return self.store.name(path)
 
-        # --- regroupement par série, dans l'ordre d'apparition ---
+        # regroupement par série (ordre d'apparition)
         series_order = []
         for p in self.store.paths():
             lab = self._series_label(p)
             if lab not in series_order:
                 series_order.append(lab)
 
-        # intensité de chaque pic pour chaque spectre (réutilisée tracé + export)
         inten = {}
         for p in self.store.paths():
             x, y = self._corr[p]
@@ -663,9 +755,13 @@ class PeakTrackerTab(QWidget):
         title = self.edit_title.text().strip() or f"Évolution des pics · {wmin:.0f}–{wmax:.0f} cm⁻¹"
         self._last_file_base = f"evolution_pics_{wmin:.0f}_{wmax:.0f}"
 
+        do_fit = self.chk_sigmoid.isChecked()
+        fit_target = self.cmb_fit_curve.currentData() if do_fit else None  # None = toutes
+        fit_all = do_fit and fit_target is None
         fig = go.Figure()
-        self._plot_rows = []   # (série, path, xval) dans l'ordre tracé, pour l'export
-        n_used = n_skipped = 0
+        self._plot_rows = []
+        n_used = n_skipped = n_fits = 0
+        eq_points = []
         multi = len(series_order) > 1
         for si, lab in enumerate(series_order):
             grp = [p for p in self.store.paths() if self._series_label(p) == lab]
@@ -674,25 +770,30 @@ class PeakTrackerTab(QWidget):
                 grp.sort(key=lambda p: amounts[p])
             if not grp:
                 continue
-            dash = _DASHES[si % len(_DASHES)]
+            family = _FAMILIES[si % len(_FAMILIES)]
             xs = [xval(p) for p in grp]
             names = [self.store.name(p) for p in grp]
             n_used += len(grp)
             for ci, center in enumerate(centers):
-                color = _PALETTE[ci % len(_PALETTE)]
+                color = family[ci % len(family)]
                 ys = [None if np.isnan(inten[p][center]) else inten[p][center] for p in grp]
-                # nom lisible : "Série — pic" si plusieurs séries, sinon juste le pic
                 trace_name = f"{lab} — {center:.0f} cm⁻¹" if multi else f"{center:.0f} cm⁻¹"
                 fig.add_trace(go.Scatter(
                     x=xs, y=ys, mode="lines+markers", name=trace_name,
                     legendgroup=lab, legendgrouptitle_text=(lab if multi else None),
                     connectgaps=False,
-                    line=dict(width=2, dash=dash, color=color),
+                    line=dict(width=2, color=color),   # données = trait plein
                     marker=dict(size=8, color=color),
                     text=names,
                     hovertemplate=f"{lab}<br>pic {center:.0f} cm⁻¹<br>%{{text}}<br>"
                                   f"x=%{{x}}<br>I=%{{y:.4g}}<extra></extra>",
                 ))
+                if do_fit and use_quantity and (fit_all or fit_target == (lab, center)):
+                    x_eq = self._add_sigmoid(fig, xs, ys, color, lab, trace_name,
+                                             mark_eq=not fit_all)
+                    if x_eq is not None:
+                        n_fits += 1
+                        eq_points.append((trace_name, x_eq))
             for p in grp:
                 self._plot_rows.append((lab, p, xval(p)))
 
@@ -706,25 +807,72 @@ class PeakTrackerTab(QWidget):
             template="plotly_white",
             margin=dict(l=80, r=30, t=60, b=120),
             font=dict(size=14),
-            legend=dict(title="Séries / pics" if multi else "Pics suivis"),
+            legend=dict(title="Séries / pics" if multi else "Pics suivis",
+                        groupclick="toggleitem"),   # clic = 1 seule courbe
         )
         if not use_quantity:
             fig.update_xaxes(tickangle=-45)
         self.plot_view.show_figure(fig)
         self._last_fig = fig
 
-        # mémorisé pour l'export CSV
         self._inten = inten
         self._centers_plotted = centers
         self._x_title = x_title
 
         self.btn_export_graph.setEnabled(True)
         self.btn_export_csv.setEnabled(True)
-        msg = (f"{len(centers)} pic(s) × {len(series_order)} série(s) "
-               f"sur {n_used} spectre(s).")
+        msg = f"{len(centers)} pic(s) × {len(series_order)} série(s) sur {n_used} spectre(s)."
         if n_skipped:
             msg += f" {n_skipped} sans volume ignoré(s)."
+        if do_fit and not use_quantity:
+            msg += " Sigmoïde ignorée : passez l'axe X sur « Quantité de matière »."
+        elif do_fit:
+            if n_fits and not fit_all:
+                nm, xe = eq_points[0]
+                msg += f" Point d'équivalence ({nm}) : x_eq = {xe:.4g}."
+            elif n_fits:
+                apercu = ", ".join(f"{nm} : x_eq={xe:.4g}" for nm, xe in eq_points[:3])
+                suite = "…" if len(eq_points) > 3 else ""
+                msg += f" {n_fits} sigmoïde(s) ajustée(s) — {apercu}{suite}"
+            else:
+                msg += " Sigmoïde : aucun ajustement convergent (≥ 4 points requis)."
         self.status.setText(msg)
+
+    def _add_sigmoid(self, fig, xs, ys, color, group, label, mark_eq=False):
+        """Ajuste une sigmoïde sur (xs, ys) et trace la courbe. Renvoie x_eq ou None.
+
+        Si `mark_eq`, marque le point d'équivalence (inflexion = x_eq) par un trait
+        vertical annoté + un point, comme dans Ramanalyze.
+        """
+        popt = tu.fit_sigmoid(xs, ys)
+        if popt is None:
+            return None
+        x_eq = float(popt[3])
+        xa = np.array([x for x, y in zip(xs, ys) if y is not None], dtype=float)
+        # on étend le tracé jusqu'à x_eq s'il tombe hors de la plage de données
+        xlo, xhi = min(xa.min(), x_eq), max(xa.max(), x_eq)
+        xf = np.linspace(xlo, xhi, 250)
+        fig.add_trace(go.Scatter(
+            x=xf, y=tu.sigmoid(xf, *popt), mode="lines",
+            name=f"{label} (sigmoïde)", legendgroup=group, showlegend=False,
+            line=dict(width=2 if mark_eq else 1.6, dash="dash" if mark_eq else "dot", color=color),
+            opacity=0.9,
+            hovertemplate=f"{label} · sigmoïde<br>x_eq=%{{customdata:.4g}}<extra></extra>",
+            customdata=[x_eq] * len(xf),
+        ))
+        if mark_eq:
+            y_eq = float(tu.sigmoid(x_eq, *popt))
+            fig.add_trace(go.Scatter(
+                x=[x_eq], y=[y_eq], mode="markers",
+                name="point d'équivalence", legendgroup=group, showlegend=False,
+                marker=dict(size=13, symbol="x", color=color, line=dict(width=2, color="#000")),
+                hovertemplate=f"point d'équivalence<br>x_eq={x_eq:.4g}<br>y={y_eq:.4g}<extra></extra>",
+            ))
+            fig.add_vline(
+                x=x_eq, line=dict(color=color, dash="dot"),
+                annotation_text=f"x_eq ≈ {x_eq:.4g}", annotation_position="top",
+            )
+        return x_eq
 
     # ------------------------------------------------------------------
     def export_csv(self):
@@ -737,10 +885,10 @@ class PeakTrackerTab(QWidget):
         )
         if not path:
             return
-        vol_unit = self.cmb_vol_unit.currentText()
+        vol_unit = self.store.titrant.get("vol_unit", "µL")
         x_title = getattr(self, "_x_title", "Spectre")
         centers = self._centers_plotted
-        include_x = x_title != "Spectre"   # colonne quantité seulement si pertinent
+        include_x = x_title != "Spectre"
         try:
             with open(path, "w", encoding="utf-8", newline="") as f:
                 w = csv.writer(f, delimiter=";")
@@ -749,8 +897,8 @@ class PeakTrackerTab(QWidget):
                     header.append(x_title)
                 header += [f"{c:.0f} cm-1" for c in centers]
                 w.writerow(header)
-                for lab, p, xv in self._plot_rows:   # déjà dans l'ordre tracé
-                    row = [lab, self.store.name(p), self._volumes.get(p, "")]
+                for lab, p, xv in self._plot_rows:
+                    row = [lab, self.store.name(p), self.store.volumes.get(p, "")]
                     if include_x:
                         row.append(f"{xv:.6g}")
                     for c in centers:
