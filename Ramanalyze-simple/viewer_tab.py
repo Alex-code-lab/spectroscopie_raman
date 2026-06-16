@@ -26,6 +26,7 @@ import plotly.graph_objects as go
 
 from spectrum_loader import load_spectrum
 from plot_view import PlotlyView
+import plot_style as ps
 
 _SETTINGS_KEY = "simple/last_dir"
 
@@ -202,16 +203,17 @@ class ViewerTab(QWidget):
         fig = go.Figure()
         for path in paths:
             x, y = self._spectra[path]
-            fig.add_trace(go.Scatter(x=x, y=y, mode="lines", name=os.path.basename(path)))
+            fig.add_trace(go.Scatter(
+                x=x, y=y, mode="lines", name=os.path.basename(path),
+                line=dict(width=1.6),
+            ))
 
-        fig.update_layout(
+        ps.apply(
+            fig,
             title="Spectres Raman" if paths else "Ouvrez des fichiers .txt pour les visualiser",
-            xaxis_title="Raman Shift (cm⁻¹)",
-            yaxis_title="Intensité (a.u.)",
-            template="plotly_white",
-            margin=dict(l=70, r=30, t=60, b=60),
-            legend=dict(title="Fichiers"),
-            font=dict(size=14),
+            x_title="Décalage Raman (cm⁻¹)",
+            y_title="Intensité (a.u.)",
+            legend_title="Fichiers",
         )
         self.plot_view.show_figure(fig)
 

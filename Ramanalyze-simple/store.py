@@ -29,6 +29,9 @@ class SpectraStore(QObject):
         self.series: dict[str, str] = {}
         # réglages globaux du titrant (concentration + unités)
         self.titrant: dict = {"conc": 1.0, "conc_unit": "µM", "vol_unit": "µL"}
+        # métadonnées d'un tableau chargé dont le fichier était introuvable, en
+        # attente d'être appliquées par NOM quand l'utilisateur rechargera le .txt
+        self._pending_meta: dict[str, tuple] = {}  # nom de fichier -> (volume, série)
 
     def add(self, path: str, data: tuple) -> None:
         is_new = path not in self.spectra
@@ -36,6 +39,11 @@ class SpectraStore(QObject):
         if is_new:
             self.volumes.setdefault(path, "")
             self.series.setdefault(path, "")
+            # si un tableau chargé attendait ce fichier (par son nom), on applique
+            meta = self._pending_meta.pop(self.name(path), None)
+            if meta is not None:
+                self.volumes[path] = meta[0]
+                self.series[path] = meta[1]
         self.changed.emit()
 
     def remove(self, path: str) -> None:
@@ -48,6 +56,7 @@ class SpectraStore(QObject):
         self.spectra.clear()
         self.volumes.clear()
         self.series.clear()
+        self._pending_meta.clear()
         self.changed.emit()
 
     def paths(self) -> list[str]:
@@ -83,21 +92,50 @@ class SpectraStore(QObject):
 
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
+        if not isinstance(data, dict) or "rows" not in data:
+            raise ValueError(
+                "Fichier JSON non reconnu : ce n'est pas un tableau Ramanalyze "
+                "(enregistré via « Enregistrer le tableau… »)."
+            )
         if isinstance(data.get("titrant"), dict):
             self.titrant.update(data["titrant"])
 
+        # index des spectres déjà chargés, par nom de fichier (pour la correspondance)
+        by_name = {}
+        for q in self.spectra:
+            by_name.setdefault(self.name(q), q)
+
         missing = []
         for row in data.get("rows", []):
+            if not isinstance(row, dict):
+                continue
             p = row.get("path", "")
             if not p:
                 continue
-            if p not in self.spectra:
-                spec = load_spectrum(p) if os.path.exists(p) else None
+            name = row.get("name") or os.path.basename(p)
+            volume = row.get("volume", "")
+            serie = row.get("serie", "")
+
+            if p in self.spectra:
+                target = p                                  # même chemin déjà chargé
+            elif os.path.exists(p):
+                spec = load_spectrum(p)
                 if spec is None:
-                    missing.append(row.get("name") or os.path.basename(p))
+                    self._pending_meta[name] = (volume, serie)
+                    missing.append(name)
                     continue
                 self.spectra[p] = spec
-            self.volumes[p] = row.get("volume", "")
-            self.series[p] = row.get("serie", "")
+                target = p
+            elif name in by_name:
+                target = by_name[name]                      # déjà chargé sous un autre chemin → match par NOM
+            else:
+                # fichier absent : on parque les métadonnées par nom ; elles seront
+                # appliquées automatiquement quand l'utilisateur rechargera ce .txt
+                self._pending_meta[name] = (volume, serie)
+                missing.append(name)
+                continue
+
+            self.volumes[target] = volume
+            self.series[target] = serie
         self.changed.emit()
         return missing

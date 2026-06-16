@@ -12,9 +12,10 @@ Lancer :  python main.py
 
 import os
 import sys
+import traceback
 
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication, QMainWindow, QTabWidget
+from PySide6.QtWidgets import QApplication, QMainWindow, QTabWidget, QMessageBox
 
 # Imports compatibles PyInstaller (onefile).
 if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
@@ -49,9 +50,27 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(tabs)
 
 
+def _install_excepthook():
+    """Affiche toute erreur non gérée dans une popup (sinon elle reste invisible)."""
+    def hook(exc_type, exc, tb):
+        msg = "".join(traceback.format_exception(exc_type, exc, tb))
+        print(msg, file=sys.stderr)
+        try:
+            box = QMessageBox()
+            box.setIcon(QMessageBox.Critical)
+            box.setWindowTitle("Erreur inattendue")
+            box.setText("Une erreur s'est produite :")
+            box.setDetailedText(msg)
+            box.exec()
+        except Exception:
+            pass
+    sys.excepthook = hook
+
+
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Ramanalyze-simple")
+    _install_excepthook()
     win = MainWindow()
     win.show()
     sys.exit(app.exec())

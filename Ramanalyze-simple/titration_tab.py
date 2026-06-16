@@ -43,6 +43,7 @@ from spectrum_loader import load_spectrum
 from plot_view import PlotlyView
 import peak_presets
 import titrant_utils as tu
+import plot_style as ps
 
 _SETTINGS_KEY = "simple/last_dir"
 
@@ -356,7 +357,9 @@ class TitrationTab(QWidget):
         self._sync_titrant_controls()
         msg = f"Tableau chargé : {os.path.basename(path)}."
         if missing:
-            msg += f" {len(missing)} introuvable(s) : " + ", ".join(missing[:3]) + ("…" if len(missing) > 3 else "")
+            msg += (f" {len(missing)} introuvable(s) — rechargez-les (même nom) pour "
+                    f"récupérer volume/série : " + ", ".join(missing[:3])
+                    + ("…" if len(missing) > 3 else ""))
         self.status.setText(msg)
 
     # ------------------------------------------------------------------
@@ -451,6 +454,16 @@ class TitrationTab(QWidget):
         return i1
 
     def plot_titration(self):
+        try:
+            self._plot_titration_impl()
+        except Exception as exc:  # noqa: BLE001
+            import traceback
+            QMessageBox.critical(
+                self, "Erreur de tracé",
+                f"Le tracé a échoué :\n{exc}\n\n{traceback.format_exc()}",
+            )
+
+    def _plot_titration_impl(self):
         if not self.store.paths():
             QMessageBox.information(self, "Aucun spectre", "Chargez d'abord des fichiers .txt.")
             return
@@ -511,7 +524,8 @@ class TitrationTab(QWidget):
             fig.add_trace(go.Scatter(
                 x=xs, y=ys, mode="lines+markers",
                 name=(lab if multi else "Mesures"),
-                legendgroup=lab, line=dict(width=2, color=color), marker=dict(size=9, color=color),
+                legendgroup=lab, line=dict(width=ps.LINE_WIDTH, color=color),
+                marker=ps.marker(color, si),
                 text=names, hovertemplate="%{text}<br>x=%{x:.4g}<br>val=%{y:.4g}<extra></extra>",
             ))
             if do_fit:
@@ -521,15 +535,23 @@ class TitrationTab(QWidget):
                     fig.add_trace(go.Scatter(
                         x=xf, y=tu.sigmoid(xf, *popt), mode="lines",
                         name=f"{lab} (sigmoïde)", legendgroup=lab, showlegend=False,
-                        line=dict(width=1.6, dash="dash", color=color),
+                        line=dict(width=1.8, dash="dash", color=color),
                     ))
                     x_eq = float(popt[3])
                     eq_points.append((lab, x_eq))
                     n_fits += 1
                     if not multi:
+                        y_eq = float(tu.sigmoid(x_eq, *popt))
+                        fig.add_trace(go.Scatter(
+                            x=[x_eq], y=[y_eq], mode="markers", showlegend=False,
+                            name="point d'équivalence",
+                            marker=dict(size=16, symbol="star", color=color, line=dict(width=1.5, color="#000")),
+                            hovertemplate=f"point d'équivalence<br>x_eq={x_eq:.4g}<extra></extra>",
+                        ))
                         fig.add_vline(
-                            x=x_eq, line=dict(color=color, dash="dot"),
+                            x=x_eq, line=dict(color=color, dash="dot", width=1.6),
                             annotation_text=f"x_eq ≈ {x_eq:.3g}", annotation_position="top",
+                            annotation_font=dict(size=12, color=color),
                         )
 
         if n_pts == 0:
@@ -539,14 +561,9 @@ class TitrationTab(QWidget):
             )
             return
 
-        fig.update_layout(
-            title=title,
-            xaxis_title=f"Quantité de titrant ({unit_label})",
-            yaxis_title=y_title,
-            template="plotly_white",
-            margin=dict(l=80, r=30, t=60, b=60),
-            font=dict(size=14),
-            legend=dict(title="Séries" if multi else None),
+        ps.apply(
+            fig, title=title, x_title=f"Quantité de titrant ({unit_label})",
+            y_title=y_title, legend_title=("Séries" if multi else None),
         )
         self.plot_view.show_figure(fig)
         self._last_fig = fig
@@ -569,7 +586,8 @@ class TitrationTab(QWidget):
         default = os.path.join(self._last_dir(), self._last_file_base + ".png")
         path, _ = QFileDialog.getSaveFileName(
             self, "Exporter le graphique", default,
-            "Image PNG (*.png);;Document PDF (*.pdf);;Page HTML interactive (*.html)",
+            "Image PNG (*.png);;Image vectorielle SVG (*.svg);;Document PDF (*.pdf);;"
+            "Page HTML interactive (*.html)",
         )
         if not path:
             return

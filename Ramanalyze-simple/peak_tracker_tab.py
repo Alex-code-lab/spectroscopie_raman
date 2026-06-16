@@ -48,6 +48,7 @@ import plotly.graph_objects as go
 from spectrum_loader import load_spectrum
 from plot_view import PlotlyView
 import titrant_utils as tu
+import plot_style as ps
 
 _SETTINGS_KEY = "simple/last_dir"
 
@@ -479,9 +480,9 @@ class PeakTrackerTab(QWidget):
         self._sync_titrant_controls()
         msg = f"Tableau chargé : {os.path.basename(path)}."
         if missing:
-            msg += f" {len(missing)} fichier(s) introuvable(s) : " + ", ".join(missing[:3])
-            if len(missing) > 3:
-                msg += "…"
+            msg += (f" {len(missing)} fichier(s) introuvable(s) — rechargez-les "
+                    f"(même nom) pour récupérer leur volume/série : "
+                    + ", ".join(missing[:3]) + ("…" if len(missing) > 3 else ""))
         self.status.setText(msg)
 
     # ------------------------------------------------------------------
@@ -706,6 +707,16 @@ class PeakTrackerTab(QWidget):
         return self.store.series.get(path, "").strip() or _NO_SERIES
 
     def plot_evolution(self):
+        try:
+            self._plot_evolution_impl()
+        except Exception as exc:  # noqa: BLE001
+            import traceback
+            QMessageBox.critical(
+                self, "Erreur de tracé",
+                f"Le tracé a échoué :\n{exc}\n\n{traceback.format_exc()}",
+            )
+
+    def _plot_evolution_impl(self):
         centers = sorted(self._checked_centers())
         if not centers:
             QMessageBox.information(
@@ -782,8 +793,8 @@ class PeakTrackerTab(QWidget):
                     x=xs, y=ys, mode="lines+markers", name=trace_name,
                     legendgroup=lab, legendgrouptitle_text=(lab if multi else None),
                     connectgaps=False,
-                    line=dict(width=2, color=color),   # données = trait plein
-                    marker=dict(size=8, color=color),
+                    line=dict(width=ps.LINE_WIDTH, color=color),   # données = trait plein
+                    marker=ps.marker(color, si),                   # croix
                     text=names,
                     hovertemplate=f"{lab}<br>pic {center:.0f} cm⁻¹<br>%{{text}}<br>"
                                   f"x=%{{x}}<br>I=%{{y:.4g}}<extra></extra>",
@@ -800,15 +811,10 @@ class PeakTrackerTab(QWidget):
         if use_quantity:
             n_skipped = len(self.store.paths()) - n_used
 
-        fig.update_layout(
-            title=title,
-            xaxis_title=x_title,
-            yaxis_title="Intensité du pic (a.u.)",
-            template="plotly_white",
-            margin=dict(l=80, r=30, t=60, b=120),
-            font=dict(size=14),
-            legend=dict(title="Séries / pics" if multi else "Pics suivis",
-                        groupclick="toggleitem"),   # clic = 1 seule courbe
+        ps.apply(
+            fig, title=title, x_title=x_title, y_title="Intensité du pic (a.u.)",
+            legend_title=("Séries / pics" if multi else "Pics suivis"),
+            groupclick="toggleitem",   # clic = 1 seule courbe
         )
         if not use_quantity:
             fig.update_xaxes(tickangle=-45)
@@ -855,8 +861,8 @@ class PeakTrackerTab(QWidget):
         fig.add_trace(go.Scatter(
             x=xf, y=tu.sigmoid(xf, *popt), mode="lines",
             name=f"{label} (sigmoïde)", legendgroup=group, showlegend=False,
-            line=dict(width=2 if mark_eq else 1.6, dash="dash" if mark_eq else "dot", color=color),
-            opacity=0.9,
+            line=dict(width=1.8 if mark_eq else 1.4, dash="dash" if mark_eq else "dot", color=color),
+            opacity=0.95,
             hovertemplate=f"{label} · sigmoïde<br>x_eq=%{{customdata:.4g}}<extra></extra>",
             customdata=[x_eq] * len(xf),
         ))
@@ -865,12 +871,13 @@ class PeakTrackerTab(QWidget):
             fig.add_trace(go.Scatter(
                 x=[x_eq], y=[y_eq], mode="markers",
                 name="point d'équivalence", legendgroup=group, showlegend=False,
-                marker=dict(size=13, symbol="x", color=color, line=dict(width=2, color="#000")),
+                marker=dict(size=16, symbol="star", color=color, line=dict(width=1.5, color="#000")),
                 hovertemplate=f"point d'équivalence<br>x_eq={x_eq:.4g}<br>y={y_eq:.4g}<extra></extra>",
             ))
             fig.add_vline(
-                x=x_eq, line=dict(color=color, dash="dot"),
+                x=x_eq, line=dict(color=color, dash="dot", width=1.6),
                 annotation_text=f"x_eq ≈ {x_eq:.4g}", annotation_position="top",
+                annotation_font=dict(size=12, color=color),
             )
         return x_eq
 
@@ -917,7 +924,8 @@ class PeakTrackerTab(QWidget):
         default = os.path.join(self._last_dir(), self._last_file_base + ".png")
         path, _ = QFileDialog.getSaveFileName(
             self, "Exporter le graphique", default,
-            "Image PNG (*.png);;Document PDF (*.pdf);;Page HTML interactive (*.html)",
+            "Image PNG (*.png);;Image vectorielle SVG (*.svg);;Document PDF (*.pdf);;"
+            "Page HTML interactive (*.html)",
         )
         if not path:
             return
