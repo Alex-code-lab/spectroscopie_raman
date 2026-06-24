@@ -210,6 +210,16 @@ class TitrationTab(QWidget):
         form.addRow(self.chk_baseline)
         self.chk_sigmoid = QCheckBox("Ajuster une sigmoïde (point d'équivalence)", self)
         form.addRow(self.chk_sigmoid)
+        self.spin_plateau = QDoubleSpinBox(self)
+        self.spin_plateau.setRange(50.0, 99.9)
+        self.spin_plateau.setDecimals(1)
+        self.spin_plateau.setValue(95.0)
+        self.spin_plateau.setSuffix(" %")
+        self.spin_plateau.setToolTip(
+            "Seuil « palier atteint » : abscisse où le signal a fini de bouger "
+            "(a parcouru ce % de son changement total)."
+        )
+        form.addRow("Palier atteint à :", self.spin_plateau)
         left_layout.addWidget(params)
 
         title_row = QHBoxLayout()
@@ -531,28 +541,45 @@ class TitrationTab(QWidget):
             if do_fit:
                 popt = tu.fit_sigmoid(xs, ys)
                 if popt is not None:
-                    xf = np.linspace(min(xs), max(xs), 300)
+                    x_eq = float(popt[3])
+                    bounds = tu.transition_bounds(popt, self.spin_plateau.value() / 100.0)
+                    x_fin = bounds[1] if bounds else None
+                    cand = [min(xs), max(xs), x_eq] + ([x_fin] if x_fin is not None else [])
+                    xf = np.linspace(min(cand), max(cand), 320)
                     fig.add_trace(go.Scatter(
                         x=xf, y=tu.sigmoid(xf, *popt), mode="lines",
                         name=f"{lab} (sigmoïde)", legendgroup=lab, showlegend=False,
                         line=dict(width=1.8, dash="dash", color=color),
                     ))
-                    x_eq = float(popt[3])
-                    eq_points.append((lab, x_eq))
+                    eq_points.append((lab, x_eq, x_fin))
                     n_fits += 1
                     if not multi:
                         y_eq = float(tu.sigmoid(x_eq, *popt))
                         fig.add_trace(go.Scatter(
                             x=[x_eq], y=[y_eq], mode="markers", showlegend=False,
                             name="point d'équivalence",
-                            marker=dict(size=16, symbol="star", color=color, line=dict(width=1.5, color="#000")),
-                            hovertemplate=f"point d'équivalence<br>x_eq={x_eq:.4g}<extra></extra>",
+                            marker=dict(size=15, symbol="star", color=color, line=dict(width=1.4, color="#000")),
+                            hovertemplate=f"point d'équivalence (inflexion)<br>x_eq={x_eq:.4g}<extra></extra>",
                         ))
                         fig.add_vline(
-                            x=x_eq, line=dict(color=color, dash="dot", width=1.6),
+                            x=x_eq, line=dict(color=color, dash="dot", width=1.5),
                             annotation_text=f"x_eq ≈ {x_eq:.3g}", annotation_position="top",
                             annotation_font=dict(size=12, color=color),
                         )
+                        if x_fin is not None:
+                            y_fin = float(tu.sigmoid(x_fin, *popt))
+                            fig.add_trace(go.Scatter(
+                                x=[x_fin], y=[y_fin], mode="markers", showlegend=False,
+                                name="palier atteint",
+                                marker=dict(size=12, symbol="diamond", color=color, line=dict(width=1.4, color="#000")),
+                                hovertemplate=(f"palier atteint ({self.spin_plateau.value():.0f} %)"
+                                               f"<br>x={x_fin:.4g}<extra></extra>"),
+                            ))
+                            fig.add_vline(
+                                x=x_fin, line=dict(color="#444", dash="dashdot", width=1.3),
+                                annotation_text=f"palier ≈ {x_fin:.3g}", annotation_position="bottom",
+                                annotation_font=dict(size=11, color="#444"),
+                            )
 
         if n_pts == 0:
             QMessageBox.warning(
@@ -572,8 +599,14 @@ class TitrationTab(QWidget):
         msg = f"{n_pts} point(s) sur {len(series_order)} série(s)."
         if do_fit:
             if n_fits:
-                apercu = ", ".join(f"{lab} : x_eq={xe:.4g}" for lab, xe in eq_points[:3])
-                msg += f" {n_fits} sigmoïde(s) — {apercu}"
+                if not multi and eq_points:
+                    lab, xe, xf = eq_points[0]
+                    msg += f" {lab} — x_eq={xe:.4g}"
+                    if xf is not None:
+                        msg += f" ; palier ({self.spin_plateau.value():.0f} %) à x={xf:.4g}"
+                else:
+                    apercu = ", ".join(f"{lab} : x_eq={xe:.4g}" for lab, xe, _ in eq_points[:3])
+                    msg += f" {n_fits} sigmoïde(s) — {apercu}"
             else:
                 msg += " Sigmoïde : aucun ajustement convergent (≥ 4 points requis)."
         self.status.setText(msg)

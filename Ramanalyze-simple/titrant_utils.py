@@ -62,6 +62,21 @@ def sigmoid(x, A, B, k, x_eq):
     return A + B / (1.0 + np.exp(z))
 
 
+def transition_bounds(popt, frac=0.95):
+    """Début et fin de la transition d'une sigmoïde ajustée.
+
+    Renvoie (x_debut, x_fin) : les abscisses où le signal a parcouru `frac`
+    (ex. 95 %) de son changement total — donc x_fin = « le signal a fini de
+    baisser/augmenter, le nouveau palier est atteint ». Symétrique autour de x_eq.
+    Indépendant du sens (chute ou montée). None si non calculable.
+    """
+    A, B, k, x_eq = popt
+    if k == 0 or not (0.0 < frac < 1.0):
+        return None
+    d = np.log(frac / (1.0 - frac)) / abs(k)
+    return float(x_eq - d), float(x_eq + d)
+
+
 def fit_sigmoid(xs, ys):
     """Ajuste une sigmoïde sur (xs, ys). Renvoie popt [A, B, k, x_eq] ou None.
 

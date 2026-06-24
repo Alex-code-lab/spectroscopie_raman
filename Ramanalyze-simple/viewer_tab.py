@@ -64,10 +64,10 @@ class ViewerTab(QWidget):
         self.file_list.itemChanged.connect(self._on_item_changed)
         left_layout.addWidget(self.file_list, 1)
 
-        self.btn_send = QPushButton("➡  Envoyer vers Titration", self)
+        self.btn_send = QPushButton("➡  Envoyer vers les titrations", self)
         self.btn_send.setToolTip(
             "Envoie les fichiers sélectionnés (ou tous si aucun n'est sélectionné) "
-            "vers l'onglet Titration."
+            "vers les onglets de titration (suivi de pic & rapport de pics)."
         )
         self.btn_send.setStyleSheet("font-weight: 600; padding: 6px;")
         self.btn_send.clicked.connect(self.send_to_titration)

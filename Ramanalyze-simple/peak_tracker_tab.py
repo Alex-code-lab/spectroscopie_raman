@@ -325,9 +325,10 @@ class PeakTrackerTab(QWidget):
         title_row.addWidget(self.edit_title, 1)
         left_layout.addLayout(title_row)
 
-        self.chk_sigmoid = QCheckBox("Ajuster une sigmoïde (point d'équivalence)", self)
+        self.chk_sigmoid = QCheckBox("Fit en tirets + x_eq (fin de palier)", self)
         self.chk_sigmoid.setToolTip(
-            "Ajuste une sigmoïde et marque le point d'équivalence (inflexion). "
+            "Trace le fit en tirets (paliers + descente/montée) et marque x_eq = "
+            "abscisse où le signal a fini de bouger (nouveau palier atteint). "
             "Nécessite l'axe « Quantité de matière » et au moins 4 points."
         )
         self.chk_sigmoid.toggled.connect(self._on_sigmoid_toggled)
@@ -337,13 +338,30 @@ class PeakTrackerTab(QWidget):
         fit_row.addWidget(QLabel("Courbe à ajuster :", self))
         self.cmb_fit_curve = QComboBox(self)
         self.cmb_fit_curve.setToolTip(
-            "Courbe (série × pic) sur laquelle ajuster la sigmoïde et marquer le "
-            "point d'équivalence. « Toutes les courbes » trace un fit par courbe sans repère."
+            "Courbe (série × pic) sur laquelle marquer x_eq (fin de palier). "
+            "« Toutes les courbes » marque x_eq pour chacune (sans trait vertical)."
         )
         self.cmb_fit_curve.setEnabled(False)
         self.cmb_fit_curve.currentIndexChanged.connect(self._on_fit_curve_changed)
         fit_row.addWidget(self.cmb_fit_curve, 1)
         left_layout.addLayout(fit_row)
+
+        plateau_row = QHBoxLayout()
+        plateau_row.addWidget(QLabel("Palier atteint à :", self))
+        self.spin_plateau = QDoubleSpinBox(self)
+        self.spin_plateau.setRange(50.0, 99.9)
+        self.spin_plateau.setDecimals(1)
+        self.spin_plateau.setSingleStep(1.0)
+        self.spin_plateau.setValue(95.0)
+        self.spin_plateau.setSuffix(" %")
+        self.spin_plateau.setToolTip(
+            "Seuil définissant « le signal a fini de bouger » : abscisse où la "
+            "sigmoïde a parcouru ce pourcentage de son changement total."
+        )
+        self.spin_plateau.valueChanged.connect(self._on_fit_curve_changed)
+        plateau_row.addWidget(self.spin_plateau)
+        plateau_row.addStretch(1)
+        left_layout.addLayout(plateau_row)
 
         self.btn_plot = QPushButton("2) Tracer l'évolution", self)
         self.btn_plot.setStyleSheet(
@@ -831,49 +849,61 @@ class PeakTrackerTab(QWidget):
         if n_skipped:
             msg += f" {n_skipped} sans volume ignoré(s)."
         if do_fit and not use_quantity:
-            msg += " Sigmoïde ignorée : passez l'axe X sur « Quantité de matière »."
+            msg += " Marquage x_eq ignoré : passez l'axe X sur « Quantité de matière »."
         elif do_fit:
+            seuil = self.spin_plateau.value()
             if n_fits and not fit_all:
                 nm, xe = eq_points[0]
-                msg += f" Point d'équivalence ({nm}) : x_eq = {xe:.4g}."
+                msg += f" {nm} — x_eq (fin de palier, {seuil:.0f} %) = {xe:.4g}."
             elif n_fits:
                 apercu = ", ".join(f"{nm} : x_eq={xe:.4g}" for nm, xe in eq_points[:3])
                 suite = "…" if len(eq_points) > 3 else ""
-                msg += f" {n_fits} sigmoïde(s) ajustée(s) — {apercu}{suite}"
+                msg += f" {n_fits} x_eq marqué(s) ({seuil:.0f} %) — {apercu}{suite}"
             else:
-                msg += " Sigmoïde : aucun ajustement convergent (≥ 4 points requis)."
+                msg += " x_eq : aucun ajustement convergent (≥ 4 points requis)."
         self.status.setText(msg)
 
     def _add_sigmoid(self, fig, xs, ys, color, group, label, mark_eq=False):
-        """Ajuste une sigmoïde sur (xs, ys) et trace la courbe. Renvoie x_eq ou None.
+        """Trace le fit en tirets (paliers + descente) et marque x_eq = fin de palier.
 
-        Si `mark_eq`, marque le point d'équivalence (inflexion = x_eq) par un trait
-        vertical annoté + un point, comme dans Ramanalyze.
+        x_eq = abscisse où le signal a fini de bouger (nouveau palier atteint, seuil
+        réglable). Renvoie x_eq ou None.
         """
         popt = tu.fit_sigmoid(xs, ys)
         if popt is None:
             return None
-        x_eq = float(popt[3])
+        seuil = self.spin_plateau.value()
+        bounds = tu.transition_bounds(popt, seuil / 100.0)
+        if bounds is None:
+            return None
+        x_eq = bounds[1]                      # « x_eq » = fin de palier
+        y_eq = float(tu.sigmoid(x_eq, *popt))
         xa = np.array([x for x, y in zip(xs, ys) if y is not None], dtype=float)
-        # on étend le tracé jusqu'à x_eq s'il tombe hors de la plage de données
-        xlo, xhi = min(xa.min(), x_eq), max(xa.max(), x_eq)
-        xf = np.linspace(xlo, xhi, 250)
+
+        # courbe fittée en tirets : paliers (parties plates) + descente/montée.
+        # Pour la courbe choisie, on l'étend jusqu'aux paliers (≈99 %) pour bien les voir.
+        if mark_eq:
+            b99 = tu.transition_bounds(popt, 0.99) or bounds
+            lo, hi = min(xa.min(), b99[0]), max(xa.max(), b99[1])
+            width = 1.7
+        else:
+            lo, hi = xa.min(), xa.max()
+            width = 1.3
+        xf = np.linspace(lo, hi, 300)
         fig.add_trace(go.Scatter(
             x=xf, y=tu.sigmoid(xf, *popt), mode="lines",
-            name=f"{label} (sigmoïde)", legendgroup=group, showlegend=False,
-            line=dict(width=1.8 if mark_eq else 1.4, dash="dash" if mark_eq else "dot", color=color),
-            opacity=0.95,
-            hovertemplate=f"{label} · sigmoïde<br>x_eq=%{{customdata:.4g}}<extra></extra>",
-            customdata=[x_eq] * len(xf),
+            name=f"{label} (fit)", legendgroup=group, showlegend=False,
+            line=dict(width=width, dash="dash", color=color), opacity=0.9,
+            hovertemplate=f"{label} · fit (paliers + descente)<extra></extra>",
+        ))
+        # marqueur x_eq (fin de palier)
+        fig.add_trace(go.Scatter(
+            x=[x_eq], y=[y_eq], mode="markers",
+            name="x_eq (fin de palier)", legendgroup=group, showlegend=False,
+            marker=dict(size=13, symbol="diamond", color=color, line=dict(width=1.4, color="#000")),
+            hovertemplate=f"x_eq (fin de palier, {seuil:.0f} %)<br>x={x_eq:.4g}<extra></extra>",
         ))
         if mark_eq:
-            y_eq = float(tu.sigmoid(x_eq, *popt))
-            fig.add_trace(go.Scatter(
-                x=[x_eq], y=[y_eq], mode="markers",
-                name="point d'équivalence", legendgroup=group, showlegend=False,
-                marker=dict(size=16, symbol="star", color=color, line=dict(width=1.5, color="#000")),
-                hovertemplate=f"point d'équivalence<br>x_eq={x_eq:.4g}<br>y={y_eq:.4g}<extra></extra>",
-            ))
             fig.add_vline(
                 x=x_eq, line=dict(color=color, dash="dot", width=1.6),
                 annotation_text=f"x_eq ≈ {x_eq:.4g}", annotation_position="top",
