@@ -45,13 +45,13 @@ class MainWindow(QMainWindow):
         self.store = SpectraStore()
 
         tabs = QTabWidget(self)
-        # onglets avec contour, l'onglet actif en bleu
+        # onglets avec contour, séparés du contenu par un écart ; actif en bleu
         tabs.setStyleSheet(
-            "QTabWidget::pane { border: 1px solid #555; top: -1px; }"
+            "QTabWidget::pane { border: 1px solid #555; border-radius: 4px; "
+            "  margin-top: 10px; }"
             "QTabBar::tab { padding: 6px 14px; margin-right: 3px; "
             "  background: #3a3a3a; color: #cfcfcf; "
-            "  border: 1px solid #555; border-bottom: none; "
-            "  border-top-left-radius: 5px; border-top-right-radius: 5px; }"
+            "  border: 1px solid #555; border-radius: 5px; }"
             "QTabBar::tab:selected { background: #0057b8; color: white; "
             "  border-color: #2f7bd6; }"
             "QTabBar::tab:hover:!selected { background: #474747; }"
